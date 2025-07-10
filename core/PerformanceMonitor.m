@@ -88,7 +88,7 @@ classdef PerformanceMonitor < handle
             end
             obj.attacker_rewards(iter) = episode_results.avg_attacker_reward;
 
-            % 计算误报率
+            % ===== 修改开始: 计算误报率 =====
             metrics = env.getPerformanceMetrics();
             if (metrics.false_positives + metrics.true_negatives) > 0
                 fp_rate = metrics.false_positives / (metrics.false_positives + metrics.true_negatives);
@@ -99,6 +99,7 @@ classdef PerformanceMonitor < handle
             for i = 1:obj.n_agents
                 obj.false_positive_rates(i, iter) = fp_rate;
             end
+            % ===== 修改结束 =====
 
             % 资源利用率
             for i = 1:obj.n_agents

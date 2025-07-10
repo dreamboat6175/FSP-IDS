@@ -24,6 +24,7 @@ classdef EnhancedReportGenerator < handle
                 
             catch ME
                 fprintf('报告生成出错: %s\n', ME.message);
+                fprintf('错误详情: %s\n', getReport(ME, 'extended', 'hyperlinks', 'on'));
                 fprintf('继续运行简化报告生成...\n');
                 EnhancedReportGenerator.generateSimpleReport(results, config);
             end
@@ -68,71 +69,51 @@ classdef EnhancedReportGenerator < handle
             
             agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
             colors = [0.2 0.4 0.8;    % 蓝色系
-                     0.8 0.2 0.2;     % 红色系
-                     0.2 0.6 0.2];    % 绿色系
+                      0.8 0.2 0.2;     % 红色系
+                      0.2 0.6 0.2];    % 绿色系
             
             for i = 1:results.n_agents
                 try
-                    figure('Position', [100, 100, 1200, 800], ...
-                           'Name', sprintf('%s 性能分析', agent_names{i}));
+                    % ===== 修改开始: 调整图表布局为 2x2 以容纳误报率图 =====
+                    figure('Position', [100, 100, 1200, 900], 'Name', sprintf('%s 性能分析', agent_names{i}), 'Visible', 'off');
                     
                     % 设置图形背景
                     set(gcf, 'Color', 'white');
                     
-                    % 1. 检测率趋势（带平滑）
-                    subplot(2, 3, 1);
+                    % 1. 检测率趋势
+                    subplot(2, 2, 1);
                     if isfield(results, 'detection_rates') && size(results.detection_rates, 1) >= i
-                        EnhancedReportGenerator.plotDetectionTrend(results.detection_rates(i, :), ...
-                                                                  colors(i, :), agent_names{i});
+                        EnhancedReportGenerator.plotDetectionTrend(results.detection_rates(i, :), colors(i, :), agent_names{i});
                     else
                         text(0.5, 0.5, '检测率数据不可用', 'HorizontalAlignment', 'center');
                     end
                     
-                    % 2. 资源利用效率
-                    subplot(2, 3, 2);
-                    if isfield(results, 'resource_utilization') && size(results.resource_utilization, 1) >= i
-                        EnhancedReportGenerator.plotResourceUtilization(results.resource_utilization(i, :), ...
-                                                                       colors(i, :), agent_names{i});
+                    % 2. 新增：误报率趋势
+                    subplot(2, 2, 2);
+                    if isfield(results, 'false_positive_rates') && size(results.false_positive_rates, 1) >= i
+                        EnhancedReportGenerator.plotFalsePositiveRate(results.false_positive_rates(i, :), colors(i, :), agent_names{i});
                     else
-                        text(0.5, 0.5, '资源利用数据不可用', 'HorizontalAlignment', 'center');
+                        text(0.5, 0.5, '误报率数据不可用', 'HorizontalAlignment', 'center');
                     end
                     
                     % 3. 收敛性分析
-                    subplot(2, 3, 3);
+                    subplot(2, 2, 3);
                     if isfield(results, 'convergence_metrics') && size(results.convergence_metrics, 1) >= i
-                        EnhancedReportGenerator.plotConvergenceAnalysis(results.convergence_metrics(i, :), ...
-                                                                       colors(i, :), agent_names{i});
+                        EnhancedReportGenerator.plotConvergenceAnalysis(results.convergence_metrics(i, :), colors(i, :), agent_names{i});
                     else
                         text(0.5, 0.5, '收敛性数据不可用', 'HorizontalAlignment', 'center');
                     end
                     
-                    % 4. 奖励趋势
-                    subplot(2, 3, 4);
-                    if isfield(results, 'defender_rewards') && size(results.defender_rewards, 1) >= i
-                        EnhancedReportGenerator.plotRewardTrend(results.defender_rewards(i, :), ...
-                                                               colors(i, :), agent_names{i});
-                    else
-                        text(0.5, 0.5, '奖励数据不可用', 'HorizontalAlignment', 'center');
-                    end
-                    
-                    % 5. 策略稳定性
-                    subplot(2, 3, 5);
-                    if isfield(results, 'policy_stability') && size(results.policy_stability, 1) >= i
-                        EnhancedReportGenerator.plotPolicyStability(results.policy_stability(i, :), ...
-                                                                   colors(i, :), agent_names{i});
-                    else
-                        text(0.5, 0.5, '策略稳定性数据不可用', 'HorizontalAlignment', 'center');
-                    end
-                    
-                    % 6. 性能统计
-                    subplot(2, 3, 6);
+                    % 4. 性能统计
+                    subplot(2, 2, 4);
                     EnhancedReportGenerator.plotPerformanceStats(results, i, agent_names{i});
+                    % ===== 修改结束 =====
                     
                     % 保存图片
-                    filename = sprintf('reports/%s_detailed_report_%s.png', ...
-                                      strrep(agent_names{i}, '-', '_'), datestr(now, 'yyyymmdd_HHMMSS'));
+                    filename = sprintf('reports/%s_detailed_report_%s.png', strrep(agent_names{i}, '-', '_'), datestr(now, 'yyyymmdd_HHMMSS'));
                     saveas(gcf, filename);
                     fprintf('保存个体报告: %s\n', filename);
+                    close(gcf);
                     
                 catch ME
                     fprintf('生成 %s 个体报告时出错: %s\n', agent_names{i}, ME.message);
@@ -149,16 +130,14 @@ classdef EnhancedReportGenerator < handle
             end
             
             % 原始数据
-            plot(1:length(detection_rates), detection_rates, ...
-                 'Color', [color 0.3], 'LineWidth', 0.5);
+            plot(1:length(detection_rates), detection_rates, 'Color', [color 0.3], 'LineWidth', 0.5);
             hold on;
             
             % 移动平均平滑
-            window_size = min(50, max(5, length(detection_rates)/10));
+            window_size = min(50, max(5, floor(length(detection_rates)/10)));
             if length(detection_rates) >= window_size
                 smoothed = movmean(detection_rates, window_size);
-                plot(1:length(smoothed), smoothed, ...
-                     'Color', color, 'LineWidth', 2.5);
+                plot(1:length(smoothed), smoothed, 'Color', color, 'LineWidth', 2.5);
             end
             
             % 添加趋势线
@@ -172,9 +151,7 @@ classdef EnhancedReportGenerator < handle
             % 标注最终性能
             final_window = max(1, length(detection_rates)-min(99, length(detection_rates)-1)):length(detection_rates);
             final_rate = mean(detection_rates(final_window));
-            text(length(detection_rates)*0.7, max(detection_rates)*0.9, ...
-                 sprintf('最终检测率: %.1f%%', final_rate*100), ...
-                 'FontSize', 12, 'FontWeight', 'bold', 'Color', color);
+            text(length(detection_rates)*0.7, max(0.1, max(detection_rates)*0.9), sprintf('最终检测率: %.1f%%', final_rate*100), 'FontSize', 12, 'FontWeight', 'bold', 'Color', color);
             
             xlabel('迭代次数', 'FontSize', 12);
             ylabel('检测率', 'FontSize', 12);
@@ -188,6 +165,37 @@ classdef EnhancedReportGenerator < handle
                 legend({'原始数据'}, 'Location', 'best');
             end
         end
+
+        % ===== 新增方法: 绘制误报率趋势 =====
+        function plotFalsePositiveRate(fp_rates, color, agent_name)
+            if isempty(fp_rates)
+                text(0.5, 0.5, '误报率数据为空', 'HorizontalAlignment', 'center');
+                title(sprintf('%s - 误报率趋势', agent_name), 'FontSize', 14, 'FontWeight', 'bold');
+                return;
+            end
+            
+            plot(1:length(fp_rates), fp_rates, 'Color', [color 0.3], 'LineWidth', 0.5);
+            hold on;
+            
+            window_size = min(50, max(5, floor(length(fp_rates)/10)));
+            if length(fp_rates) >= window_size
+                smoothed = movmean(fp_rates, window_size);
+                plot(1:length(smoothed), smoothed, 'Color', color, 'LineWidth', 2.5);
+            end
+            
+            final_fp_rate = mean(fp_rates(max(1, end-99):end));
+            text(length(fp_rates)*0.7, max(0.1, max(fp_rates)*0.9), ...
+                 sprintf('最终误报率: %.2f%%', final_fp_rate*100), ...
+                 'FontSize', 12, 'FontWeight', 'bold', 'Color', color);
+            
+            xlabel('迭代次数', 'FontSize', 12);
+            ylabel('误报率 (FPR)', 'FontSize', 12);
+            title(sprintf('%s - 误报率趋势', agent_name), 'FontSize', 14, 'FontWeight', 'bold');
+            grid on;
+            ylim([0, 0.5]); % 误报率通常较低，调整Y轴范围以便观察
+            legend({'原始数据', '平滑曲线'}, 'Location', 'best');
+        end
+        % ===== 新增结束 =====
         
         function plotResourceUtilization(resource_util, color, agent_name)
             % 绘制资源利用效率
@@ -283,7 +291,7 @@ classdef EnhancedReportGenerator < handle
             yyaxis left;
             plot(1:length(rewards), rewards, 'Color', color, 'LineWidth', 1.5);
             ylabel('每轮平均奖励', 'FontSize', 12);
-            ylim([min(rewards)*1.1, max(rewards)*1.1]);
+            if ~isempty(rewards), ylim([min(rewards)*1.1-0.1, max(rewards)*1.1+0.1]); end
             
             yyaxis right;
             plot(1:length(cumulative_rewards), cumulative_rewards, ...
@@ -408,37 +416,32 @@ classdef EnhancedReportGenerator < handle
             % 生成综合对比报告
             
             try
-                figure('Position', [50, 50, 1400, 900], 'Name', '算法性能综合对比');
+                % ===== 修改开始: 调整布局为 2x2 并添加误报率对比 =====
+                figure('Position', [50, 50, 1400, 900], 'Name', '算法性能综合对比', 'Visible', 'off');
                 set(gcf, 'Color', 'white');
                 
                 % 1. 检测率对比
-                subplot(2, 3, 1);
+                subplot(2, 2, 1);
                 EnhancedReportGenerator.compareDetectionRates(results);
                 
-                % 2. 资源效率对比
-                subplot(2, 3, 2);
+                % 2. 误报率对比
+                subplot(2, 2, 2);
+                EnhancedReportGenerator.compareFalsePositiveRates(results);
+                
+                % 3. 资源效率对比
+                subplot(2, 2, 3);
                 EnhancedReportGenerator.compareResourceEfficiency(results);
                 
-                % 3. 收敛速度对比
-                subplot(2, 3, 3);
+                % 4. 收敛速度对比
+                subplot(2, 2, 4);
                 EnhancedReportGenerator.compareConvergenceSpeed(results);
-                
-                % 4. 最终性能雷达图
-                subplot(2, 3, 4);
-                EnhancedReportGenerator.plotRadarChart(results);
-                
-                % 5. 性能时间线
-                subplot(2, 3, 5);
-                EnhancedReportGenerator.plotPerformanceTimeline(results);
-                
-                % 6. 综合评分
-                subplot(2, 3, 6);
-                EnhancedReportGenerator.plotOverallScores(results);
+                % ===== 修改结束 =====
                 
                 % 保存图片
                 filename = sprintf('reports/comparison_report_%s.png', datestr(now, 'yyyymmdd_HHMMSS'));
                 saveas(gcf, filename);
                 fprintf('保存对比报告: %s\n', filename);
+                close(gcf);
                 
             catch ME
                 fprintf('生成对比报告时出错: %s\n', ME.message);
@@ -460,7 +463,7 @@ classdef EnhancedReportGenerator < handle
             hold on;
             n_agents = min(size(results.detection_rates, 1), 3);
             for i = 1:n_agents
-                window_size = min(50, max(5, size(results.detection_rates, 2)/10));
+                window_size = min(50, max(5, floor(size(results.detection_rates, 2)/10)));
                 smoothed = movmean(results.detection_rates(i, :), window_size);
                 plot(1:length(smoothed), smoothed, ...
                      'Color', colors(i, :), 'LineWidth', 2.5, ...
@@ -474,6 +477,34 @@ classdef EnhancedReportGenerator < handle
             grid on;
             ylim([0, 1]);
         end
+
+        % ===== 新增方法: 对比误报率 =====
+        function compareFalsePositiveRates(results)
+            if ~isfield(results, 'false_positive_rates') || isempty(results.false_positive_rates)
+                text(0.5, 0.5, '误报率数据不可用', 'HorizontalAlignment', 'center');
+                title('误报率对比', 'FontSize', 14, 'FontWeight', 'bold');
+                return;
+            end
+            
+            colors = [0.2 0.4 0.8; 0.8 0.2 0.2; 0.2 0.6 0.2];
+            agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
+            
+            hold on;
+            n_agents = min(size(results.false_positive_rates, 1), 3);
+            for i = 1:n_agents
+                window_size = min(50, max(5, floor(size(results.false_positive_rates, 2)/10)));
+                smoothed = movmean(results.false_positive_rates(i, :), window_size);
+                plot(1:length(smoothed), smoothed, 'Color', colors(i, :), 'LineWidth', 2.5, 'DisplayName', agent_names{i});
+            end
+            
+            xlabel('迭代次数', 'FontSize', 12);
+            ylabel('误报率 (FPR)', 'FontSize', 12);
+            title('误报率对比', 'FontSize', 14, 'FontWeight', 'bold');
+            legend('Location', 'best');
+            grid on;
+            ylim([0, 0.5]);
+        end
+        % ===== 新增结束 =====
         
         function compareResourceEfficiency(results)
             % 对比资源效率
@@ -585,7 +616,8 @@ classdef EnhancedReportGenerator < handle
             milestones = milestones(milestones <= n_iters);
             
             if isempty(milestones)
-                milestones = [max(1, n_iters/4), max(1, n_iters/2), max(1, 3*n_iters/4), n_iters];
+                milestones = unique(floor([n_iters/4, n_iters/2, 3*n_iters/4, n_iters]));
+                milestones = milestones(milestones > 0);
             end
             
             n_agents = min(size(results.detection_rates, 1), 3);
@@ -700,8 +732,8 @@ classdef EnhancedReportGenerator < handle
             grid on;
             
             % 显示最佳算法
-            [best_score, best_idx] = max(scores);
-            text(n_agents/2, 105, ...
+            [~, best_idx] = max(scores);
+            text(mean(1:n_agents), 105, ...
                  sprintf('最佳算法: %s', agent_names{best_idx}), ...
                  'HorizontalAlignment', 'center', ...
                  'FontSize', 14, 'FontWeight', 'bold', ...
@@ -788,7 +820,7 @@ classdef EnhancedReportGenerator < handle
                 end
                 
                 % 检测率过低的专项分析
-                fprintf(fid, '\n\n三、检测率过低原因分析\n');
+                fprintf(fid, '\n\n四、检测率过低原因分析\n');
                 fprintf(fid, '------------------------\n');
                 fprintf(fid, '根据仿真结果，检测率过低可能由以下因素导致:\n\n');
                 
@@ -809,7 +841,7 @@ classdef EnhancedReportGenerator < handle
                 fprintf(fid, '   - 缺乏经验回放: 考虑实现经验回放机制\n\n');
                 
                 % 改进建议
-                fprintf(fid, '四、具体改进方案\n');
+                fprintf(fid, '五、具体改进方案\n');
                 fprintf(fid, '----------------\n');
                 fprintf(fid, '短期改进 (立即可实施):\n');
                 fprintf(fid, '1. 调整关键参数:\n');

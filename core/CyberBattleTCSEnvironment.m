@@ -134,15 +134,13 @@ classdef CyberBattleTCSEnvironment < handle
             if isfield(config, 'reward_weights')
                 obj.reward_weights = config.reward_weights;
             else
-                % ===== 修改开始: 优化奖励权重 =====
-                obj.reward_weights.w_class = 0.7; % 提高分类正确性的权重
-                obj.reward_weights.w_cost = 0.1;  % 降低成本权重，让智能体更大胆
+                obj.reward_weights.w_class = 0.6;
+                obj.reward_weights.w_cost = 0.2;
                 obj.reward_weights.w_process = 0.2;
-                obj.reward_weights.true_positive = 100; % 大幅提高正确检测的奖励
-                obj.reward_weights.true_negative = 5;   % 对正确识别无攻击给予少量奖励
-                obj.reward_weights.false_positive = -10;% 加大误报的惩罚
-                obj.reward_weights.false_negative = -120;% 大幅提高漏报的惩罚
-                % ===== 修改结束 =====
+                obj.reward_weights.true_positive = 50;
+                obj.reward_weights.true_negative = 10;
+                obj.reward_weights.false_positive = -5;
+                obj.reward_weights.false_negative = -100;
             end
         end
         
