@@ -1,7 +1,7 @@
 %% EnhancedReportGenerator.m - 增强版报告生成器
 classdef EnhancedReportGenerator < handle
     methods (Static)
-        function generateEnhancedReport(results, config, agents, env)
+        function generateEnhancedReport(results, config, agents, ~)
             % 生成增强的分析报告
             try
                 % 确保reports文件夹存在

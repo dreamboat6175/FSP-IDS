@@ -22,58 +22,44 @@ classdef QLearningAgent < RLAgent
             % 优化的初始化：使用较小的正值鼓励探索
             obj.Q_table = obj.Q_table + 0.1 + randn(state_dim, action_dim) * 0.05;
         end
-        
-        function action = selectAction(obj, state)
-            % 选择动作
+
+        function action = selectAction(obj, state_vec)
+            state_idx = obj.getStateIndex(state_vec); % 将向量状态转换为索引
+            q_values = obj.Q_table(state_idx, :);
             
-            % 确保状态索引在有效范围内
-            if state < 1 || state > obj.state_dim
-                warning('状态索引超出范围: %d (范围: 1-%d)', state, obj.state_dim);
-                state = mod(state - 1, obj.state_dim) + 1;
-            end
-            
-            % 获取当前状态的Q值
-            q_values = obj.Q_table(state, :);
-            
-            % 根据策略选择动作
             if obj.use_softmax
-                action = obj.boltzmannAction(state, q_values);
+                action = obj.boltzmannAction(state_idx, q_values);
             else
-                action = obj.epsilonGreedyAction(state, q_values);
+                action = obj.epsilonGreedyAction(state_idx, q_values);
             end
-            
-            % 记录动作
-            obj.recordAction(state, action);
+            obj.recordAction(state_idx, action);
         end
         
-        function update(obj, state, action, reward, next_state, ~)
+        function update(obj, state_vec, action, reward, next_state_vec, ~)
             % Q-Learning更新规则
-            % Q(s,a) <- Q(s,a) + α[r + γ max Q(s',a') - Q(s,a)]
             
-            % 确保状态索引在有效范围内
-            if state < 1 || state > obj.state_dim
-                state = mod(state - 1, obj.state_dim) + 1;
-            end
-            if next_state < 1 || next_state > obj.state_dim
-                next_state = mod(next_state - 1, obj.state_dim) + 1;
-            end
+            % ===== 修改开始 =====
+            % 1. 把当前和下一个状态清单（向量）都翻译成页码（索引）
+            state_idx = obj.getStateIndex(state_vec);
+            next_state_idx = obj.getStateIndex(next_state_vec);
             
-            % 获取下一状态的最大Q值
-            max_next_q = max(obj.Q_table(next_state, :));
+            % 2. 使用页码（索引）进行后续计算
+            max_next_q = max(obj.Q_table(next_state_idx, :));
             
             % 计算TD误差
-            td_error = reward + obj.discount_factor * max_next_q - obj.Q_table(state, action);
+            td_error = reward + obj.discount_factor * max_next_q - obj.Q_table(state_idx, action);
             
             % 更新Q值
-            obj.Q_table(state, action) = obj.Q_table(state, action) + ...
+            obj.Q_table(state_idx, action) = obj.Q_table(state_idx, action) + ...
                                        obj.learning_rate * td_error;
             
             % 更新访问计数
-            obj.visit_count(state, action) = obj.visit_count(state, action) + 1;
+            obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
             
             % 记录奖励和更新计数
             obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
+            % ===== 修改结束 =====
         end
         
         function policy = getPolicy(obj)

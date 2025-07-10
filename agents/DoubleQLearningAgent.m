@@ -14,28 +14,41 @@ classdef DoubleQLearningAgent < RLAgent
             obj.visit_count = zeros(state_dim, action_dim);
         end
         
-        function action = selectAction(obj, state)
+        function action = selectAction(obj, state_vec)
+            % ===== 修正开始 =====
+            % 1. 将状态向量转换为索引
+            state_idx = obj.getStateIndex(state_vec);
+            
+            % 2. 使用两个Q表的平均值进行决策
             Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
-            q_values = Q_combined(state, :);
-            action = obj.epsilonGreedyAction(state, q_values);
-            obj.recordAction(state, action);
+            q_values = Q_combined(state_idx, :);
+            
+            % 3. 使用ε-贪婪策略选择动作
+            action = obj.epsilonGreedyAction(state_idx, q_values);
+            obj.recordAction(state_idx, action);
+            % ===== 修正结束 =====
         end
         
-        function update(obj, state, action, reward, next_state, ~)
+        function update(obj, state_vec, action, reward, next_state_vec, ~)
+            % 1. 将状态向量转换为索引
+            state_idx = obj.getStateIndex(state_vec);
+            next_state_idx = obj.getStateIndex(next_state_vec);
+
+            % 2. 使用索引进行Double Q-Learning更新
             if rand() < 0.5
-                [~, best_action] = max(obj.Q1_table(next_state, :));
-                td_error = reward + obj.discount_factor * obj.Q2_table(next_state, best_action) ...
-                          - obj.Q1_table(state, action);
-                obj.Q1_table(state, action) = obj.Q1_table(state, action) + ...
+                [~, best_action] = max(obj.Q1_table(next_state_idx, :));
+                td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action) ...
+                          - obj.Q1_table(state_idx, action);
+                obj.Q1_table(state_idx, action) = obj.Q1_table(state_idx, action) + ...
                                             obj.learning_rate * td_error;
             else
-                [~, best_action] = max(obj.Q2_table(next_state, :));
-                td_error = reward + obj.discount_factor * obj.Q1_table(next_state, best_action) ...
-                          - obj.Q2_table(state, action);
-                obj.Q2_table(state, action) = obj.Q2_table(state, action) + ...
+                [~, best_action] = max(obj.Q2_table(next_state_idx, :));
+                td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action) ...
+                          - obj.Q2_table(state_idx, action);
+                obj.Q2_table(state_idx, action) = obj.Q2_table(state_idx, action) + ...
                                             obj.learning_rate * td_error;
             end
-            obj.visit_count(state, action) = obj.visit_count(state, action) + 1;
+            obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
             obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
         end

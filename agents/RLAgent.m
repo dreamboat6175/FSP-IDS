@@ -88,6 +88,13 @@ classdef (Abstract) RLAgent < handle
             obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
         end
         
+        function state_idx = getStateIndex(obj, state_vec)
+            % 这个函数负责将状态向量（清单）转换为一个单一的数字索引（页码）
+            % 使用一个简单的哈希算法来保证转换的一致性
+            hash_val = mod(sum(state_vec .* (1:length(state_vec))), obj.state_dim);
+            state_idx = floor(hash_val) + 1;
+        end
+
         function updateStrategyPool(obj)
             % 更新策略池
             current_policy = obj.getPolicy();
