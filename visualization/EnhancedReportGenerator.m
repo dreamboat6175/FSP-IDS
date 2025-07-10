@@ -1,7 +1,7 @@
 %% EnhancedReportGenerator.m - 增强版报告生成器
 classdef EnhancedReportGenerator < handle
     methods (Static)
-        function generateEnhancedReport(results, config, agents, env)
+        function generateEnhancedReport(results, config, agents, ~)
             % 生成增强的分析报告
             try
                 % 确保reports文件夹存在
@@ -726,35 +726,23 @@ classdef EnhancedReportGenerator < handle
                 fprintf(fid, '========================================\n');
                 fprintf(fid, '生成时间: %s\n\n', datestr(now));
                 
-                % 分析检测率低的原因
+                agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
+                n_agents = min(size(results.detection_rates, 1), 3);
+                n_iters = size(results.detection_rates, 2);
+                last_iters = max(1, n_iters-min(99, n_iters-1)):n_iters;
+        
+                % --- 一、检测率分析 ---
                 fprintf(fid, '一、检测率分析\n');
                 fprintf(fid, '----------------\n');
-                
                 if isfield(results, 'detection_rates') && ~isempty(results.detection_rates)
-                    n_iters = size(results.detection_rates, 2);
-                    last_iters = max(1, n_iters-min(99, n_iters-1)):n_iters;
-                    n_agents = min(size(results.detection_rates, 1), 3);
-                    agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
-                    
                     for i = 1:n_agents
                         avg_detection = mean(results.detection_rates(i, last_iters));
-                        
                         fprintf(fid, '\n%s:\n', agent_names{i});
                         fprintf(fid, '  平均检测率: %.2f%%\n', avg_detection * 100);
-                        
                         if avg_detection < 0.3
                             fprintf(fid, '  诊断: 检测率过低\n');
-                            fprintf(fid, '  可能原因:\n');
-                            fprintf(fid, '    - 初始Q值设置不当\n');
-                            fprintf(fid, '    - 探索率过低或衰减过快\n');
-                            fprintf(fid, '    - 奖励函数设计需要优化\n');
-                            fprintf(fid, '    - 状态空间过大导致学习困难\n');
                         elseif avg_detection < 0.6
                             fprintf(fid, '  诊断: 检测率有待提高\n');
-                            fprintf(fid, '  建议:\n');
-                            fprintf(fid, '    - 增加训练迭代次数\n');
-                            fprintf(fid, '    - 调整学习率参数\n');
-                            fprintf(fid, '    - 优化资源分配策略\n');
                         else
                             fprintf(fid, '  诊断: 检测率良好\n');
                         end
@@ -763,31 +751,40 @@ classdef EnhancedReportGenerator < handle
                     fprintf(fid, '检测率数据不可用\n');
                 end
                 
-                % 收敛性分析
+                % --- 二、收敛性分析 ---
                 fprintf(fid, '\n\n二、收敛性分析\n');
                 fprintf(fid, '----------------\n');
-                
                 if isfield(results, 'convergence_metrics') && ~isempty(results.convergence_metrics)
-                    n_iters = size(results.convergence_metrics, 2);
-                    last_iters = max(1, n_iters-min(99, n_iters-1)):n_iters;
-                    n_agents = min(size(results.convergence_metrics, 1), 3);
-                    agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
-                    
                     for i = 1:n_agents
                         avg_convergence = mean(results.convergence_metrics(i, last_iters));
-                        
                         fprintf(fid, '\n%s:\n', agent_names{i});
                         fprintf(fid, '  收敛度量: %.4f\n', avg_convergence);
-                        
                         if avg_convergence > 0.05
                             fprintf(fid, '  诊断: 尚未充分收敛\n');
-                            fprintf(fid, '  建议: 增加训练轮数或调整学习参数\n');
                         else
                             fprintf(fid, '  诊断: 收敛性良好\n');
                         end
                     end
                 else
                     fprintf(fid, '收敛性数据不可用\n');
+                end
+        
+                % --- 三、误报率分析 ---
+                fprintf(fid, '\n\n三、误报率分析\n');
+                fprintf(fid, '----------------\n');
+                if isfield(results, 'false_positive_rates') && ~isempty(results.false_positive_rates)
+                    for i = 1:n_agents
+                        avg_fp_rate = mean(results.false_positive_rates(i, last_iters));
+                        fprintf(fid, '\n%s:\n', agent_names{i});
+                        fprintf(fid, '  平均误报率: %.2f%%\n', avg_fp_rate * 100);
+                        if avg_fp_rate > 0.1
+                            fprintf(fid, '  诊断: 误报率过高，可能导致资源浪费\n');
+                        else
+                            fprintf(fid, '  诊断: 误报率在可接受范围内\n');
+                        end
+                    end
+                else
+                    fprintf(fid, '误报率数据不可用\n');
                 end
                 
                 % 检测率过低的专项分析

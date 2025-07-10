@@ -6,25 +6,19 @@
 %% 初始化
 clear all; close all; clc;
 
-% 添加项目路径
-addpath('config');
-addpath('core');
-addpath('agents');
-addpath('utils');
-addpath('visualization');
+% 添加所有子文件夹到MATLAB路径
+addpath(genpath(pwd));
 
 %% 主程序
 try
-    % 1. 加载配置（使用优化的参数）
+    % 1. 加载配置
     fprintf('正在加载配置...\n');
     config = ConfigManager.loadConfig('default_config.json');
     
-    % 修改关键参数以提高学习效率
-    config.learning_rate = 0.2;  % 提高学习率
-    config.epsilon = 0.5;        % 高初始探索率
-    config.epsilon_decay = 0.999; % 缓慢衰减
-    config.epsilon_min = 0.1;     % 较高的最小探索率
-    config.n_iterations = 1000;   % 增加迭代次数
+    % --- 您可以在此调整关键参数 ---
+    config.learning_rate = 0.2;  % 建议的学习率
+    config.epsilon = 0.6;        % 建议的初始探索率
+    config.n_iterations = 1000;  % 建议增加迭代次数以保证收敛
     
     % 2. 初始化日志系统
     logger = Logger(config.log_file);
@@ -35,13 +29,10 @@ try
     
     % 4. 初始化改进的仿真环境
     fprintf('正在初始化改进的仿真环境...\n');
-    if exist('ImprovedTCSEnvironment', 'class')
-        env = ImprovedTCSEnvironment(config);
-        fprintf('使用改进的TCS环境\n');
-    else
-        env = TCSEnvironment(config);
-        fprintf('使用标准TCS环境\n');
-    end
+    % ===== 修改开始 =====
+    % 将调用的环境从 TCSEnvironment 修正为您最新的 CyberBattleTCSEnvironment
+    env = CyberBattleTCSEnvironment(config); 
+    % ===== 修改结束 =====
     
     % 5. 初始化智能体（使用更小的状态空间）
     fprintf('正在初始化智能体...\n');

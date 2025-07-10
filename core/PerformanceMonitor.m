@@ -19,7 +19,8 @@ classdef PerformanceMonitor < handle
         convergence_metrics  % 收敛度量
         exploitability      % 可利用性
         nash_gap            % 纳什均衡差距
-        
+        false_positive_rates % 新增：误报率
+
         % 计算性能
         computation_time    % 计算时间
         memory_usage       % 内存使用
@@ -53,6 +54,7 @@ classdef PerformanceMonitor < handle
             obj.convergence_metrics = zeros(n_agents, n_iterations);
             obj.exploitability = zeros(n_agents, n_iterations);
             obj.nash_gap = zeros(n_agents, n_iterations);
+            obj.false_positive_rates = zeros(n_agents, n_iterations); % 初始化误报率
             
             % 计算性能
             obj.computation_time = zeros(1, n_iterations);
@@ -85,7 +87,19 @@ classdef PerformanceMonitor < handle
                 obj.defender_rewards(i, iter) = episode_results.avg_defender_reward(i);
             end
             obj.attacker_rewards(iter) = episode_results.avg_attacker_reward;
+
+            % 计算误报率
+            metrics = env.getPerformanceMetrics();
+            if (metrics.false_positives + metrics.true_negatives) > 0
+                fp_rate = metrics.false_positives / (metrics.false_positives + metrics.true_negatives);
+            else
+                fp_rate = 0;
+            end
             
+            for i = 1:obj.n_agents
+                obj.false_positive_rates(i, iter) = fp_rate;
+            end
+
             % 资源利用率
             for i = 1:obj.n_agents
                 obj.resource_utilization(i, iter) = ...
@@ -250,6 +264,7 @@ classdef PerformanceMonitor < handle
             results.attack_type_stats = obj.attack_type_stats;
             results.strategy_diversity = obj.strategy_diversity;
             results.policy_stability = obj.policy_stability;
+            results.false_positive_rates = obj.false_positive_rates;
             results.n_iterations = obj.n_iterations;
             results.n_agents = obj.n_agents;
         end
