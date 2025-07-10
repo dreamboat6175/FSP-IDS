@@ -1623,6 +1623,7 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-10 21:00:16] [INFO] 日志系统初始化
 [2025-07-10 21:00:16] [INFO] 改进版FSP仿真开始
 [2025-07-10 21:02:05] [INFO] 改进版仿真成功完成
+<<<<<<< HEAD
 [2025-07-10 21:24:52] [INFO] 日志系统初始化
 [2025-07-10 21:24:52] [INFO] 改进版FSP仿真开始
 [2025-07-10 21:24:52] [ERROR] 仿真出错: 未识别类 'PerformanceMonitor' 的方法、属性或字段 'false_positive_rates'。
@@ -1630,3 +1631,5 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-10 21:26:53] [INFO] 日志系统初始化
 [2025-07-10 21:26:53] [INFO] 改进版FSP仿真开始
 [2025-07-10 21:28:43] [INFO] 改进版仿真成功完成
+=======
+>>>>>>> 4fca5929802cbed185ff65b6c5944d2b819f4d14

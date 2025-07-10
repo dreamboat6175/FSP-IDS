@@ -284,6 +284,7 @@ classdef CyberBattleTCSEnvironment < handle
             new_state(obj.total_components+1:end) = obj.current_state(obj.total_components+1:end) * 0.95 + randn(1, length(new_state) - (obj.total_components)) * 0.05;
             obj.current_state = new_state;
         end
+<<<<<<< HEAD
 
         function metrics = getPerformanceMetrics(obj)
             % 返回分类性能指标
@@ -292,5 +293,7 @@ classdef CyberBattleTCSEnvironment < handle
             metrics.false_positives = obj.false_positives;
             metrics.false_negatives = obj.false_negatives;
         end
+=======
+>>>>>>> 4fca5929802cbed185ff65b6c5944d2b819f4d14
     end
 end
