@@ -46,20 +46,22 @@ classdef ConfigManager
             config.n_stations = 5;
             config.n_components_per_station = [7, 6, 8, 5, 9];  % 每个主站的组件数
             
+            % ===== 修改开始: 采纳报告建议优化参数 =====
             % FSP参数
-            config.n_iterations = 500;
+            config.n_iterations = 1500; % 增加迭代次数以确保收敛
             config.n_episodes_per_iter = 100;
             config.pool_size_limit = 50;
             config.pool_update_interval = 10;
             
             % 学习参数
-            config.learning_rate = 0.15;  % 增加学习率
+            config.learning_rate = 0.15;      % 提高学习率至建议范围
             config.discount_factor = 0.95;
-            config.epsilon = 0.3;  % 增加初始探索率
-            config.epsilon_decay = 0.999;  % 更缓慢的衰减
-            config.epsilon_min = 0.05;  % 提高最小探索率
+            config.epsilon = 0.4;             % 提高初始探索率至建议范围
+            config.epsilon_decay = 0.999;     % 更缓慢的衰减
+            config.epsilon_min = 0.05;        % 提高最小探索率
             config.temperature = 1.0;
             config.temperature_decay = 0.995;
+            % ===== 修改结束 =====
             
             % 算法选择
             config.algorithms = {'Q-Learning', 'SARSA', 'Double Q-Learning'};

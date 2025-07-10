@@ -36,30 +36,25 @@ classdef QLearningAgent < RLAgent
         end
         
         function update(obj, state_vec, action, reward, next_state_vec, ~)
-            % Q-Learning更新规则
-            
-            % ===== 修改开始 =====
             % 1. 把当前和下一个状态清单（向量）都翻译成页码（索引）
             state_idx = obj.getStateIndex(state_vec);
             next_state_idx = obj.getStateIndex(next_state_vec);
-            
+        
             % 2. 使用页码（索引）进行后续计算
             max_next_q = max(obj.Q_table(next_state_idx, :));
-            
+        
             % 计算TD误差
             td_error = reward + obj.discount_factor * max_next_q - obj.Q_table(state_idx, action);
-            
+        
             % 更新Q值
-            obj.Q_table(state_idx, action) = obj.Q_table(state_idx, action) + ...
-                                       obj.learning_rate * td_error;
-            
+            obj.Q_table(state_idx, action) = obj.Q_table(state_idx, action) + obj.learning_rate * td_error;
+                    
             % 更新访问计数
             obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
             
             % 记录奖励和更新计数
             obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
-            % ===== 修改结束 =====
         end
         
         function policy = getPolicy(obj)

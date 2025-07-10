@@ -1633,3 +1633,14 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-10 21:28:43] [INFO] 改进版仿真成功完成
 =======
 >>>>>>> 4fca5929802cbed185ff65b6c5944d2b819f4d14
+[2025-07-10 23:04:39] [INFO] 日志系统初始化
+[2025-07-10 23:04:39] [INFO] 改进版FSP仿真开始
+[2025-07-10 23:04:39] [ERROR] 仿真出错: <a href="matlab: opentoline('D:\CODE\FSP\core\CyberBattleTCSEnvironment.m',287,1)">文件: CyberBattleTCSEnvironment.m 行: 287 列: 1</a>
+运算符的使用无效。
+[2025-07-10 23:04:39] [ERROR] 错误位置: D:\CODE\FSP\main_improved_fsp_simulation.m, 行号: 34
+[2025-07-10 23:15:06] [INFO] 日志系统初始化
+[2025-07-10 23:15:06] [INFO] 改进版FSP仿真开始
+[2025-07-10 23:17:26] [INFO] 改进版仿真成功完成
+[2025-07-10 23:18:45] [INFO] 日志系统初始化
+[2025-07-10 23:18:45] [INFO] 改进版FSP仿真开始
+[2025-07-10 23:21:04] [INFO] 改进版仿真成功完成

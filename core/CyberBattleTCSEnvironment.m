@@ -134,13 +134,15 @@ classdef CyberBattleTCSEnvironment < handle
             if isfield(config, 'reward_weights')
                 obj.reward_weights = config.reward_weights;
             else
-                obj.reward_weights.w_class = 0.6;
-                obj.reward_weights.w_cost = 0.2;
+                % ===== 修改开始: 优化奖励权重 =====
+                obj.reward_weights.w_class = 0.7; % 提高分类正确性的权重
+                obj.reward_weights.w_cost = 0.1;  % 降低成本权重，让智能体更大胆
                 obj.reward_weights.w_process = 0.2;
-                obj.reward_weights.true_positive = 50;
-                obj.reward_weights.true_negative = 10;
-                obj.reward_weights.false_positive = -5;
-                obj.reward_weights.false_negative = -100;
+                obj.reward_weights.true_positive = 100; % 大幅提高正确检测的奖励
+                obj.reward_weights.true_negative = 5;   % 对正确识别无攻击给予少量奖励
+                obj.reward_weights.false_positive = -10;% 加大误报的惩罚
+                obj.reward_weights.false_negative = -120;% 大幅提高漏报的惩罚
+                % ===== 修改结束 =====
             end
         end
         
@@ -284,7 +286,6 @@ classdef CyberBattleTCSEnvironment < handle
             new_state(obj.total_components+1:end) = obj.current_state(obj.total_components+1:end) * 0.95 + randn(1, length(new_state) - (obj.total_components)) * 0.05;
             obj.current_state = new_state;
         end
-<<<<<<< HEAD
 
         function metrics = getPerformanceMetrics(obj)
             % 返回分类性能指标
@@ -293,7 +294,5 @@ classdef CyberBattleTCSEnvironment < handle
             metrics.false_positives = obj.false_positives;
             metrics.false_negatives = obj.false_negatives;
         end
-=======
->>>>>>> 4fca5929802cbed185ff65b6c5944d2b819f4d14
     end
 end
