@@ -1,0 +1,75 @@
+{
+  "n_stations": 5,
+  "n_components_per_station": [
+    7,
+    6,
+    8,
+    5,
+    9
+  ],
+  "n_iterations": 500,
+  "n_episodes_per_iter": 100,
+  "pool_size_limit": 50,
+  "pool_update_interval": 10,
+  "learning_rate": 0.1,
+  "discount_factor": 0.95,
+  "epsilon": 0.1,
+  "epsilon_decay": 0.995,
+  "epsilon_min": 0.01,
+  "temperature": 1,
+  "temperature_decay": 0.99,
+  "algorithms": [
+    "Q-Learning",
+    "SARSA",
+    "Double Q-Learning"
+  ],
+  "attack_types": [
+    "wireless_spoofing",
+    "dos_attack",
+    "semantic_attack",
+    "supply_chain",
+    "protocol_exploit",
+    "maintenance_port"
+  ],
+  "attack_severity": [
+    0.3,
+    0.5,
+    0.7,
+    0.4,
+    0.6,
+    0.8
+  ],
+  "attack_detection_difficulty": [
+    0.4,
+    0.3,
+    0.7,
+    0.8,
+    0.6,
+    0.5
+  ],
+  "resource_types": [
+    "computation",
+    "bandwidth",
+    "sensors",
+    "scanning_freq",
+    "inspection_depth"
+  ],
+  "resource_effectiveness": [
+    0.7,
+    0.6,
+    0.8,
+    0.5,
+    0.9
+  ],
+  "total_resources": 100,
+  "display_interval": 50,
+  "save_interval": 100,
+  "param_update_interval": 50,
+  "visualization": true,
+  "generate_report": true,
+  "log_file": "logs/simulation_20250709_211915.log",
+  "results_dir": "results",
+  "report_dir": "reports",
+  "use_parallel": false,
+  "num_workers": 4
+}
