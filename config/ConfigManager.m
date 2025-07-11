@@ -25,7 +25,7 @@ classdef ConfigManager
                     config = jsondecode(config_text);
                     fprintf('✓ 配置文件加载成功: %s\n', filename);
                 catch ME
-                    warning('配置文件读取失败: %s', ME.message);
+                    warning(ME.identifier, '%s', ME.message);
                     config = ConfigManager.getDefaultConfig();
                 end
             else
@@ -41,59 +41,58 @@ classdef ConfigManager
         
         function config = getDefaultConfig()
             % 获取默认配置
-            
             % 系统配置
             config.n_stations = 5;
-            config.n_components_per_station = [7, 6, 8, 5, 9];  % 每个主站的组件数
-            
-            % ===== 修改开始: 采纳报告建议优化参数 =====
-            % FSP参数
-            config.n_iterations = 1500; % 增加迭代次数以确保收敛
+            config.n_components_per_station = [7, 6, 8, 5, 9];
+            config.n_iterations = 1500;
             config.n_episodes_per_iter = 100;
             config.pool_size_limit = 50;
             config.pool_update_interval = 10;
-            
-            % 学习参数
-            config.learning_rate = 0.15;      % 提高学习率至建议范围
+            config.learning_rate = 0.15;
             config.discount_factor = 0.95;
-            config.epsilon = 0.4;             % 提高初始探索率至建议范围
-            config.epsilon_decay = 0.999;     % 更缓慢的衰减
-            config.epsilon_min = 0.05;        % 提高最小探索率
+            config.epsilon = 0.4;
+            config.epsilon_decay = 0.999;
+            config.epsilon_min = 0.05;
             config.temperature = 1.0;
             config.temperature_decay = 0.995;
-            % ===== 修改结束 =====
-            
-            % 算法选择
             config.algorithms = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
-            
-            % 攻击配置
             config.attack_types = {'wireless_spoofing', 'dos_attack', 'semantic_attack', ...
                                   'supply_chain', 'protocol_exploit', 'maintenance_port'};
             config.attack_severity = [0.3, 0.5, 0.7, 0.4, 0.6, 0.8];
             config.attack_detection_difficulty = [0.4, 0.3, 0.7, 0.8, 0.6, 0.5];
-            
-            % 资源配置
+            % 资源类型和效率（确保非空且长度一致）
             config.resource_types = {'computation', 'bandwidth', 'sensors', ...
                                    'scanning_freq', 'inspection_depth'};
             config.resource_effectiveness = [0.7, 0.6, 0.8, 0.5, 0.9];
             config.total_resources = 100;
-            
-            % 输出配置
             config.display_interval = 50;
             config.save_interval = 100;
             config.param_update_interval = 50;
             config.visualization = true;
             config.generate_report = true;
-            
-            % 文件配置
             timestamp = datestr(now, 'yyyymmdd_HHMMSS');
             config.log_file = sprintf('logs/simulation_%s.log', timestamp);
             config.results_dir = 'results';
             config.report_dir = 'reports';
-            
-            % 并行计算配置
-            config.use_parallel = false;  % 暂时禁用并行计算
+            config.use_parallel = false;
             config.num_workers = 4;
+            % ===== RADI配置部分 =====
+            config.radi = struct();
+            config.radi.optimal_allocation = [0.2, 0.2, 0.2, 0.2, 0.2];
+            config.radi.weight_computation = 0.3;
+            config.radi.weight_bandwidth = 0.2;
+            config.radi.weight_sensors = 0.2;
+            config.radi.weight_scanning = 0.15;
+            config.radi.weight_inspection = 0.15;
+            config.radi.threshold_excellent = 0.1;
+            config.radi.threshold_good = 0.2;
+            config.radi.threshold_acceptable = 0.3;
+            % 训练目标
+            config.training.performance_target_radi = 0.15;
+            % 奖励函数权重
+            config.reward.w_radi = 0.4;
+            config.reward.w_efficiency = 0.3;
+            config.reward.w_balance = 0.3;
         end
         
         function config = ensureRequiredFields(config)
@@ -163,7 +162,7 @@ classdef ConfigManager
                 
                 fprintf('✓ 配置已保存: %s\n', config_path);
             catch ME
-                warning('配置保存失败: %s', ME.message);
+                warning(ME.identifier, '%s', ME.message);
             end
         end
         

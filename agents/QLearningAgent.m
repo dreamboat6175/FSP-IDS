@@ -50,64 +50,64 @@ end
 
 % 修改 update 方法，添加自适应学习率：
 
-function update(obj, state_vec, action, reward, next_state_vec, ~)
-    % 改进的Q-Learning更新
-    
-    state = obj.getStateIndex(state_vec);
-    next_state = obj.getStateIndex(next_state_vec);
-    
-    % 获取最大Q值
-    max_next_q = max(obj.Q_table(next_state, :));
-    
-    % 计算TD误差
-    current_q = obj.Q_table(state, action);
-    td_error = reward + obj.discount_factor * max_next_q - current_q;
-    
-    % 自适应学习率
-    visit_count = obj.visit_count(state, action);
-    adaptive_lr = obj.lr_scheduler.initial_lr / (1 + 0.01 * visit_count);
-    adaptive_lr = max(adaptive_lr, obj.lr_scheduler.min_lr);
-    
-    % 更新Q值
-    obj.Q_table(state, action) = current_q + adaptive_lr * td_error;
-    
-    % 更新访问计数
-    obj.visit_count(state, action) = visit_count + 1;
-    
-    % 记录性能
+function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
+    % --- Robust shape check ---
+    if isempty(action_vec) || numel(action_vec) ~= 5
+        warning('QLearningAgent.update: action_vec is empty or not length 5, auto-fixing...');
+        action_vec = ones(1, 5);
+    end
+    action_vec = reshape(action_vec, 1, 5);
+    if isempty(state_vec) || numel(state_vec) ~= 5
+        warning('QLearningAgent.update: state_vec is empty or not length 5, auto-fixing...');
+        state_vec = ones(1, 5);
+    end
+    state_vec = reshape(state_vec, 1, 5);
+    if ~isempty(next_state_vec) && numel(next_state_vec) ~= 5
+        warning('QLearningAgent.update: next_state_vec is not length 5, auto-fixing...');
+        next_state_vec = ones(1, 5);
+    end
+    if ~isempty(next_state_vec)
+        next_state_vec = reshape(next_state_vec, 1, 5);
+    end
+    n = length(state_vec);
+    for j = 1:n
+        state = obj.getStateIndex(state_vec(j));
+        next_state = obj.getStateIndex(next_state_vec(j));
+        a = action_vec(j);
+        if isempty(next_action_vec)
+            max_next_q = max(obj.Q_table(next_state, :));
+        else
+            max_next_q = obj.Q_table(next_state, next_action_vec(j));
+        end
+        current_q = obj.Q_table(state, a);
+        td_error = reward + obj.discount_factor * max_next_q - current_q;
+        obj.Q_table(state, a) = current_q + obj.learning_rate * td_error;
+        obj.visit_count(state, a) = obj.visit_count(state, a) + 1;
+    end
     obj.recordReward(reward);
     obj.update_count = obj.update_count + 1;
-    
-    % 定期调整探索率
-    if mod(obj.update_count, 100) == 0
-        obj.updateEpsilon();
-    end
 end
 
-function action = selectAction(obj, state_vec)
-            % 选择动作
-            
-            % 获取状态索引
-            state = obj.getStateIndex(state_vec);
-            
-            % 确保状态索引在有效范围内
-            if state < 1 || state > obj.state_dim
-                warning('状态索引超出范围: %d (范围: 1-%d)', state, obj.state_dim);
-                state = mod(state - 1, obj.state_dim) + 1;
+function action_vec = selectAction(obj, state_vec)
+            % 输入: state_vec (1 x n_stations)
+            % 输出: action_vec (1 x n_stations)
+            % Robust shape check
+            if isempty(state_vec) || numel(state_vec) ~= 5
+                warning('QLearningAgent.selectAction: state_vec is empty or not length 5, auto-fixing...');
+                state_vec = ones(1, 5);
             end
-            
-            % 获取当前状态的Q值
-            q_values = obj.Q_table(state, :);
-            
-            % 根据策略选择动作
-            if obj.use_softmax
-                action = obj.boltzmannAction(state, q_values);
-            else
-                action = obj.epsilonGreedyAction(state, q_values);
+            state_vec = reshape(state_vec, 1, 5);
+            n = length(state_vec);
+            action_vec = zeros(1, n);
+            for j = 1:n
+                state = obj.getStateIndex(state_vec(j));
+                q_values = obj.Q_table(state, :);
+                if obj.use_softmax
+                    action_vec(j) = obj.boltzmannAction(state, q_values);
+                else
+                    action_vec(j) = obj.epsilonGreedyAction(state, q_values);
+                end
             end
-            
-            % 记录动作
-            obj.recordAction(state, action);
         end
         
         function policy = getPolicy(obj)

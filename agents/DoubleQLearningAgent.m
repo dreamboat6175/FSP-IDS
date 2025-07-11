@@ -14,41 +14,82 @@ classdef DoubleQLearningAgent < RLAgent
             obj.visit_count = zeros(state_dim, action_dim);
         end
         
-        function action = selectAction(obj, state_vec)
-            % ===== 修正开始 =====
-            % 1. 将状态向量转换为索引
-            state_idx = obj.getStateIndex(state_vec);
-            
-            % 2. 使用两个Q表的平均值进行决策
-            Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
-            q_values = Q_combined(state_idx, :);
-            
-            % 3. 使用ε-贪婪策略选择动作
-            action = obj.epsilonGreedyAction(state_idx, q_values);
-            obj.recordAction(state_idx, action);
-            % ===== 修正结束 =====
+        function action_vec = selectAction(obj, state_vec)
+            % Robust shape check
+            if isempty(state_vec) || numel(state_vec) ~= 5
+                warning('DoubleQLearningAgent.selectAction: state_vec is empty or not length 5, auto-fixing...');
+                state_vec = ones(1, 5);
+            end
+            state_vec = reshape(state_vec, 1, 5);
+            % 输入: state_vec (1 x n_stations)
+            % 输出: action_vec (1 x n_stations)
+            n = length(state_vec);
+            action_vec = zeros(1, n);
+            for j = 1:n
+                state_idx = obj.getStateIndex(state_vec(j));
+                Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
+                q_values = Q_combined(state_idx, :);
+                action_vec(j) = obj.epsilonGreedyAction(state_idx, q_values);
+                obj.recordAction(state_idx, action_vec(j));
+            end
         end
         
-        function update(obj, state_vec, action, reward, next_state_vec, ~)
-            % 1. 将状态向量转换为索引
-            state_idx = obj.getStateIndex(state_vec);
-            next_state_idx = obj.getStateIndex(next_state_vec);
-
-            % 2. 使用索引进行Double Q-Learning更新
-            if rand() < 0.5
-                [~, best_action] = max(obj.Q1_table(next_state_idx, :));
-                td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action) ...
-                          - obj.Q1_table(state_idx, action);
-                obj.Q1_table(state_idx, action) = obj.Q1_table(state_idx, action) + ...
-                                            obj.learning_rate * td_error;
-            else
-                [~, best_action] = max(obj.Q2_table(next_state_idx, :));
-                td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action) ...
-                          - obj.Q2_table(state_idx, action);
-                obj.Q2_table(state_idx, action) = obj.Q2_table(state_idx, action) + ...
-                                            obj.learning_rate * td_error;
+        function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
+            % Robust shape check
+            if isempty(action_vec) || numel(action_vec) ~= 5
+                warning('DoubleQLearningAgent.update: action_vec is empty or not length 5, auto-fixing...');
+                action_vec = ones(1, 5);
             end
-            obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
+            action_vec = reshape(action_vec, 1, 5);
+            if isempty(state_vec) || numel(state_vec) ~= 5
+                warning('DoubleQLearningAgent.update: state_vec is empty or not length 5, auto-fixing...');
+                state_vec = ones(1, 5);
+            end
+            state_vec = reshape(state_vec, 1, 5);
+            if ~isempty(next_state_vec) && numel(next_state_vec) ~= 5
+                warning('DoubleQLearningAgent.update: next_state_vec is not length 5, auto-fixing...');
+                next_state_vec = ones(1, 5);
+            end
+            if ~isempty(next_state_vec)
+                next_state_vec = reshape(next_state_vec, 1, 5);
+            end
+            if ~isempty(next_action_vec) && numel(next_action_vec) ~= 5
+                warning('DoubleQLearningAgent.update: next_action_vec is not length 5, auto-fixing...');
+                next_action_vec = ones(1, 5);
+            end
+            if ~isempty(next_action_vec)
+                next_action_vec = reshape(next_action_vec, 1, 5);
+            end
+            n = length(state_vec);
+            for j = 1:n
+                state_idx = obj.getStateIndex(state_vec(j));
+                next_state_idx = obj.getStateIndex(next_state_vec(j));
+                a = action_vec(j);
+                if rand() < 0.5
+                    [~, best_action] = max(obj.Q1_table(next_state_idx, :));
+                    if isempty(next_action_vec)
+                        td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action) ...
+                                  - obj.Q1_table(state_idx, a);
+                    else
+                        td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, next_action_vec(j)) ...
+                                  - obj.Q1_table(state_idx, a);
+                    end
+                    obj.Q1_table(state_idx, a) = obj.Q1_table(state_idx, a) + ...
+                                                obj.learning_rate * td_error;
+                else
+                    [~, best_action] = max(obj.Q2_table(next_state_idx, :));
+                    if isempty(next_action_vec)
+                        td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action) ...
+                                  - obj.Q2_table(state_idx, a);
+                    else
+                        td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, next_action_vec(j)) ...
+                                  - obj.Q2_table(state_idx, a);
+                    end
+                    obj.Q2_table(state_idx, a) = obj.Q2_table(state_idx, a) + ...
+                                                obj.learning_rate * td_error;
+                end
+                obj.visit_count(state_idx, a) = obj.visit_count(state_idx, a) + 1;
+            end
             obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
         end

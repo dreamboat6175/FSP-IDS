@@ -1,9 +1,9 @@
-% %% CyberBattleTCSEnvironment_GameTheory.m - 基于RADI的博弈论TCS环境
+% %% TCSEnvironment.m - 基于RADI的博弈论TCS环境
 % =========================================================================
 % 描述: 基于资源分配偏差指数(RADI)的列控系统博弈环境
 % =========================================================================
 
-classdef CyberBattleTCSEnvironment < handle
+classdef TCSEnvironment < handle
     
     properties
         % 系统架构
@@ -70,7 +70,7 @@ classdef CyberBattleTCSEnvironment < handle
     end
     
     methods
-        function obj = CyberBattleTCSEnvironment(config)
+        function obj = TCSEnvironment(config)
             % 构造函数
             obj.n_stations = config.n_stations;
             obj.n_components = config.n_components_per_station;
@@ -348,18 +348,27 @@ classdef CyberBattleTCSEnvironment < handle
             obj.time_step = obj.time_step + 1;
         end
         
-        function defender_actions = parseDefenderAction(obj, action)
+               function defender_actions = parseDefenderAction(obj, action)
             % 将动作索引转换为站点级防御决策向量
             defender_actions = zeros(1, obj.n_stations);
             
-            % 确保动作在有效范围内
-            action = max(1, min(action, obj.action_dim_defender));
-            
-            % 计算选择的站点和防御类型
-            station = ceil(action / obj.n_resource_types);
-            defense_type = mod(action - 1, obj.n_resource_types) + 1;
-            
-            % 确保索引有效
+            % 健壮性检查：确保 action 是一个有效的、有限的、正整数
+            if isempty(action) || isnan(action) || isinf(action) || action < 1 || round(action) ~= action
+                warning('TCSEnvironment:InvalidAction', '接收到无效的防御动作值 (%f)。默认选择站点1的第一个防御类型。', action);
+                % 默认到一个安全的、有效的动作，例如选择第一个站点，第一个防御类型
+                station = 1;
+                defense_type = 1;
+            else
+                % 确保动作在有效范围内
+                action = max(1, min(action, obj.action_dim_defender));
+                
+                % 计算选择的站点和防御类型
+                station = ceil(action / obj.n_resource_types);
+                defense_type = mod(action - 1, obj.n_resource_types) + 1;
+            end
+
+            % 确保索引有效（在进行赋值前再次检查）
+            % 即使 action 经过了处理，这里也确保 station 和 defense_type 不会越界
             station = max(1, min(station, obj.n_stations));
             defense_type = max(1, min(defense_type, obj.n_resource_types));
             
@@ -393,7 +402,10 @@ classdef CyberBattleTCSEnvironment < handle
             total_cost = 0;
             for station = 1:obj.n_stations
                 if defender_actions(station) > 0
-                    total_cost = total_cost + obj.defense_costs(station, defender_actions(station));
+                    % 修正：确保索引不越界
+                    max_defense = size(obj.defense_costs,2);
+                    defense_idx = min(defender_actions(station), max_defense);
+                    total_cost = total_cost + obj.defense_costs(station, defense_idx);
                 end
             end
             
@@ -411,9 +423,11 @@ classdef CyberBattleTCSEnvironment < handle
                 for i = 1:length(priority_order)
                     station = priority_order(i);
                     if defender_actions(station) > 0
-                        new_cost = current_cost + obj.defense_costs(station, defender_actions(station));
+                        max_defense = size(obj.defense_costs,2);
+                        defense_idx = min(defender_actions(station), max_defense);
+                        new_cost = current_cost + obj.defense_costs(station, defense_idx);
                         if new_cost <= obj.total_resources
-                            constrained_actions(station) = defender_actions(station);
+                            constrained_actions(station) = defense_idx;
                             current_cost = new_cost;
                         end
                     end
