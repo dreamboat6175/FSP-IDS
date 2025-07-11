@@ -1763,3 +1763,7 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-11 19:28:51] [INFO] 改进版FSP仿真开始
 [2025-07-11 19:28:51] [ERROR] 仿真出错: 位置 2 处的索引超出数组边界。
 [2025-07-11 19:28:51] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\TCSEnvironment.m, 行号: 396
+[2025-07-11 19:31:59] [INFO] 日志系统初始化
+[2025-07-11 19:32:00] [INFO] 改进版FSP仿真开始
+[2025-07-11 19:32:00] [ERROR] 仿真出错: 位置 2 处的索引无效。数组索引必须为正整数或逻辑值。
+[2025-07-11 19:32:00] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\TCSEnvironment.m, 行号: 399
