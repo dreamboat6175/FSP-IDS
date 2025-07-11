@@ -52,6 +52,9 @@ classdef CyberBattleTCSEnvironment < handle
         
         % 奖励函数权重
         reward_weights
+        
+        % 连续正确检测计数
+        consecutive_correct
     end
     
     methods
@@ -78,6 +81,7 @@ classdef CyberBattleTCSEnvironment < handle
             
             obj.initializeRewardWeights(config);
             obj.calculateSpaceDimensions();
+            obj.consecutive_correct = 0;
             obj.reset();
         end
         
@@ -160,6 +164,7 @@ classdef CyberBattleTCSEnvironment < handle
             obj.true_negatives = 0;
             obj.false_positives = 0;
             obj.false_negatives = 0;
+            obj.consecutive_correct = 0;
             obj.current_state = obj.generateInitialState();
             state = obj.current_state;
         end
@@ -181,7 +186,7 @@ classdef CyberBattleTCSEnvironment < handle
             [detected, ~, detection_category] = obj.calculateDetectionResult(is_attack, detection_result, resource_allocation, attack_target, attack_type);
             
             obj.updatePerformanceMetrics(detection_category);
-            reward = obj.calculateCompositeReward(detection_category, is_attack, attack_target, attack_type, defense_decision);
+            reward = obj.calculateImprovedReward(detection_category, is_attack, attack_target, attack_type, defense_decision, obj.current_state);
             obj.updateState(defense_decision, attack_target, attack_type, detected);
             next_state = obj.current_state;
             

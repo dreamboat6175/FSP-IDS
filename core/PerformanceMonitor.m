@@ -37,6 +37,9 @@ classdef PerformanceMonitor < handle
         % 实时数据
         current_iter       % 当前迭代
         start_time        % 开始时间
+        
+        % 显示设置
+        display_interval  % 显示间隔
     end
     
     methods
@@ -72,6 +75,9 @@ classdef PerformanceMonitor < handle
             % 记录开始时间
             obj.start_time = tic;
             obj.current_iter = 0;
+            
+            % 设置显示间隔
+            obj.display_interval = 10;
         end
         
         function update(obj, iter, episode_results, defender_agents, attacker_agent, env)

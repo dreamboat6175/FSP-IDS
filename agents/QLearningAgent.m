@@ -8,6 +8,7 @@ classdef QLearningAgent < RLAgent
     properties
         Q_table    % Q值表
         visit_count % 状态-动作访问计数
+        lr_scheduler % 学习率调度器
     end
     
     methods
@@ -82,6 +83,32 @@ function update(obj, state_vec, action, reward, next_state_vec, ~)
         obj.updateEpsilon();
     end
 end
+
+function action = selectAction(obj, state_vec)
+            % 选择动作
+            
+            % 获取状态索引
+            state = obj.getStateIndex(state_vec);
+            
+            % 确保状态索引在有效范围内
+            if state < 1 || state > obj.state_dim
+                warning('状态索引超出范围: %d (范围: 1-%d)', state, obj.state_dim);
+                state = mod(state - 1, obj.state_dim) + 1;
+            end
+            
+            % 获取当前状态的Q值
+            q_values = obj.Q_table(state, :);
+            
+            % 根据策略选择动作
+            if obj.use_softmax
+                action = obj.boltzmannAction(state, q_values);
+            else
+                action = obj.epsilonGreedyAction(state, q_values);
+            end
+            
+            % 记录动作
+            obj.recordAction(state, action);
+        end
         
         function policy = getPolicy(obj)
             % 获取当前策略（Q表）

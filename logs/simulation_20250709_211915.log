@@ -1649,3 +1649,27 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-10 23:53:27] [INFO] 改进版仿真成功完成
 [2025-07-11 09:18:09] [INFO] 日志系统初始化
 [2025-07-11 09:18:09] [INFO] 改进版FSP仿真开始
+[2025-07-11 09:48:45] [INFO] 日志系统初始化
+[2025-07-11 09:48:45] [INFO] 改进版FSP仿真开始
+[2025-07-11 09:48:45] [ERROR] 仿真出错: 抽象类无法实例化。类 'QLearningAgent' 继承抽象方法或属性，但不实现它们。如果您不想将类设置为 abstract 类，请参阅 'QLearningAgent' 必须实施的<a href="matlab:matlab.metadata.abstractDetails('QLearningAgent')">方法和属性列表</a>。
+[2025-07-11 09:48:45] [ERROR] 错误位置: D:\CODE\FSP\main_improved_fsp_simulation.m, 行号: 44
+[2025-07-11 09:59:10] [INFO] 日志系统初始化
+[2025-07-11 09:59:10] [INFO] 改进版FSP仿真开始
+[2025-07-11 09:59:10] [ERROR] 仿真出错: 类 'QLearningAgent' 的属性 'lr_scheduler' 无法识别。
+[2025-07-11 09:59:10] [ERROR] 错误位置: D:\CODE\FSP\agents\QLearningAgent.m, 行号: 44
+[2025-07-11 10:01:14] [INFO] 日志系统初始化
+[2025-07-11 10:01:14] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:01:14] [ERROR] 仿真出错: 逻辑 AND (&&)和 OR (||)运算符的操作数必须可转换为标量逻辑值。请使用 ANY 或 ALL 函数将操作数简化为标量逻辑值。
+[2025-07-11 10:01:14] [ERROR] 错误位置: D:\CODE\FSP\agents\QLearningAgent.m, 行号: 91
+[2025-07-11 10:01:59] [INFO] 日志系统初始化
+[2025-07-11 10:01:59] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:01:59] [ERROR] 仿真出错: 未识别类 'CyberBattleTCSEnvironment' 的方法、属性或字段 'calculateCompositeReward'。
+[2025-07-11 10:01:59] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 184
+[2025-07-11 10:03:09] [INFO] 日志系统初始化
+[2025-07-11 10:03:09] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:03:09] [ERROR] 仿真出错: 类 'CyberBattleTCSEnvironment' 的属性 'consecutive_correct' 无法识别。
+[2025-07-11 10:03:09] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 314
+[2025-07-11 10:04:19] [INFO] 日志系统初始化
+[2025-07-11 10:04:19] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:04:20] [ERROR] 仿真出错: 未识别类 'PerformanceMonitor' 的方法、属性或字段 'display_interval'。
+[2025-07-11 10:04:20] [ERROR] 错误位置: D:\CODE\FSP\core\PerformanceMonitor.m, 行号: 126
