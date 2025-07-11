@@ -160,7 +160,14 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
         end
         attacker_agent.epsilon = current_epsilon * 0.5;
         episode_results = improvedRunEpisodesRADI(env, defender_agents, attacker_agent, n_episodes, config);
-        monitor.update(iter, episode_results, defender_agents, attacker_agent, env);
+        % --- 修正：逐个agent传入最后一集的metrics ---
+        for agent_idx = 1:n_agents
+            metrics = struct();
+            metrics.resource_allocation = squeeze(episode_results.resource_allocations(end, agent_idx, :))';
+            metrics.resource_efficiency = episode_results.resource_efficiency(end, agent_idx);
+            metrics.allocation_balance = episode_results.allocation_balance(end, agent_idx);
+            monitor.update(iter, metrics);
+        end
         if mod(iter, 50) == 0
             avg_radi = mean(episode_results.avg_radi);
             avg_efficiency = mean(episode_results.avg_efficiency);
@@ -172,6 +179,12 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
         end
     end
     results = monitor.getResults();
+    % 字段兼容性整理，确保RADI体系主字段
+    if isfield(results, 'radi_scores')
+        results.radi = results.radi_scores;
+    end
+    results.n_agents = n_agents;
+    results.n_iterations = n_iterations;
     trained_agents.defenders = defender_agents;
     trained_agents.attacker = attacker_agent;
 end
@@ -188,34 +201,55 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
     for ep = 1:n_episodes
         state = env.reset();
         is_attack_episode = rand() < 0.7;
+        % 生成攻击者动作向量
+        if is_attack_episode
+            attacker_action_vec = ones(1, env.n_stations);
+            for s = 1:env.n_stations
+                attacker_action_vec(s) = randi([2, env.n_attack_types]);
+            end
+        else
+            attacker_action_vec = ones(1, env.n_stations); % 默认安全动作
+        end
         for agent_idx = 1:n_agents
             defender = defender_agents{agent_idx};
-            defender_action = defender.selectAction(state);
-            if is_attack_episode
-                if ismethod(env, 'getCurrentResourceAllocation')
-                    current_allocation = env.getCurrentResourceAllocation();
-                    weak_areas = find(sum(current_allocation, 2) < mean(sum(current_allocation, 2)));
-                    if ~isempty(weak_areas)
-                        target_component = weak_areas(randi(length(weak_areas)));
-                    else
-                        target_component = randi(env.total_components);
-                    end
-                else
-                    target_component = randi(env.total_components);
-                end
-                attack_type = randi([2, min(env.n_attack_types, 5)]);
-                attacker_action = 1 + (attack_type - 2) * env.total_components + target_component;
-            else
-                attacker_action = 1;
+            % --- 提取每站重要性特征作为state_vec ---
+            n_stations = env.n_stations;
+            station_features = state(1:n_stations*8);
+            state_vec = zeros(1, n_stations);
+            for s = 1:n_stations
+                state_vec(s) = station_features((s-1)*8 + 1);
             end
-            defender_action = max(1, min(defender_action, env.action_dim_defender));
-            attacker_action = max(1, min(attacker_action, env.action_dim_attacker));
-            [next_state, reward_def, reward_att, info] = env.step(defender_action, attacker_action);
+            defender_action = defender.selectAction(state_vec);
+            % --- Robust shape check for defender_action ---
+            if isempty(defender_action) || numel(defender_action) ~= 5
+                warning('main_improved_fsp_simulation: defender_action is empty or not length 5, auto-fixing...');
+                defender_action = ones(1, 5);
+            end
+            defender_action = reshape(defender_action, 1, 5);
+            % --- Robust shape check for attacker_action_vec ---
+            if isempty(attacker_action_vec) || numel(attacker_action_vec) ~= 5
+                warning('main_improved_fsp_simulation: attacker_action_vec is empty or not length 5, auto-fixing...');
+                attacker_action_vec = ones(1, 5);
+            end
+            attacker_action_vec = reshape(attacker_action_vec, 1, 5);
+            [next_state, reward_def, reward_att, info] = env.step(defender_action, attacker_action_vec);
+            % --- 提取next_state_vec ---
+            next_station_features = next_state(1:n_stations*8);
+            next_state_vec = zeros(1, n_stations);
+            for s = 1:n_stations
+                next_state_vec(s) = next_station_features((s-1)*8 + 1);
+            end
             if isfield(info, 'resource_allocation')
-                current_allocation = info.resource_allocation;
+                if size(info.resource_allocation, 1) > 1
+                    current_allocation = info.resource_allocation(agent_idx, :);
+                else
+                    current_allocation = info.resource_allocation;
+                end
             else
                 current_allocation = ones(1, 5) * 0.2;
             end
+            assert(isvector(current_allocation) && numel(current_allocation) == 5, ...
+                'current_allocation must be a 1x5 vector, got size %s', mat2str(size(current_allocation)));
             radi = calculateRADI(current_allocation, config.radi.optimal_allocation, config.radi);
             efficiency = calculateResourceEfficiency(current_allocation, info);
             balance = calculateAllocationBalance(current_allocation);
@@ -226,18 +260,33 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
             episode_results.defender_rewards(ep, agent_idx) = radi_reward;
             episode_results.resource_allocations(ep, agent_idx, :) = current_allocation;
             if isa(defender, 'SARSAAgent')
-                next_action = defender.selectAction(next_state);
-                defender.update(state, defender_action, radi_reward, next_state, next_action);
+                next_action = defender.selectAction(next_state_vec);
+                defender.update(state_vec, defender_action, radi_reward, next_state_vec, next_action);
             else
-                defender.update(state, defender_action, radi_reward, next_state, []);
+                defender.update(state_vec, defender_action, radi_reward, next_state_vec, []);
             end
             if agent_idx == 1
                 episode_results.attack_info{ep} = info;
             end
         end
+        % --- Robust shape check for attacker_action_vec before update ---
+        if isempty(attacker_action_vec) || numel(attacker_action_vec) ~= 5
+            warning('main_improved_fsp_simulation: attacker_action_vec is empty or not length 5 (update), auto-fixing...');
+            attacker_action_vec = ones(1, 5);
+        end
+        attacker_action_vec = reshape(attacker_action_vec, 1, 5);
+        % --- 提取attacker_state_vec/next_state_vec ---
+        attacker_state_vec = zeros(1, n_stations);
+        for s = 1:n_stations
+            attacker_state_vec(s) = station_features((s-1)*8 + 1);
+        end
+        next_attacker_state_vec = zeros(1, n_stations);
+        for s = 1:n_stations
+            next_attacker_state_vec(s) = next_station_features((s-1)*8 + 1);
+        end
         avg_radi = mean(episode_results.radi_scores(ep, :));
         attacker_reward = avg_radi * 10;
-        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
+        attacker_agent.update(attacker_state_vec, attacker_action_vec, attacker_reward, next_attacker_state_vec, []);
         episode_results.attacker_rewards(ep) = attacker_reward;
     end
     episode_results.avg_radi = mean(episode_results.radi_scores, 1);
@@ -259,15 +308,16 @@ end
 function checkAndAdjustPerformanceRADI(defender_agents, monitor, iter, config)
     results = monitor.getResults();
     last_iters = max(1, iter-49):iter;
-    for i = 1:length(defender_agents)
-        if isfield(results, 'radi_scores')
-            avg_radi = mean(results.radi_scores(i, last_iters));
-            if avg_radi > 0.4
+    if isfield(results, 'radi_scores')
+        avg_radi = mean(results.radi_scores(last_iters));
+        if avg_radi > 0.4
+            for i = 1:length(defender_agents)
                 defender_agents{i}.epsilon = min(0.5, defender_agents{i}.epsilon * 1.5);
                 defender_agents{i}.learning_rate = min(0.3, defender_agents{i}.learning_rate * 1.2);
-                fprintf('  [警告] %s RADI过高(%.3f)，调整参数\n', ...
-                       defender_agents{i}.name, avg_radi);
-            elseif avg_radi < 0.1
+                fprintf('  [警告] %s RADI过高(%.3f)，调整参数\n', defender_agents{i}.name, avg_radi);
+            end
+        elseif avg_radi < 0.1
+            for i = 1:length(defender_agents)
                 defender_agents{i}.epsilon = max(0.05, defender_agents{i}.epsilon * 0.9);
             end
         end
@@ -281,33 +331,25 @@ function displayFinalPerformance(results)
     last_iters = max(1, results.n_iterations-99):results.n_iterations;
     agent_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
     for i = 1:results.n_agents
-        if isfield(results, 'radi_scores')
-            avg_radi = mean(results.radi_scores(i, last_iters));
-            avg_efficiency = mean(results.resource_efficiency(i, last_iters));
-            avg_balance = mean(results.allocation_balance(i, last_iters));
-            fprintf('\n%s:\n', agent_names{i});
-            fprintf('  - 平均RADI: %.3f\n', avg_radi);
-            fprintf('  - 资源效率: %.2f%%\n', avg_efficiency * 100);
-            fprintf('  - 分配平衡度: %.2f%%\n', avg_balance * 100);
-            if avg_radi <= 0.1
-                fprintf('  - 评估: 优秀 ✓\n');
-            elseif avg_radi <= 0.2
-                fprintf('  - 评估: 良好\n');
-            elseif avg_radi <= 0.3
-                fprintf('  - 评估: 一般\n');
-            else
-                fprintf('  - 评估: 需要改进\n');
-            end
-            if isfield(results, 'final_allocations') && size(results.final_allocations, 1) >= i
-                fprintf('  - 最终资源分配: [%.2f, %.2f, %.2f, %.2f, %.2f]\n', ...
-                       results.final_allocations(i, :));
-            end
+        avg_radi = mean(results.radi(i, last_iters));
+        avg_efficiency = mean(results.resource_efficiency(i, last_iters));
+        avg_balance = mean(results.allocation_balance(i, last_iters));
+        fprintf('\n%s:\n', agent_names{i});
+        fprintf('  - 平均RADI: %.3f\n', avg_radi);
+        fprintf('  - 资源效率: %.2f%%\n', avg_efficiency * 100);
+        fprintf('  - 分配平衡度: %.2f%%\n', avg_balance * 100);
+        if avg_radi <= 0.1
+            fprintf('  - 评估: 优秀 ✓\n');
+        elseif avg_radi <= 0.2
+            fprintf('  - 评估: 良好\n');
+        elseif avg_radi <= 0.3
+            fprintf('  - 评估: 一般\n');
         else
-            avg_detection = mean(results.detection_rates(i, last_iters));
-            avg_resource = mean(results.resource_utilization(i, last_iters));
-            fprintf('\n%s (传统指标):\n', agent_names{i});
-            fprintf('  - 平均检测率: %.2f%%\n', avg_detection * 100);
-            fprintf('  - 资源利用率: %.2f%%\n', avg_resource * 100);
+            fprintf('  - 评估: 需要改进\n');
+        end
+        if isfield(results, 'final_allocations') && size(results.final_allocations, 1) >= i
+            fprintf('  - 最终资源分配: [%.2f, %.2f, %.2f, %.2f, %.2f]\n', ...
+                   results.final_allocations(i, :));
         end
     end
     fprintf('\n========================================\n');
@@ -315,6 +357,8 @@ end
 
 %% RADI相关辅助函数
 function radi = calculateRADI(current_allocation, optimal_allocation, radi_config)
+    current_allocation = reshape(current_allocation, 1, []); % 保证为行向量
+    optimal_allocation = reshape(optimal_allocation, 1, []);
     weights = [
         radi_config.weight_computation,
         radi_config.weight_bandwidth,
@@ -323,15 +367,16 @@ function radi = calculateRADI(current_allocation, optimal_allocation, radi_confi
         radi_config.weight_inspection
     ];
     deviation = abs(current_allocation - optimal_allocation);
-    radi = sum(weights .* deviation);
+    deviation = deviation(:)'; % 强制为1x5行向量
+    weights = weights(:)';     % 强制为1x5行向量
+    radi = sum(weights .* deviation, 2); % 明确sum为标量
+    radi = radi(1); % 保证输出为标量
 end
 function efficiency = calculateResourceEfficiency(allocation, info)
-    if isfield(info, 'defended_successfully')
-        total_resources = sum(allocation);
-        efficiency = info.defended_successfully / (1 + total_resources/100);
+    if isfield(info, 'game_result') && isfield(info.game_result, 'resource_efficiency')
+        efficiency = info.game_result.resource_efficiency;
     else
-        utilization = sum(allocation) / 5;
-        efficiency = min(1, utilization);
+        efficiency = sum(allocation) / 5;
     end
 end
 function balance = calculateAllocationBalance(allocation)

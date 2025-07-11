@@ -61,6 +61,11 @@ classdef PerformanceMonitor < handle
             obj.evaluateCurrentPerformance(metrics, radi);
         end
         
+        function update(obj, episode, metrics, varargin)
+            % 兼容旧接口，直接调用 updateMetrics
+            obj.updateMetrics(episode, metrics);
+        end
+        
         function radi = calculateRADI(obj, resource_allocation)
             optimal = obj.config.radi.optimal_allocation;
             weights = [obj.config.radi.weight_computation, obj.config.radi.weight_bandwidth, obj.config.radi.weight_sensors, obj.config.radi.weight_scanning, obj.config.radi.weight_inspection];
@@ -160,6 +165,21 @@ classdef PerformanceMonitor < handle
             if isempty(suggestions)
                 suggestions{1} = '当前资源分配策略表现良好，继续保持';
             end
+        end
+
+        function results = getResults(obj)
+            % 返回所有关键监控指标
+            results = struct();
+            results.radi_scores = obj.radi_scores;
+            results.resource_efficiency = obj.resource_efficiency;
+            results.allocation_balance = obj.allocation_balance;
+            results.episode_rewards = obj.episode_rewards;
+            results.training_loss = obj.training_loss;
+            results.exploration_rates = obj.exploration_rates;
+            results.resource_allocations = obj.resource_allocations;
+            results.best_performance = obj.best_performance;
+            results.n_iterations = obj.n_iterations;
+            results.n_agents = obj.n_agents;
         end
     end
 end

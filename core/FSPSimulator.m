@@ -29,23 +29,20 @@ classdef FSPSimulator
     for ep = 1:n_episodes
         state = env.reset();
         is_attack_episode = rand() < 0.7;
+        defender_action_vecs = zeros(n_agents, env.n_stations);
         for agent_idx = 1:n_agents
             defender = defender_agents{agent_idx};
-            defender_action = defender.selectAction(state);
-            if is_attack_episode
-                current_allocation = env.getCurrentResourceAllocation();
-                weak_areas = find(sum(current_allocation, 2) < mean(sum(current_allocation, 2)));
-                if ~isempty(weak_areas)
-                    target_component = weak_areas(randi(length(weak_areas)));
-                    attack_type = randi([2, env.n_attack_types]);
-                    attacker_action = (attack_type - 1) * env.total_components + target_component;
-                else
-                    attacker_action = attacker_agent.selectAction(state);
-                end
-            else
-                attacker_action = 1;
-            end
-            [next_state, reward, ~, info] = env.step(defender_action, attacker_action);
+            defender_action_vecs(agent_idx, :) = defender.selectAction(state);
+        end
+        if is_attack_episode
+            attacker_action_vec = attacker_agent.selectAction(state);
+        else
+            attacker_action_vec = ones(1, env.n_stations); % 默认安全动作
+        end
+        for agent_idx = 1:n_agents
+            defender = defender_agents{agent_idx};
+            defender_action_vec = defender_action_vecs(agent_idx, :);
+            [next_state, reward, ~, info] = env.step(defender_action_vec, attacker_action_vec);
             current_allocation = info.resource_allocation;
             radi = calculateRADI(current_allocation, config.radi.optimal_allocation, config.radi);
             efficiency = calculateResourceEfficiency(current_allocation, info);
@@ -56,7 +53,7 @@ classdef FSPSimulator
             episode_results.allocation_balance(ep, agent_idx) = balance;
             episode_results.defender_rewards(ep, agent_idx) = radi_reward;
             episode_results.resource_allocations(ep, agent_idx, :) = current_allocation;
-            experience = struct('state', state, 'action', defender_action, ...
+            experience = struct('state', state, 'action', defender_action_vec, ...
                               'reward', radi_reward, 'next_state', next_state, ...
                               'info', info, 'radi', radi);
             experience_buffer{agent_idx}(end+1) = experience;
@@ -64,10 +61,10 @@ classdef FSPSimulator
                 experience_buffer{agent_idx}(1) = [];
             end
             if isa(defender, 'SARSAAgent')
-                next_action = defender.selectAction(next_state);
-                defender.update(state, defender_action, radi_reward, next_state, next_action);
+                next_action_vec = defender.selectAction(next_state);
+                defender.update(state, defender_action_vec, radi_reward, next_state, next_action_vec);
             else
-                defender.update(state, defender_action, radi_reward, next_state, []);
+                defender.update(state, defender_action_vec, radi_reward, next_state, []);
             end
             if mod(ep, 10) == 0 && length(experience_buffer{agent_idx}) > 50
                 radi_values = arrayfun(@(x) x.radi, experience_buffer{agent_idx});
@@ -80,8 +77,8 @@ classdef FSPSimulator
                     end
                     exp = experience_buffer{agent_idx}(idx);
                     if isa(defender, 'SARSAAgent')
-                        next_action = defender.selectAction(exp.next_state);
-                        defender.update(exp.state, exp.action, exp.reward, exp.next_state, next_action);
+                        next_action_vec = defender.selectAction(exp.next_state);
+                        defender.update(exp.state, exp.action, exp.reward, exp.next_state, next_action_vec);
                     else
                         defender.update(exp.state, exp.action, exp.reward, exp.next_state, []);
                     end
@@ -90,7 +87,7 @@ classdef FSPSimulator
         end
         avg_radi = mean(episode_results.radi_scores(ep, :));
         attacker_reward = avg_radi * 10;
-        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
+        attacker_agent.update(state, attacker_action_vec, attacker_reward, next_state, []);
         episode_results.attacker_rewards(ep) = attacker_reward;
         episode_results.attack_info{ep} = info;
     end

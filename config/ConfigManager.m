@@ -60,6 +60,7 @@ classdef ConfigManager
                                   'supply_chain', 'protocol_exploit', 'maintenance_port'};
             config.attack_severity = [0.3, 0.5, 0.7, 0.4, 0.6, 0.8];
             config.attack_detection_difficulty = [0.4, 0.3, 0.7, 0.8, 0.6, 0.5];
+            % 资源类型和效率（确保非空且长度一致）
             config.resource_types = {'computation', 'bandwidth', 'sensors', ...
                                    'scanning_freq', 'inspection_depth'};
             config.resource_effectiveness = [0.7, 0.6, 0.8, 0.5, 0.9];

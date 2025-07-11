@@ -101,10 +101,6 @@ classdef TCSEnvironment < handle
             obj.n_resource_types = length(obj.resource_types);
             obj.total_resources = config.total_resources;
             
-            % 健壮性检查
-            if obj.n_resource_types == 0
-                error('No resource types defined! Please check config.resource_types and config.resource_effectiveness.');
-            end
             obj.initializeRewardWeights(config);
             obj.calculateSpaceDimensions();
             
@@ -127,11 +123,6 @@ classdef TCSEnvironment < handle
                     importance_factor = 0.5 + 0.5 * rand(); % 将在initializeComponents后更新
                     obj.defense_costs(i, j) = base_cost * importance_factor;
                 end
-            end
-            
-            % 健壮性检查
-            if obj.n_resource_types == 0
-                error('No resource types defined! Please check config.resource_types and config.resource_effectiveness.');
             end
             
             % 初始化策略向量 - 均匀分布
@@ -311,10 +302,10 @@ classdef TCSEnvironment < handle
             threat_level = (vulnerability_score + connectivity_score + importance_score) / 3;
         end
         
-        function [next_state, reward_def, reward_att, info] = step(obj, defender_action_vec, attacker_action_vec)
+        function [next_state, reward_def, reward_att, info] = step(obj, defender_action, attacker_action)
             % 解析动作为站点级决策向量
-            obj.defender_actions = obj.parseDefenderAction(defender_action_vec);
-            obj.attacker_actions = obj.parseAttackerAction(attacker_action_vec);
+            obj.defender_actions = obj.parseDefenderAction(defender_action);
+            obj.attacker_actions = obj.parseAttackerAction(attacker_action);
             
             % 检查并执行资源约束
             [obj.defender_actions, resource_violation] = obj.enforceResourceConstraints(obj.defender_actions);
@@ -323,8 +314,7 @@ classdef TCSEnvironment < handle
             obj.computeOptimalStrategies();
             
             % 计算RADI指数
-            obj.radi_defender = obj.calculateRADI(obj.optimal_defender_strategy, obj.defender_strategy);
-            obj.radi_attacker = obj.calculateRADI(obj.optimal_attacker_strategy, obj.attacker_strategy);
+            obj.calculateRADI();
             
             % 基于RADI更新策略
             obj.updateStrategiesBasedOnRADI();
@@ -354,76 +344,92 @@ classdef TCSEnvironment < handle
             info.current_strategies.defender = obj.defender_strategy;
             info.resource_violation = resource_violation;
             info.game_result = game_result;
-            % --- 新增：返回本轮agent实际动作分配（归一化） ---
-            alloc = defender_action_vec;
-            alloc = max(0, alloc); alloc = alloc / (sum(alloc) + eps); % 归一化为概率分布
-            info.resource_allocation = alloc;
-            % ... existing code ...
             
             obj.time_step = obj.time_step + 1;
         end
         
-               function defender_actions = parseDefenderAction(obj, action_vec)
-            % 输入action_vec: 1 x n_stations，每个元素为防御措施编号
+               function defender_actions = parseDefenderAction(obj, action)
+            % 将动作索引转换为站点级防御决策向量
             defender_actions = zeros(1, obj.n_stations);
-            for j = 1:obj.n_stations
-                a = action_vec(j);
-                if isempty(a) || isnan(a) || isinf(a) || a < 1 || round(a) ~= a
-                    defender_actions(j) = 1; % 默认安全动作
-                else
-                    defender_actions(j) = min(max(1, a), obj.n_resource_types);
-                end
+            
+            % 健壮性检查：确保 action 是一个有效的、有限的、正整数
+            if isempty(action) || isnan(action) || isinf(action) || action < 1 || round(action) ~= action
+                warning('TCSEnvironment:InvalidAction', '接收到无效的防御动作值 (%f)。默认选择站点1的第一个防御类型。', action);
+                % 默认到一个安全的、有效的动作，例如选择第一个站点，第一个防御类型
+                station = 1;
+                defense_type = 1;
+            else
+                % 确保动作在有效范围内
+                action = max(1, min(action, obj.action_dim_defender));
+                
+                % 计算选择的站点和防御类型
+                station = ceil(action / obj.n_resource_types);
+                defense_type = mod(action - 1, obj.n_resource_types) + 1;
             end
+
+            % 确保索引有效（在进行赋值前再次检查）
+            % 即使 action 经过了处理，这里也确保 station 和 defense_type 不会越界
+            station = max(1, min(station, obj.n_stations));
+            defense_type = max(1, min(defense_type, obj.n_resource_types));
+            
+            defender_actions(station) = defense_type;
         end
         
-        function attacker_actions = parseAttackerAction(obj, action_vec)
-            % 输入action_vec: 1 x n_stations，每个元素为攻击类型编号
+        function attacker_actions = parseAttackerAction(obj, action)
+            % 将动作索引转换为站点级攻击决策向量
             attacker_actions = zeros(1, obj.n_stations);
-            for j = 1:obj.n_stations
-                a = action_vec(j);
-                if isempty(a) || isnan(a) || isinf(a) || a < 1 || round(a) ~= a
-                    attacker_actions(j) = 1; % 默认安全动作
-                else
-                    attacker_actions(j) = min(max(1, a), obj.n_attack_types);
-                end
-            end
+            
+            % 确保动作在有效范围内
+            action = max(1, min(action, obj.action_dim_attacker));
+            
+            % 计算选择的站点和攻击类型
+            station = ceil(action / obj.n_attack_types);
+            attack_type = mod(action - 1, obj.n_attack_types) + 1;
+            
+            % 确保索引有效
+            station = max(1, min(station, obj.n_stations));
+            attack_type = max(1, min(attack_type, obj.n_attack_types));
+            
+            attacker_actions(station) = attack_type;
         end
         
-       function [constrained_actions, violation] = enforceResourceConstraints(obj, defender_actions)
-            % Robust shape check
-            if isempty(defender_actions) || numel(defender_actions) ~= 5
-                warning('TCSEnvironment.enforceResourceConstraints: defender_actions is empty or not length 5, auto-fixing...');
-                defender_actions = ones(1, 5);
-            end
-            defender_actions = reshape(defender_actions, 1, 5);
+        function [constrained_actions, violation] = enforceResourceConstraints(obj, defender_actions)
+            % 实施资源约束：∑C(dj) ≤ S_total
             constrained_actions = defender_actions;
             violation = false;
-            max_defense = size(obj.defense_costs, 2);
-            if max_defense == 0 || isempty(obj.defense_costs)
-                warning('No defense resources defined. Auto-rebuilding defense_costs...');
-                if isempty(obj.n_stations) || isempty(obj.n_resource_types) || obj.n_resource_types == 0
-                    error('Cannot rebuild defense_costs: n_stations or n_resource_types is invalid.');
-                end
-                obj.defense_costs = ones(obj.n_stations, obj.n_resource_types) * 10;
-                max_defense = size(obj.defense_costs, 2);
-            end
+            
+            % 计算总成本
             total_cost = 0;
-            for j = 1:obj.n_stations
-                idx = min(defender_actions(j), max_defense);
-                total_cost = total_cost + obj.defense_costs(j, idx);
+            for station = 1:obj.n_stations
+                if defender_actions(station) > 0
+                    % 修正：确保索引不越界
+                    max_defense = size(obj.defense_costs,2);
+                    defense_idx = min(defender_actions(station), max_defense);
+                    total_cost = total_cost + obj.defense_costs(station, defense_idx);
+                end
             end
+            
+            % 检查是否违反资源约束
             if total_cost > obj.total_resources
                 violation = true;
-                [~, order] = sort(obj.optimal_defender_strategy, 'descend');
+                % 基于最优策略调整资源分配
+                station_priorities = obj.optimal_defender_strategy;
+                [~, priority_order] = sort(station_priorities, 'descend');
+                
                 current_cost = 0;
                 constrained_actions = zeros(1, obj.n_stations);
-                for k = 1:length(order)
-                    j = order(k);
-                    idx = min(defender_actions(j), max_defense);
-                    new_cost = current_cost + obj.defense_costs(j, idx);
-                    if new_cost <= obj.total_resources
-                        constrained_actions(j) = idx;
-                        current_cost = new_cost;
+                
+                % 按优先级分配资源
+                for i = 1:length(priority_order)
+                    station = priority_order(i);
+                    if defender_actions(station) > 0
+                        max_defense = size(obj.defense_costs,2);
+                        defense_idx = min(defender_actions(station), max_defense);
+                        new_cost = current_cost + obj.defense_costs(station, defense_idx);
+                        if new_cost <= obj.total_resources
+                            constrained_actions(station) = defense_idx;
+                            current_cost = new_cost;
+                        end
                     end
                 end
             end
@@ -474,25 +480,47 @@ classdef TCSEnvironment < handle
                 
                 % 成本效率调整
                 min_cost = min(obj.defense_costs(station, :));
-                if isempty(min_cost) || min_cost == 0
-                    cost_efficiency = 1;
-                else
-                    cost_efficiency = obj.total_resources / (min_cost * obj.n_stations);
-                end
+                cost_efficiency = obj.total_resources / (min_cost * obj.n_stations);
                 
                 defense_utilities(station) = base_utility * min(1, cost_efficiency);
             end
         end
         
-        function radi = calculateRADI(obj, optimal_strategy, actual_allocation)
-            n = length(optimal_strategy);
-            radi = 0;
-            for j = 1:n
-                if abs(optimal_strategy(j)) > 1e-6
-                    radi = radi + abs(optimal_strategy(j) - actual_allocation(j)) / abs(optimal_strategy(j));
+        function calculateRADI(obj)
+            % 计算资源分配偏差指数
+            % RADI = ∑||p_j - d_j|| / ||p_j||
+            
+            % 防御者RADI
+            obj.radi_defender = 0;
+            valid_stations = 0;
+            for station = 1:obj.n_stations
+                if obj.optimal_defender_strategy(station) > 1e-6  % 避免除零
+                    actual_allocation = obj.defender_strategy(station);
+                    optimal_allocation = obj.optimal_defender_strategy(station);
+                    deviation = abs(actual_allocation - optimal_allocation);
+                    obj.radi_defender = obj.radi_defender + deviation / optimal_allocation;
+                    valid_stations = valid_stations + 1;
                 end
             end
-            radi = radi / n;
+            if valid_stations > 0
+                obj.radi_defender = obj.radi_defender / valid_stations;
+            end
+            
+            % 攻击者RADI
+            obj.radi_attacker = 0;
+            valid_stations = 0;
+            for station = 1:obj.n_stations
+                if obj.optimal_attacker_strategy(station) > 1e-6  % 避免除零
+                    actual_allocation = obj.attacker_strategy(station);
+                    optimal_allocation = obj.optimal_attacker_strategy(station);
+                    deviation = abs(actual_allocation - optimal_allocation);
+                    obj.radi_attacker = obj.radi_attacker + deviation / optimal_allocation;
+                    valid_stations = valid_stations + 1;
+                end
+            end
+            if valid_stations > 0
+                obj.radi_attacker = obj.radi_attacker / valid_stations;
+            end
         end
         
         function updateStrategiesBasedOnRADI(obj)
@@ -653,9 +681,8 @@ classdef TCSEnvironment < handle
             % 计算总防御成本
             total_cost = 0;
             for station = 1:obj.n_stations
-                idx = min(max(1, obj.defender_actions(station)), size(obj.defense_costs, 2));
-                if idx > 0
-                    total_cost = total_cost + obj.defense_costs(station, idx);
+                if obj.defender_actions(station) > 0
+                    total_cost = total_cost + obj.defense_costs(station, obj.defender_actions(station));
                 end
             end
         end
