@@ -1673,3 +1673,43 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-11 10:04:19] [INFO] 改进版FSP仿真开始
 [2025-07-11 10:04:20] [ERROR] 仿真出错: 未识别类 'PerformanceMonitor' 的方法、属性或字段 'display_interval'。
 [2025-07-11 10:04:20] [ERROR] 错误位置: D:\CODE\FSP\core\PerformanceMonitor.m, 行号: 126
+[2025-07-11 10:05:12] [INFO] 日志系统初始化
+[2025-07-11 10:05:12] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:16:06] [INFO] 日志系统初始化
+[2025-07-11 10:16:06] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:16:07] [ERROR] 仿真出错: 串联维度不一致，因为 1×9 'char' 数组已转换为 1×1 'cell' 数组。请在串联之前考虑创建相同类型的数组。
+[2025-07-11 10:16:07] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 72
+[2025-07-11 10:18:02] [INFO] 日志系统初始化
+[2025-07-11 10:18:02] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:18:02] [ERROR] 仿真出错: 要串联的数组的维度不一致。
+[2025-07-11 10:18:02] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 72
+[2025-07-11 10:18:50] [INFO] 日志系统初始化
+[2025-07-11 10:18:50] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:18:50] [ERROR] 仿真出错: 要串联的数组的维度不一致。
+[2025-07-11 10:18:50] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 72
+[2025-07-11 10:19:39] [INFO] 日志系统初始化
+[2025-07-11 10:19:39] [INFO] 改进版FSP仿真开始
+[2025-07-11 10:19:39] [ERROR] 仿真出错: 串联维度不一致，因为 1×9 'char' 数组已转换为 1×1 'cell' 数组。请在串联之前考虑创建相同类型的数组。
+[2025-07-11 10:19:39] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 72
+[2025-07-11 11:06:58] [INFO] 日志系统初始化
+[2025-07-11 11:06:58] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:06:58] [ERROR] 仿真出错: 要串联的数组的维度不一致。
+[2025-07-11 11:06:58] [ERROR] 错误位置: D:\CODE\FSP\core\CyberBattleTCSEnvironment.m, 行号: 73
+[2025-07-11 11:08:40] [INFO] 日志系统初始化
+[2025-07-11 11:08:40] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:08:40] [ERROR] 仿真出错: 未定义与 'CyberBattleTCSEnvironment' 类型的输入参数相对应的函数 'runImprovedEpisodes'。
+[2025-07-11 11:08:40] [ERROR] 错误位置: D:\CODE\FSP\main_improved_fsp_simulation.m, 行号: 153
+[2025-07-11 11:09:33] [INFO] 日志系统初始化
+[2025-07-11 11:09:33] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:15:46] [ERROR] 仿真出错: 无法解析名称 'ReportGenerator.generateFullReport'。
+[2025-07-11 11:15:46] [ERROR] 错误位置: D:\CODE\FSP\main_improved_fsp_simulation.m, 行号: 96
+[2025-07-11 11:18:36] [INFO] 日志系统初始化
+[2025-07-11 11:18:36] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:19:12] [INFO] 日志系统初始化
+[2025-07-11 11:19:12] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:19:15] [ERROR] 仿真出错: 错误: <a href="matlab: opentoline('D:\CODE\FSP\visualization\EnhancedReportGenerator.m',345,5)">文件: EnhancedReportGenerator.m 行: 345 列: 5</a>
+函数定义在此上下文中不受支持。函数只能作为代码文件中的局部函数或嵌套函数创建。
+[2025-07-11 11:19:15] [ERROR] 错误位置: D:\CODE\FSP\main_improved_fsp_simulation.m, 行号: 98
+[2025-07-11 11:21:53] [INFO] 日志系统初始化
+[2025-07-11 11:21:53] [INFO] 改进版FSP仿真开始
+[2025-07-11 11:22:11] [INFO] 改进版仿真成功完成

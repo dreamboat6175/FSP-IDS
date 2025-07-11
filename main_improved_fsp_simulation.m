@@ -18,7 +18,7 @@ try
     % --- 您可以在此调整关键参数 ---
     config.learning_rate = 0.2;  % 建议的学习率
     config.epsilon = 0.6;        % 建议的初始探索率
-    config.n_iterations = 1000;  % 建议增加迭代次数以保证收敛
+    config.n_iterations = 10;  % 建议增加迭代次数以保证收敛
     
     % 2. 初始化日志系统
     logger = Logger(config.log_file);
@@ -90,10 +90,12 @@ try
     
     % 9. 结果分析
     fprintf('\n正在生成分析报告...\n');
-    if exist('EnhancedReportGenerator', 'class')
+    try
         EnhancedReportGenerator.generateEnhancedReport(results, config, trained_agents, env);
-    else
-        ReportGenerator.generateFullReport(results, config, trained_agents, env);
+    catch ME
+        fprintf('报告生成出错: %s\n', ME.message);
+        fprintf('使用简化报告生成...\n');
+        EnhancedReportGenerator.generateSimpleReport(results, config);
     end
     
     % 10. 保存结果
@@ -150,7 +152,7 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
         attacker_agent.epsilon = current_epsilon * 0.5;  % 攻击者探索率较低
         
         % 运行episodes
-        episode_results = runImprovedEpisodes(env, defender_agents, attacker_agent, n_episodes);
+        episode_results = improvedRunEpisodes(env, defender_agents, attacker_agent, n_episodes);
         
         % 更新监控
         monitor.update(iter, episode_results, defender_agents, attacker_agent, env);
@@ -174,59 +176,167 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
     trained_agents.attacker = attacker_agent;
 end
 
-function episode_results = runImprovedEpisodes(env, defender_agents, attacker_agent, n_episodes)
-    % 运行改进的episodes
+function episode_results = improvedRunEpisodes(env, defender_agents, attacker_agent, n_episodes)
+    % 改进的episodes运行函数，确保正确跟踪检测指标
     
     n_agents = length(defender_agents);
+    
+    % 初始化结果矩阵
     episode_results.detections = zeros(n_episodes, n_agents);
     episode_results.defender_rewards = zeros(n_episodes, n_agents);
     episode_results.attacker_rewards = zeros(n_episodes, 1);
+    episode_results.false_positives = zeros(n_episodes, n_agents);
+    episode_results.attack_info = cell(n_episodes, 1);
     
+    % 初始化每个智能体的统计
+    agent_stats = struct();
+    for i = 1:n_agents
+        agent_stats(i).tp = 0;  % True Positives
+        agent_stats(i).tn = 0;  % True Negatives
+        agent_stats(i).fp = 0;  % False Positives
+        agent_stats(i).fn = 0;  % False Negatives
+        agent_stats(i).total_detections = 0;
+        agent_stats(i).total_attacks = 0;
+        agent_stats(i).total_no_attacks = 0;
+    end
+    
+    % 运行episodes
     for ep = 1:n_episodes
         % 重置环境
         state = env.reset();
         
-        % 每个防御智能体分别训练
+        % 重置环境的连续正确计数
+        env.consecutive_correct = 0;
+        
+        % 决定这个episode是否包含攻击（70%概率有攻击）
+        is_attack_episode = rand() < 0.7;
+        
+        % 为每个防御智能体运行
         for agent_idx = 1:n_agents
-            % 防御者选择动作
-            defender_action = defender_agents{agent_idx}.selectAction(state);
+            defender = defender_agents{agent_idx};
             
-            % 攻击者选择动作（针对性攻击）
-            if rand() < 0.7  % 70%概率选择重要目标
-                important_components = find(env.component_importance > 0.5);
+            % 防御者选择动作
+            defender_action = defender.selectAction(state);
+            
+            % 攻击者策略
+            if is_attack_episode
+                % 智能攻击：优先攻击重要组件
+                important_components = find(env.component_importance > 0.6);
                 if ~isempty(important_components)
-                    attacker_action = important_components(randi(length(important_components)));
+                    target_component = important_components(randi(length(important_components)));
+                    attack_type = randi([2, min(env.n_attack_types, 5)]); % 随机选择攻击类型
+                    
+                    % 计算攻击者动作
+                    attacker_action = 1 + (attack_type - 2) * env.total_components + target_component;
                 else
-                    attacker_action = attacker_agent.selectAction(state);
+                    % 随机攻击
+                    target_component = randi(env.total_components);
+                    attack_type = randi([2, min(env.n_attack_types, 5)]);
+                    attacker_action = 1 + (attack_type - 2) * env.total_components + target_component;
                 end
             else
-                attacker_action = attacker_agent.selectAction(state);
+                % 无攻击
+                attacker_action = 1;
             end
             
-            % 环境交互
-            [next_state, reward_def, reward_att, info] = ...
-                env.step(defender_action, attacker_action);
+            % 确保动作在有效范围内
+            defender_action = max(1, min(defender_action, env.action_dim_defender));
+            attacker_action = max(1, min(attacker_action, env.action_dim_attacker));
             
-            % 记录结果
+            % 环境交互
+            [next_state, reward_def, reward_att, info] = env.step(defender_action, attacker_action);
+            
+            % 记录检测结果
             episode_results.detections(ep, agent_idx) = info.detected;
             episode_results.defender_rewards(ep, agent_idx) = reward_def;
-            episode_results.attacker_rewards(ep) = reward_att;
             
-            % 更新防御者
-            defender_agents{agent_idx}.update(state, defender_action, ...
-                                           reward_def, next_state, []);
+            % 更新统计
+            switch info.detection_category
+                case 'TP'
+                    agent_stats(agent_idx).tp = agent_stats(agent_idx).tp + 1;
+                    agent_stats(agent_idx).total_detections = agent_stats(agent_idx).total_detections + 1;
+                case 'TN'
+                    agent_stats(agent_idx).tn = agent_stats(agent_idx).tn + 1;
+                case 'FP'
+                    agent_stats(agent_idx).fp = agent_stats(agent_idx).fp + 1;
+                    episode_results.false_positives(ep, agent_idx) = 1;
+                case 'FN'
+                    agent_stats(agent_idx).fn = agent_stats(agent_idx).fn + 1;
+            end
             
-            % 定期更新攻击者
-            if mod(ep, 5) == 0
-                attacker_agent.update(state, attacker_action, reward_att, next_state, []);
+            % 记录攻击信息
+            if info.is_attack
+                agent_stats(agent_idx).total_attacks = agent_stats(agent_idx).total_attacks + 1;
+            else
+                agent_stats(agent_idx).total_no_attacks = agent_stats(agent_idx).total_no_attacks + 1;
+            end
+            
+            % 更新智能体
+            if isa(defender, 'SARSAAgent')
+                % SARSA需要下一个动作
+                next_action = defender.selectAction(next_state);
+                defender.update(state, defender_action, reward_def, next_state, next_action);
+            else
+                % Q-Learning和Double Q-Learning
+                defender.update(state, defender_action, reward_def, next_state, []);
+            end
+            
+            % 记录攻击信息（仅在第一个智能体时）
+            if agent_idx == 1
+                episode_results.attack_info{ep} = info;
+            end
+        end
+        
+        % 更新攻击者（使用平均防御奖励的负值）
+        avg_defender_reward = mean(episode_results.defender_rewards(ep, :));
+        attacker_reward = -avg_defender_reward * 0.8;
+        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
+        episode_results.attacker_rewards(ep) = attacker_reward;
+        
+        % 每10个episode进行经验回放
+        if mod(ep, 10) == 0
+            for agent_idx = 1:n_agents
+                % 这里可以添加经验回放逻辑
             end
         end
     end
     
-    % 计算统计
-    episode_results.avg_detection_rate = mean(episode_results.detections, 1);
+    % 计算平均统计
+    for i = 1:n_agents
+        % 检测率（TPR）
+        if agent_stats(i).total_attacks > 0
+            episode_results.avg_detection_rate(i) = agent_stats(i).tp / agent_stats(i).total_attacks;
+        else
+            episode_results.avg_detection_rate(i) = 0;
+        end
+        
+        % 误报率（FPR）
+        if agent_stats(i).total_no_attacks > 0
+            episode_results.avg_false_positive_rate(i) = agent_stats(i).fp / agent_stats(i).total_no_attacks;
+        else
+            episode_results.avg_false_positive_rate(i) = 0;
+        end
+    end
+    
+    % 添加统计信息到结果
+    episode_results.tp_count = sum([agent_stats.tp]);
+    episode_results.tn_count = sum([agent_stats.tn]);
+    episode_results.fp_count = sum([agent_stats.fp]);
+    episode_results.fn_count = sum([agent_stats.fn]);
+    
+    % 平均奖励
     episode_results.avg_defender_reward = mean(episode_results.defender_rewards, 1);
     episode_results.avg_attacker_reward = mean(episode_results.attacker_rewards);
+    
+    % 显示episode摘要
+    if n_episodes >= 10
+        fprintf('\nEpisode批次完成:\n');
+        for i = 1:n_agents
+            fprintf('  智能体%d - TPR: %.2f%%, FPR: %.2f%%\n', ...
+                    i, episode_results.avg_detection_rate(i) * 100, ...
+                    episode_results.avg_false_positive_rate(i) * 100);
+        end
+    end
 end
 
 function checkAndAdjustPerformance(defender_agents, monitor, iter)
