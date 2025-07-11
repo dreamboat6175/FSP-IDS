@@ -16,9 +16,10 @@ try
     config = ConfigManager.loadConfig('default_config.json');
     
     % --- 您可以在此调整关键参数 ---
-    config.learning_rate = 0.2;  % 建议的学习率
-    config.epsilon = 0.6;        % 建议的初始探索率
-    config.n_iterations = 10;  % 建议增加迭代次数以保证收敛
+    config.learning_rate = 0.15;  % 适中的学习率
+    config.epsilon = 0.8;        % 高初始探索率
+    config.n_iterations = 1000;  % 大幅增加迭代次数以保证收敛
+    config.n_episodes_per_iter = 50;  % 减少每轮episode数以加快训练
     
     % 2. 初始化日志系统
     logger = Logger(config.log_file);
@@ -132,8 +133,8 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
     n_iterations = config.n_iterations;
     n_episodes = config.n_episodes_per_iter;
     
-    % 预热阶段（前100次迭代使用更高探索率）
-    warmup_iterations = 100;
+    % 预热阶段（前200次迭代使用更高探索率）
+    warmup_iterations = 200;
     original_epsilon = config.epsilon;
     
     for iter = 1:n_iterations

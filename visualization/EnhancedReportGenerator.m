@@ -126,11 +126,15 @@ classdef EnhancedReportGenerator < handle
             title(sprintf('%s - 检测率趋势', agent_name), 'FontSize', 14, 'FontWeight', 'bold');
             grid on;
             ylim([0, 1]);
-            if length(detection_rates) >= window_size
+                    if length(detection_rates) >= window_size
+            if length(detection_rates) > 10
                 legend({'原始数据', '平滑曲线', '趋势线'}, 'Location', 'best');
             else
-                legend({'原始数据'}, 'Location', 'best');
+                legend({'原始数据', '平滑曲线'}, 'Location', 'best');
             end
+        else
+            legend({'原始数据'}, 'Location', 'best');
+        end
         end
         % ===== 新增方法: 绘制误报率趋势 =====
         function plotFalsePositiveRate(fp_rates, color, agent_name)
@@ -208,12 +212,16 @@ classdef EnhancedReportGenerator < handle
         title(sprintf('%d轮移动平均误报率', window_size));
         legend('Location', 'best');
         grid on;
-        % 5. 误报率箱线图
+        % 5. 误报率分布对比（替代箱线图）
         subplot(2, 3, 5);
-        fpr_data = results.false_positive_rates';
-        boxplot(fpr_data, 'Labels', agent_names(1:results.n_agents));
-        ylabel('误报率');
+        hold on;
+        for i = 1:results.n_agents
+            histogram(results.false_positive_rates(i, :), 15, 'FaceColor', colors(i,:), 'FaceAlpha', 0.6, 'DisplayName', agent_names{i});
+        end
+        xlabel('误报率');
+        ylabel('频次');
         title('误报率分布对比');
+        legend('Location', 'best');
         grid on;
         % 6. 性能指标雷达图
         subplot(2, 3, 6);

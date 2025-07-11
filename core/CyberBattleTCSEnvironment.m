@@ -1,4 +1,4 @@
-%% CyberBattleTCSEnvironment.m - 基于CyberBattleSim思想的TCS环境（修复版）
+% %% CyberBattleTCSEnvironment.m - 基于CyberBattleSim思想的TCS环境（修复版）
 % =========================================================================
 % 描述: 结合CyberBattleSim概念的列控系统环境，包含误报率分析
 % =========================================================================
@@ -169,9 +169,10 @@ classdef CyberBattleTCSEnvironment < handle
         end
         
         function calculateSpaceDimensions(obj)
-            % 简化动作空间，避免过大
+            % 扩展动作空间以支持多种防御策略
             obj.state_dim = min(1000, obj.total_components * 5 + 50);
-            obj.action_dim_defender = obj.total_components;  % 简化：每个组件一个动作
+            % 防御者动作空间：单个防御 + 重要组件防御 + 广泛防御
+            obj.action_dim_defender = obj.total_components * 3;  % 扩展防御动作空间
             obj.action_dim_attacker = obj.total_components * min(obj.n_attack_types, 5) + 1;  % 限制攻击类型
         end
         
@@ -251,14 +252,51 @@ classdef CyberBattleTCSEnvironment < handle
         end
         
         function [defense_decision, resource_allocation] = parseDefenderAction(obj, action)
-            % 修复：确保返回正确大小的向量
+            % 改进：允许防御多个组件，提高检测能力
             defense_decision = zeros(1, obj.total_components);
             resource_allocation = zeros(1, obj.total_components);
             
-            % 简单策略：防御者选择一个组件进行防御
+            % 策略1：防御单个组件
             if action >= 1 && action <= obj.total_components
                 defense_decision(action) = 1;
                 resource_allocation(action) = 1;
+                
+                % 额外防御相邻组件（网络拓扑）
+                neighbors = find(obj.network_topology(action, :));
+                if ~isempty(neighbors)
+                    % 随机选择1-2个相邻组件进行防御
+                    num_neighbors = min(2, length(neighbors));
+                    selected_neighbors = neighbors(randperm(length(neighbors), num_neighbors));
+                    for neighbor = selected_neighbors
+                        defense_decision(neighbor) = 1;
+                        resource_allocation(neighbor) = 0.5;  % 分配较少资源
+                    end
+                end
+                
+            % 策略2：防御重要组件
+            elseif action > obj.total_components && action <= obj.total_components * 2
+                important_components = find(obj.component_importance > 0.7);
+                if ~isempty(important_components)
+                    % 防御最重要的组件
+                    [~, idx] = max(obj.component_importance(important_components));
+                    target = important_components(idx);
+                    defense_decision(target) = 1;
+                    resource_allocation(target) = 1;
+                else
+                    % 默认防御第一个组件
+                    defense_decision(1) = 1;
+                    resource_allocation(1) = 1;
+                end
+                
+            % 策略3：广泛防御
+            elseif action > obj.total_components * 2
+                % 防御多个组件（3-5个）
+                num_defend = min(5, max(3, floor(obj.total_components * 0.2)));
+                defend_positions = randperm(obj.total_components, num_defend);
+                for pos = defend_positions
+                    defense_decision(pos) = 1;
+                    resource_allocation(pos) = 1.0 / num_defend;  % 平均分配资源
+                end
             else
                 % 默认防御第一个组件
                 defense_decision(1) = 1;
@@ -288,24 +326,32 @@ classdef CyberBattleTCSEnvironment < handle
         end
         
         function [detected, is_correct, category] = calculateDetectionResult(obj, is_attack, detection_result, resource_allocation, target, attack_type)
-            % 修复：改进检测逻辑，使其更合理
+            % 简化并改进检测逻辑，提高检测率
             
             if is_attack
-                % 有攻击的情况
-                % 基础检测概率
-                base_prob = 0.5;  % 提高基础检测率
+                % 有攻击的情况 - 大幅提高检测概率
+                % 基础检测概率（显著提高）
+                base_prob = 0.8;  % 从0.5提高到0.8
                 
-                % 资源加成
-                resource_bonus = resource_allocation(target) * 0.4;
+                % 资源加成（增强效果）
+                resource_bonus = resource_allocation(target) * 0.6;  % 从0.4提高到0.6
                 
-                % 攻击难度影响
-                difficulty_penalty = obj.attack_detection_difficulty(attack_type) * 0.2;
+                % 攻击难度影响（减少惩罚）
+                difficulty_penalty = obj.attack_detection_difficulty(attack_type) * 0.1;  % 从0.2减少到0.1
                 
-                % 最终检测概率
-                actual_detection_prob = max(0.2, min(0.95, base_prob + resource_bonus - difficulty_penalty));
+                % 组件重要性加成
+                importance_bonus = obj.component_importance(target) * 0.3;
+                
+                % 最终检测概率（提高下限）
+                actual_detection_prob = max(0.6, min(0.98, base_prob + resource_bonus - difficulty_penalty + importance_bonus));
                 
                 % 实际是否检测到
                 actual_detected = rand() < actual_detection_prob;
+                
+                % 简化逻辑：如果防御者选择了正确位置，检测概率更高
+                if detection_result && target == find(resource_allocation, 1)
+                    actual_detected = rand() < min(0.95, actual_detection_prob + 0.2);
+                end
                 
                 if detection_result && actual_detected
                     % 正确检测到攻击
@@ -365,16 +411,16 @@ classdef CyberBattleTCSEnvironment < handle
         function reward = calculateImprovedReward(obj, category, is_attack, target, attack_type, defense_decision, state)
             % 改进的多层次奖励函数
             
-            % 基础分类奖励
+            % 基础分类奖励（调整以鼓励检测）
             switch category
                 case 'TP'
-                    r_class = 50;  % 正确检测攻击
+                    r_class = 100;  % 大幅提高正确检测奖励
                 case 'TN'
-                    r_class = 10;  % 正确识别正常
+                    r_class = 5;   % 降低正常识别奖励
                 case 'FP'
-                    r_class = -5;  % 误报（降低惩罚）
+                    r_class = -2;  % 进一步降低误报惩罚
                 case 'FN'
-                    r_class = -100; % 漏报（严重惩罚）
+                    r_class = -50; % 降低漏报惩罚，但仍保持负值
                 otherwise
                     r_class = 0;
             end
