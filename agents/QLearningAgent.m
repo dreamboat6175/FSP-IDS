@@ -12,50 +12,76 @@ classdef QLearningAgent < RLAgent
     
     methods
         function obj = QLearningAgent(name, agent_type, config, state_dim, action_dim)
-            % 构造函数
-            obj@RLAgent(name, agent_type, config, state_dim, action_dim);
-            
-            % 初始化Q表
-            obj.Q_table = zeros(state_dim, action_dim);
-            obj.visit_count = zeros(state_dim, action_dim);
-            
-            % 优化的初始化：使用较小的正值鼓励探索
-            obj.Q_table = obj.Q_table + 0.1 + randn(state_dim, action_dim) * 0.05;
-        end
+    % 构造函数
+    obj@RLAgent(name, agent_type, config, state_dim, action_dim);
+    
+    % 使用稀疏矩阵优化内存
+    if state_dim * action_dim > 1e6
+        obj.Q_table = sparse(state_dim, action_dim);
+        obj.visit_count = sparse(state_dim, action_dim);
+    else
+        obj.Q_table = zeros(state_dim, action_dim);
+        obj.visit_count = zeros(state_dim, action_dim);
+    end
+    
+    % 优化的初始化策略
+    % 使用较高的初始值鼓励探索（乐观初始化）
+    initial_value = 5.0; % 提高初始值
+    noise_level = 0.5;   % 增加噪声
+    
+    if issparse(obj.Q_table)
+        % 稀疏矩阵的初始化
+        [rows, cols] = size(obj.Q_table);
+        init_indices = randi([1, rows*cols], [1, min(1000, rows*cols/10)]);
+        obj.Q_table(init_indices) = initial_value + randn(size(init_indices)) * noise_level;
+    else
+        % 密集矩阵的初始化
+        obj.Q_table = ones(state_dim, action_dim) * initial_value + ...
+                      randn(state_dim, action_dim) * noise_level;
+    end
+    
+    % 添加学习率调度器
+    obj.lr_scheduler = struct();
+    obj.lr_scheduler.initial_lr = config.learning_rate;
+    obj.lr_scheduler.min_lr = 0.001;
+    obj.lr_scheduler.decay_steps = 1000;
+end
 
-        function action = selectAction(obj, state_vec)
-            state_idx = obj.getStateIndex(state_vec); % 将向量状态转换为索引
-            q_values = obj.Q_table(state_idx, :);
-            
-            if obj.use_softmax
-                action = obj.boltzmannAction(state_idx, q_values);
-            else
-                action = obj.epsilonGreedyAction(state_idx, q_values);
-            end
-            obj.recordAction(state_idx, action);
-        end
-        
-        function update(obj, state_vec, action, reward, next_state_vec, ~)
-            % 1. 把当前和下一个状态清单（向量）都翻译成页码（索引）
-            state_idx = obj.getStateIndex(state_vec);
-            next_state_idx = obj.getStateIndex(next_state_vec);
-        
-            % 2. 使用页码（索引）进行后续计算
-            max_next_q = max(obj.Q_table(next_state_idx, :));
-        
-            % 计算TD误差
-            td_error = reward + obj.discount_factor * max_next_q - obj.Q_table(state_idx, action);
-        
-            % 更新Q值
-            obj.Q_table(state_idx, action) = obj.Q_table(state_idx, action) + obj.learning_rate * td_error;
-                    
-            % 更新访问计数
-            obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
-            
-            % 记录奖励和更新计数
-            obj.recordReward(reward);
-            obj.update_count = obj.update_count + 1;
-        end
+% 修改 update 方法，添加自适应学习率：
+
+function update(obj, state_vec, action, reward, next_state_vec, ~)
+    % 改进的Q-Learning更新
+    
+    state = obj.getStateIndex(state_vec);
+    next_state = obj.getStateIndex(next_state_vec);
+    
+    % 获取最大Q值
+    max_next_q = max(obj.Q_table(next_state, :));
+    
+    % 计算TD误差
+    current_q = obj.Q_table(state, action);
+    td_error = reward + obj.discount_factor * max_next_q - current_q;
+    
+    % 自适应学习率
+    visit_count = obj.visit_count(state, action);
+    adaptive_lr = obj.lr_scheduler.initial_lr / (1 + 0.01 * visit_count);
+    adaptive_lr = max(adaptive_lr, obj.lr_scheduler.min_lr);
+    
+    % 更新Q值
+    obj.Q_table(state, action) = current_q + adaptive_lr * td_error;
+    
+    % 更新访问计数
+    obj.visit_count(state, action) = visit_count + 1;
+    
+    % 记录性能
+    obj.recordReward(reward);
+    obj.update_count = obj.update_count + 1;
+    
+    % 定期调整探索率
+    if mod(obj.update_count, 100) == 0
+        obj.updateEpsilon();
+    end
+end
         
         function policy = getPolicy(obj)
             % 获取当前策略（Q表）

@@ -75,7 +75,7 @@ classdef PerformanceMonitor < handle
         end
         
         function update(obj, iter, episode_results, defender_agents, attacker_agent, env)
-            % 更新监控指标
+            % 更新监控指标（包含误报率）
             
             obj.current_iter = iter;
             tic_update = tic;
@@ -87,44 +87,49 @@ classdef PerformanceMonitor < handle
                 obj.defender_rewards(i, iter) = episode_results.avg_defender_reward(i);
             end
             obj.attacker_rewards(iter) = episode_results.avg_attacker_reward;
-
-            % ===== 修改开始: 计算误报率 =====
+            
+            % 计算误报率（从环境获取）
             metrics = env.getPerformanceMetrics();
             if (metrics.false_positives + metrics.true_negatives) > 0
-                fp_rate = metrics.false_positives / (metrics.false_positives + metrics.true_negatives);
+                current_fp_rate = metrics.false_positives / (metrics.false_positives + metrics.true_negatives);
             else
-                fp_rate = 0;
+                current_fp_rate = 0;
             end
             
+            % 记录所有智能体的误报率
             for i = 1:obj.n_agents
-                obj.false_positive_rates(i, iter) = fp_rate;
-            end
-            % ===== 修改结束 =====
-
-            % 资源利用率
-            for i = 1:obj.n_agents
-                obj.resource_utilization(i, iter) = ...
-                    obj.calculateResourceUtilization(defender_agents{i}, env);
+                obj.false_positive_rates(i, iter) = current_fp_rate;
             end
             
-            % 收敛性指标
-            if iter > 10
-                for i = 1:obj.n_agents
-                    obj.convergence_metrics(i, iter) = ...
-                        std(obj.detection_rates(i, max(1,iter-9):iter));
-                end
+            % 计算其他性能指标
+            if (metrics.true_positives + metrics.false_negatives) > 0
+                current_tp_rate = metrics.true_positives / (metrics.true_positives + metrics.false_negatives);
+            else
+                current_tp_rate = 0;
             end
             
-            % 策略分析（每10次迭代计算一次）
-            if mod(iter, 10) == 0
-                for i = 1:obj.n_agents
-                    obj.exploitability(i, iter) = ...
-                        obj.calculateExploitability(defender_agents{i}, attacker_agent);
-                    obj.nash_gap(i, iter) = ...
-                        obj.calculateNashGap(defender_agents{i}, env);
-                    obj.strategy_diversity(i, iter) = ...
-                        obj.calculateStrategyDiversity(defender_agents{i});
-                end
+            % 记录精确率
+            if (metrics.true_positives + metrics.false_positives) > 0
+                precision = metrics.true_positives / (metrics.true_positives + metrics.false_positives);
+            else
+                precision = 0;
+            end
+            
+            % F1分数
+            if (precision + current_tp_rate) > 0
+                f1_score = 2 * (precision * current_tp_rate) / (precision + current_tp_rate);
+            else
+                f1_score = 0;
+            end
+            
+            % 输出当前性能
+            if mod(iter, obj.display_interval) == 0
+                fprintf('\n=== 迭代 %d 性能指标 ===\n', iter);
+                fprintf('检测率 (TPR): %.2f%%\n', current_tp_rate * 100);
+                fprintf('误报率 (FPR): %.2f%%\n', current_fp_rate * 100);
+                fprintf('精确率: %.2f%%\n', precision * 100);
+                fprintf('F1分数: %.2f\n', f1_score);
+                fprintf('========================\n');
             end
             
             % 攻击模式分析

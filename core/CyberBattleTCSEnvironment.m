@@ -252,26 +252,143 @@ classdef CyberBattleTCSEnvironment < handle
                 case 'FN', obj.false_negatives = obj.false_negatives + 1;
             end
         end
+
+    function reward = calculateImprovedReward(obj, category, is_attack, target, attack_type, defense_decision, state)
+        % 改进的多层次奖励函数
         
-        function reward = calculateCompositeReward(obj, category, is_attack, target, attack_type, defense_decision)
-            switch category
-                case 'TP', r_class = obj.reward_weights.true_positive;
-                case 'TN', r_class = obj.reward_weights.true_negative;
-                case 'FP', r_class = obj.reward_weights.false_positive;
-                case 'FN', r_class = obj.reward_weights.false_negative;
-                otherwise, r_class = 0;
-            end
-            
-            if is_attack && attack_type > 1
-                r_class = r_class * (0.5 + 0.5 * obj.component_importance(target));
-            end
-            
-            r_cost = -0.1 * sum(defense_decision);
-            r_process = 0;
-            if is_attack && strcmp(category, 'TP') && attack_type <= 3, r_process = 20; end
-            
-            reward = obj.reward_weights.w_class * r_class + obj.reward_weights.w_cost * r_cost + obj.reward_weights.w_process * r_process;
+        % 基础分类奖励
+        switch category
+            case 'TP'
+                r_class = 50;  % 正确检测攻击
+            case 'TN'
+                r_class = 10;  % 正确识别正常
+            case 'FP'
+                r_class = -5;  % 误报（降低惩罚）
+            case 'FN'
+                r_class = -100; % 漏报（严重惩罚）
+            otherwise
+                r_class = 0;
         end
+        
+        % 重要性加权
+        if is_attack && attack_type > 1
+            importance_weight = 0.5 + 0.5 * obj.component_importance(target);
+            r_class = r_class * importance_weight;
+        end
+        
+        % 成本奖励
+        r_cost = -0.05 * sum(defense_decision); % 降低成本惩罚
+        
+        % 过程奖励（新增）
+        r_process = 0;
+        
+        % 1. 接近正确防御位置的奖励
+        if is_attack && attack_type > 1
+            distance_to_target = abs(find(defense_decision) - target);
+            if ~isempty(distance_to_target)
+                min_distance = min(distance_to_target);
+                if min_distance == 0
+                    r_process = r_process + 20; % 精确防御
+                elseif min_distance <= 2
+                    r_process = r_process + 10; % 接近目标
+                elseif min_distance <= 5
+                    r_process = r_process + 5;  % 大致接近
+                end
+            end
+        end
+        
+        % 2. 防御覆盖率奖励
+        coverage = sum(defense_decision) / obj.total_components;
+        if coverage > 0.1 && coverage < 0.3
+            r_process = r_process + 5; % 合理的覆盖率
+        end
+        
+        % 3. 连续正确检测奖励
+        if strcmp(category, 'TP') || strcmp(category, 'TN')
+            if isfield(obj, 'consecutive_correct')
+                obj.consecutive_correct = obj.consecutive_correct + 1;
+                if obj.consecutive_correct > 5
+                    r_process = r_process + obj.consecutive_correct * 2;
+                end
+            else
+                obj.consecutive_correct = 1;
+            end
+        else
+            obj.consecutive_correct = 0;
+        end
+        
+        % 4. 基于状态的奖励（检测高风险状态）
+        state_risk = obj.evaluateStateRisk(state);
+        if state_risk > 0.7 && defense_decision(target)
+            r_process = r_process + 15; % 在高风险时正确防御
+        end
+        
+        % 组合奖励
+        reward = obj.reward_weights.w_class * r_class + ...
+                 obj.reward_weights.w_cost * r_cost + ...
+                 obj.reward_weights.w_process * r_process;
+        
+        % 奖励归一化
+        reward = obj.normalizeReward(reward);
+    end
+    
+    function risk_level = evaluateStateRisk(obj, state)
+        % 评估当前状态的风险级别
+        
+        % 提取状态特征
+        component_states = state(1:obj.total_components);
+        network_features = state(obj.total_components+1:2*obj.total_components);
+        
+        % 计算风险指标
+        risk_indicators = 0;
+        
+        % 1. 组件状态异常
+        abnormal_components = sum(component_states < 0.3);
+        if abnormal_components > obj.total_components * 0.2
+            risk_indicators = risk_indicators + 0.3;
+        end
+        
+        % 2. 网络连接异常
+        high_connections = sum(network_features > 0.8);
+        if high_connections > obj.total_components * 0.3
+            risk_indicators = risk_indicators + 0.3;
+        end
+        
+        % 3. 状态熵（混乱程度）
+        state_entropy = -sum(component_states .* log(component_states + 1e-6));
+        normalized_entropy = state_entropy / (obj.total_components * log(2));
+        if normalized_entropy > 0.7
+            risk_indicators = risk_indicators + 0.4;
+        end
+        
+        risk_level = min(1, risk_indicators);
+    end
+    
+    function normalized_reward = normalizeReward(obj, reward)
+        % 动态奖励归一化
+        persistent reward_history;
+        persistent history_size;
+        
+        if isempty(reward_history)
+            reward_history = [];
+            history_size = 1000;
+        end
+        
+        reward_history(end+1) = reward;
+        if length(reward_history) > history_size
+            reward_history(1) = [];
+        end
+        
+        if length(reward_history) > 10
+            mean_reward = mean(reward_history);
+            std_reward = std(reward_history);
+            normalized_reward = (reward - mean_reward) / (std_reward + 1e-6);
+            % 限制范围
+            normalized_reward = max(-3, min(3, normalized_reward));
+        else
+            normalized_reward = reward / 100; % 简单归一化
+        end
+    end
         
         function updateState(obj, defense_decision, attack_target, attack_type, detected)
             obj.attack_history(end+1, :) = [obj.time_step, attack_target, attack_type, detected];

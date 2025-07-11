@@ -1,12 +1,3 @@
-好的，我理解您的要求。我们不修改整体框架，只针对您更新 CyberBattleTCSEnvironment.m 后出现的不兼容和错误进行必要的、小范围的修改。
-
-根据对您提供的文件和日志的分析，核心问题在于 FSPSimulator.m 的主循环未能正确处理新环境返回的数据，以及 EnhancedReportGenerator.m 中方法调用方式的错误。以下是确保您的项目能顺利运行的针对性修改：
-
-1. 修正 FSPSimulator.m
-此文件是仿真的核心，需要更新它与新版 CyberBattleTCSEnvironment 的交互方式，特别是 runIteration 方法，以正确处理 step 函数返回的复杂 info 结构体，并为 SARSA 智能体提供必要的 next_action。
-
-Matlab
-
 %% FSPSimulator.m - Fictitious Self-Play仿真器
 % =========================================================================
 % 描述: 实现FSP框架的核心仿真逻辑
@@ -21,61 +12,117 @@ classdef FSPSimulator
         end
         
         function episode_results = runIteration(env, defender_agents, attacker_agent, config, ~)
-            % ===== 修改开始 =====
-            % 修正了与新环境的交互逻辑
+    n_agents = length(defender_agents);
+    n_episodes = config.n_episodes_per_iter;
+    
+    % 初始化经验池
+    experience_buffer = cell(n_agents, 1);
+    buffer_size = 1000;
+    for i = 1:n_agents
+        experience_buffer{i} = [];
+    end
+    
+    % 结果记录
+    episode_results.detections = zeros(n_episodes, n_agents);
+    episode_results.defender_rewards = zeros(n_episodes, n_agents);
+    episode_results.attacker_rewards = zeros(n_episodes, 1);
+    episode_results.false_positives = zeros(n_episodes, n_agents);
+    episode_results.attack_info = cell(n_episodes, 1);
+    
+    for ep = 1:n_episodes
+        state = env.reset();
+        
+        % 重置环境的连续正确计数
+        env.consecutive_correct = 0;
+        
+        % 决定是否是攻击回合（70%概率有攻击）
+        is_attack_episode = rand() < 0.7;
+        
+        for agent_idx = 1:n_agents
+            defender = defender_agents{agent_idx};
             
-            n_agents = length(defender_agents);
-            n_episodes = config.n_episodes_per_iter;
+            % 选择动作
+            defender_action = defender.selectAction(state);
             
-            % 初始化结果记录
-            episode_results.detections = zeros(n_episodes, n_agents);
-            episode_results.defender_rewards = zeros(n_episodes, n_agents);
-            episode_results.attacker_rewards = zeros(n_episodes, 1);
-            episode_results.attack_info = cell(n_episodes, 1);
-            
-            for ep = 1:n_episodes
-                state = env.reset();
-                
-                % 每个防御智能体分别与攻击者交互并更新
-                for agent_idx = 1:n_agents
-                    defender = defender_agents{agent_idx};
-                    
-                    % 1. 选择动作
-                    defender_action = defender.selectAction(state);
+            % 智能攻击者策略
+            if is_attack_episode
+                % 攻击重要组件
+                important_components = find(env.component_importance > 0.6);
+                if ~isempty(important_components)
+                    target_component = important_components(randi(length(important_components)));
+                    attack_type = randi([2, env.n_attack_types]); % 随机攻击类型
+                    attacker_action = (attack_type - 1) * env.total_components + target_component;
+                else
                     attacker_action = attacker_agent.selectAction(state);
-                    
-                    % 2. 环境交互
-                    [next_state, reward, ~, info] = env.step(defender_action, attacker_action);
-                    
-                    % 3. 记录该智能体的结果
-                    episode_results.detections(ep, agent_idx) = info.detected;
-                    episode_results.defender_rewards(ep, agent_idx) = reward; % 直接使用环境返回的复合奖励
-                    episode_results.attack_info{ep} = info; % 记录详细信息
-                    
-                    % 4. 更新智能体
-                    if isa(defender, 'SARSAAgent')
-                        % SARSA算法需要获取下一个状态的动作
-                        next_action = defender.selectAction(next_state);
-                        defender.update(state, defender_action, reward, next_state, next_action);
-                    else
-                        % Q-Learning 和 Double Q-Learning
-                        defender.update(state, defender_action, reward, next_state, []);
-                    end
                 end
-                
-                % 5. 单独更新攻击者
-                % 攻击者的奖励是防御者奖励的负值（简化处理）
-                avg_attacker_reward = -mean(episode_results.defender_rewards(ep, :));
-                attacker_agent.update(state, attacker_action, avg_attacker_reward, next_state, []);
-                episode_results.attacker_rewards(ep) = avg_attacker_reward;
+            else
+                % 无攻击
+                attacker_action = 1;
             end
             
-            % 计算本轮迭代的平均统计信息
-            episode_results.avg_detection_rate = mean(episode_results.detections, 1);
-            episode_results.avg_defender_reward = mean(episode_results.defender_rewards, 1);
-            episode_results.avg_attacker_reward = mean(episode_results.attacker_rewards);
-            % ===== 修改结束 =====
+            % 环境交互
+            [next_state, reward, ~, info] = env.step(defender_action, attacker_action);
+            
+            % 使用改进的奖励函数
+            improved_reward = env.calculateImprovedReward(...
+                info.detection_category, info.is_attack, ...
+                info.attack_target, info.attack_type, ...
+                defender_action, state);
+            
+            % 记录结果
+            episode_results.detections(ep, agent_idx) = info.detected;
+            episode_results.defender_rewards(ep, agent_idx) = improved_reward;
+            if strcmp(info.detection_category, 'FP')
+                episode_results.false_positives(ep, agent_idx) = 1;
+            end
+            
+            % 存储经验
+            experience = struct('state', state, 'action', defender_action, ...
+                              'reward', improved_reward, 'next_state', next_state, ...
+                              'info', info);
+            experience_buffer{agent_idx}(end+1) = experience;
+            if length(experience_buffer{agent_idx}) > buffer_size
+                experience_buffer{agent_idx}(1) = [];
+            end
+            
+            % 更新智能体
+            if isa(defender, 'SARSAAgent')
+                next_action = defender.selectAction(next_state);
+                defender.update(state, defender_action, improved_reward, next_state, next_action);
+            else
+                defender.update(state, defender_action, improved_reward, next_state, []);
+            end
+            
+            % 经验回放（每10个episode）
+            if mod(ep, 10) == 0 && length(experience_buffer{agent_idx}) > 50
+                for replay = 1:5
+                    idx = randi(length(experience_buffer{agent_idx}));
+                    exp = experience_buffer{agent_idx}(idx);
+                    
+                    if isa(defender, 'SARSAAgent')
+                        next_action = defender.selectAction(exp.next_state);
+                        defender.update(exp.state, exp.action, exp.reward, exp.next_state, next_action);
+                    else
+                        defender.update(exp.state, exp.action, exp.reward, exp.next_state, []);
+                    end
+                end
+            end
         end
+        
+        % 更新攻击者（使用负奖励）
+        avg_defender_reward = mean(episode_results.defender_rewards(ep, :));
+        attacker_reward = -avg_defender_reward;
+        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
+        episode_results.attacker_rewards(ep) = attacker_reward;
+        episode_results.attack_info{ep} = info;
+    end
+    
+    % 计算统计信息
+    episode_results.avg_detection_rate = mean(episode_results.detections, 1);
+    episode_results.avg_false_positive_rate = mean(episode_results.false_positives, 1);
+    episode_results.avg_defender_reward = mean(episode_results.defender_rewards, 1);
+    episode_results.avg_attacker_reward = mean(episode_results.attacker_rewards);
+end
 
         
         function results = runParallelEpisodes(env, defender_agents, attacker_agent, config)
