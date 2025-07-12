@@ -373,10 +373,24 @@ function radi = calculateRADI(current_allocation, optimal_allocation, radi_confi
     radi = radi(1); % 保证输出为标量
 end
 function efficiency = calculateResourceEfficiency(allocation, info)
+    % 确保allocation是行向量
+    allocation = reshape(allocation, 1, []);
+    
     if isfield(info, 'game_result') && isfield(info.game_result, 'resource_efficiency')
         efficiency = info.game_result.resource_efficiency;
     else
-        efficiency = sum(allocation) / 5;
+        % 计算实际资源利用率
+        total_allocated = sum(allocation);
+        max_possible = length(allocation); % 假设每个资源最大值为1
+        
+        if max_possible > 0
+            efficiency = total_allocated / max_possible;
+        else
+            efficiency = 0;
+        end
+        
+        % 确保效率在0-1之间
+        efficiency = max(0, min(1, efficiency));
     end
 end
 function balance = calculateAllocationBalance(allocation)

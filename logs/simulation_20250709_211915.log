@@ -1831,3 +1831,7 @@ D:\CODE\FSP\agents\DoubleQLearningAgent.m
 [2025-07-11 21:11:40] [INFO] 改进版FSP仿真开始
 [2025-07-11 21:19:25] [ERROR] 仿真出错: 无法识别的字段名称 "convergence_metrics"。
 [2025-07-11 21:19:25] [ERROR] 错误位置: D:\CODE\FSP-IDS\utils\DataManager.m, 行号: 94
+[2025-07-11 22:38:55] [INFO] 日志系统初始化
+[2025-07-11 22:38:55] [INFO] 改进版FSP仿真开始
+[2025-07-11 22:38:55] [ERROR] 仿真出错: n_stations must be defined and > 0
+[2025-07-11 22:38:55] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\TCSEnvironment.m, 行号: 111

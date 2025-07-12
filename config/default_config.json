@@ -1,75 +1,132 @@
 {
-  "n_stations": 5,
-  "n_components_per_station": [
-    7,
-    6,
-    8,
-    5,
-    9
-  ],
-  "n_iterations": 500,
-  "n_episodes_per_iter": 100,
-  "pool_size_limit": 50,
-  "pool_update_interval": 10,
-  "learning_rate": 0.1,
-  "discount_factor": 0.95,
-  "epsilon": 0.1,
-  "epsilon_decay": 0.995,
-  "epsilon_min": 0.01,
-  "temperature": 1,
-  "temperature_decay": 0.99,
-  "algorithms": [
-    "Q-Learning",
-    "SARSA",
-    "Double Q-Learning"
-  ],
-  "attack_types": [
-    "wireless_spoofing",
-    "dos_attack",
-    "semantic_attack",
-    "supply_chain",
-    "protocol_exploit",
-    "maintenance_port"
-  ],
-  "attack_severity": [
-    0.3,
-    0.5,
-    0.7,
-    0.4,
-    0.6,
-    0.8
-  ],
-  "attack_detection_difficulty": [
-    0.4,
-    0.3,
-    0.7,
-    0.8,
-    0.6,
-    0.5
-  ],
-  "resource_types": [
-    "computation",
-    "bandwidth",
-    "sensors",
-    "scanning_freq",
-    "inspection_depth"
-  ],
-  "resource_effectiveness": [
-    0.7,
-    0.6,
-    0.8,
-    0.5,
-    0.9
-  ],
-  "total_resources": 100,
-  "display_interval": 50,
-  "save_interval": 100,
-  "param_update_interval": 50,
-  "visualization": true,
-  "generate_report": true,
-  "log_file": "logs/simulation_20250709_211915.log",
-  "results_dir": "results",
-  "report_dir": "reports",
-  "use_parallel": false,
-  "num_workers": 4
+    "n_stations": 5,
+    "n_components_per_station": [5, 4, 6, 3, 4],
+    "attack_types": ["DoS", "MitM", "SQLi", "XSS"],
+    "attack_severity": [0.3, 0.5, 0.7, 0.4],
+    "attack_detection_difficulty": [0.2, 0.6, 0.4, 0.8],
+    "resource_types": ["Firewall", "IDS", "AntiVirus", "Encryption", "Monitoring"],
+    "resource_effectiveness": [0.8, 0.7, 0.6, 0.9, 0.5],
+    "total_resources": 100,
+    
+    "n_iterations": 1000,
+    "n_episodes_per_iter": 50,
+    "learning_rate": 0.15,
+    "discount_factor": 0.95,
+    "epsilon": 0.8,
+    "epsilon_decay": 0.995,
+    "epsilon_min": 0.01,
+    
+    "radi": {
+        "optimal_allocation": [0.25, 0.20, 0.20, 0.20, 0.15],
+        "weight_computation": 0.30,
+        "weight_bandwidth": 0.25,
+        "weight_sensors": 0.20,
+        "weight_scanning": 0.15,
+        "weight_inspection": 0.10,
+        "threshold_excellent": 0.05,
+        "threshold_good": 0.15,
+        "threshold_acceptable": 0.25,
+        "target_radi": 0.10
+    },
+    
+    "reward": {
+        "w_radi": 0.5,
+        "w_efficiency": 0.3,
+        "w_balance": 0.2,
+        "detection_bonus": 20,
+        "prevention_bonus": 30,
+        "compromise_penalty": -50,
+        "resource_waste_penalty": -10
+    },
+    
+    "defender": {
+        "strategy_update_rate": 0.1,
+        "exploration_bonus": 0.05,
+        "cooperation_weight": 0.3
+    },
+    
+    "attacker": {
+        "strategy_update_rate": 0.05,
+        "persistence_factor": 0.7,
+        "adaptation_rate": 0.2
+    },
+    
+    "environment": {
+        "max_steps_per_episode": 100,
+        "early_stopping_threshold": 0.001,
+        "state_normalization": true,
+        "reward_scaling": true
+    },
+    
+    "monitoring": {
+        "display_interval": 50,
+        "save_interval": 200,
+        "plot_interval": 100,
+        "metrics_window_size": 50
+    },
+    
+    "logging": {
+        "log_level": "INFO",
+        "log_file": "logs/simulation.log",
+        "enable_console_output": true,
+        "enable_file_output": true
+    },
+    
+    "visualization": {
+        "enable_real_time_plots": false,
+        "plot_types": ["radi_trend", "efficiency", "balance", "convergence"],
+        "save_plots": true,
+        "plot_format": "png"
+    },
+    
+    "advanced": {
+        "use_gpu": false,
+        "parallel_episodes": false,
+        "memory_buffer_size": 10000,
+        "batch_size": 32,
+        "target_update_frequency": 100,
+        "gradient_clipping": 1.0
+    },
+    
+    "game_theory": {
+        "nash_equilibrium_iterations": 50,
+        "fictitious_play_learning_rate": 0.1,
+        "strategy_momentum": 0.9,
+        "mixed_strategy_threshold": 0.01
+    },
+    
+    "network_topology": {
+        "topology_type": "mesh",
+        "redundancy_factor": 0.3,
+        "critical_path_weight": 2.0,
+        "node_failure_probability": 0.01
+    },
+    
+    "kill_chain": {
+        "stages": ["reconnaissance", "weaponization", "delivery", "exploitation", "installation", "command_control", "actions"],
+        "stage_transition_probability": [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3],
+        "detection_probability_per_stage": [0.1, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9]
+    },
+    
+    "performance_criteria": {
+        "target_detection_rate": 0.85,
+        "max_false_positive_rate": 0.1,
+        "response_time_threshold": 5,
+        "availability_requirement": 0.99
+    },
+    
+    "adaptation": {
+        "enable_online_learning": true,
+        "adaptation_window": 100,
+        "strategy_diversity_weight": 0.2,
+        "exploration_boost_on_plateau": true
+    },
+    
+    "export": {
+        "save_q_tables": true,
+        "save_strategies": true,
+        "save_metrics": true,
+        "export_format": "mat",
+        "output_directory": "results/"
+    }
 }

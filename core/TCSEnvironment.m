@@ -70,95 +70,162 @@ classdef TCSEnvironment < handle
     end
     
     methods
-        function obj = TCSEnvironment(config)
-            % 构造函数
-            obj.n_stations = config.n_stations;
-            obj.n_components = config.n_components_per_station;
-            obj.total_components = sum(obj.n_components);
-            
-            obj.initializeComponents();
-            obj.initializeNetworkTopology();
-            obj.initializeGameTheoryParameters(config);
-            
-            % 初始化攻击类型
-            if iscell(config.attack_types)
-                obj.attack_types = [{'no_attack'}, config.attack_types(:)'];
-            elseif ischar(config.attack_types)
-                obj.attack_types = {'no_attack', config.attack_types};
-            elseif isstring(config.attack_types)
-                obj.attack_types = [{'no_attack'}, cellstr(config.attack_types)];
+       function obj = TCSEnvironment(config)
+    % 第1步：首先设置基础参数
+    obj.n_stations = config.n_stations;
+    obj.n_components = config.n_components_per_station;
+    obj.total_components = sum(obj.n_components);
+    
+    % 第2步：设置攻击类型相关参数
+    if iscell(config.attack_types)
+        obj.attack_types = [{'no_attack'}, config.attack_types(:)'];
+    elseif ischar(config.attack_types)
+        obj.attack_types = {'no_attack', config.attack_types};
+    elseif isstring(config.attack_types)
+        obj.attack_types = [{'no_attack'}, cellstr(config.attack_types)];
+    else
+        obj.attack_types = [{'no_attack'}, cellstr(config.attack_types)];
+    end
+    obj.attack_severity = [0, config.attack_severity(:)'];
+    obj.attack_detection_difficulty = [0, config.attack_detection_difficulty(:)'];
+    obj.n_attack_types = length(obj.attack_types);
+    
+    % 第3步：设置资源类型相关参数
+    obj.resource_types = config.resource_types;
+    obj.resource_effectiveness = config.resource_effectiveness;
+    obj.n_resource_types = length(obj.resource_types);
+    obj.total_resources = config.total_resources;
+    
+    % 第4步：验证关键参数
+    if obj.n_stations <= 0
+        error('TCSEnvironment: n_stations must be > 0, got %d', obj.n_stations);
+    end
+    if obj.n_resource_types <= 0
+        error('TCSEnvironment: n_resource_types must be > 0, got %d', obj.n_resource_types);
+    end
+    
+    % 第5步：初始化奖励权重
+    obj.initializeRewardWeights(config);
+    
+    % 第6步：计算空间维度
+    obj.calculateSpaceDimensions();
+    
+    % 第7步：初始化学习参数
+    obj.learning_rate = 0.1;
+    obj.strategy_momentum = 0.9;
+    
+    % 第8步：初始化时间步
+    obj.time_step = 0;
+    
+    % 第9步：按正确顺序初始化其他组件
+    obj.initializeComponents();
+    obj.initializeNetworkTopology();
+    
+    % 第10步：初始化Kill Chain（如果有此方法）
+    if ismethod(obj, 'initializeKillChain')
+        obj.initializeKillChain();
+    end
+    
+    % 第11步：最后初始化博弈论参数（包括defense_costs）
+    obj.initializeGameTheoryParameters(config);
+    
+    % 第12步：重置环境到初始状态
+    obj.reset();
+end
+        
+function initializeGameTheoryParameters(obj, config)
+    % 更详细的参数验证
+    if ~isprop(obj, 'n_stations') || isempty(obj.n_stations) || obj.n_stations <= 0
+        error('TCSEnvironment.initializeGameTheoryParameters: n_stations must be defined and > 0, current value: %s', ...
+            mat2str(obj.n_stations));
+    end
+    if ~isprop(obj, 'n_resource_types') || isempty(obj.n_resource_types) || obj.n_resource_types <= 0
+        error('TCSEnvironment.initializeGameTheoryParameters: n_resource_types must be defined and > 0, current value: %s', ...
+            mat2str(obj.n_resource_types));
+    end
+    
+    % 初始化防御成本矩阵
+    obj.defense_costs = zeros(obj.n_stations, obj.n_resource_types);
+    
+    % 基于组件重要性设置防御成本
+    for i = 1:obj.n_stations
+        % 获取站点组件
+        if isprop(obj, 'component_station_map') && ~isempty(obj.component_station_map)
+            station_components = find(obj.component_station_map == i);
+            if ~isempty(station_components) && isprop(obj, 'component_importance')
+                importance_factor = mean(obj.component_importance(station_components));
             else
-                obj.attack_types = [{'no_attack'}, cellstr(config.attack_types)];
+                importance_factor = 0.5 + 0.3 * rand(); % 默认随机重要性
             end
-            obj.attack_severity = [0, config.attack_severity(:)'];
-            obj.attack_detection_difficulty = [0, config.attack_detection_difficulty(:)'];
-            obj.n_attack_types = length(obj.attack_types);
-            
-            obj.initializeKillChain();
-            
-            obj.resource_types = config.resource_types;
-            obj.resource_effectiveness = config.resource_effectiveness;
-            obj.n_resource_types = length(obj.resource_types);
-            obj.total_resources = config.total_resources;
-            
-            % 健壮性检查
-            if obj.n_resource_types == 0
-                error('No resource types defined! Please check config.resource_types and config.resource_effectiveness.');
-            end
-            obj.initializeRewardWeights(config);
-            obj.calculateSpaceDimensions();
-            
-            % 初始化学习参数
-            obj.learning_rate = 0.1;
-            obj.strategy_momentum = 0.9;
-            
-            obj.reset();
+        else
+            importance_factor = 0.5 + 0.3 * rand(); % 默认随机重要性
         end
         
-        function initializeGameTheoryParameters(obj, config)
-            % 初始化博弈论相关参数
+        % 设置每种防御措施的成本
+        for j = 1:obj.n_resource_types
+            base_cost = 10 + (j-1) * 5; % 不同防御措施的基础成本递增
+            obj.defense_costs(i, j) = base_cost * (0.5 + 0.5 * importance_factor);
+        end
+    end
+    
+    % 验证defense_costs已正确初始化
+    if isempty(obj.defense_costs) || any(size(obj.defense_costs) == 0)
+        error('Failed to initialize defense_costs matrix');
+    end
+    
+    % 初始化策略向量 - 均匀分布
+    obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
+    obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
+    
+    % 初始化最优策略
+    obj.optimal_attacker_strategy = obj.attacker_strategy;
+    obj.optimal_defender_strategy = obj.defender_strategy;
+    
+    % 初始化决策向量
+    obj.attacker_actions = zeros(1, obj.n_stations);
+    obj.defender_actions = zeros(1, obj.n_stations);
+    
+    % 初始化RADI指数
+    obj.radi_defender = 0;
+    obj.radi_attacker = 0;
+    
+    % 初始化历史记录
+    obj.strategy_history = struct();
+    obj.strategy_history.attacker = [];
+    obj.strategy_history.defender = [];
+    obj.radi_history = struct();
+    obj.radi_history.defender = [];
+    obj.radi_history.attacker = [];
+    
+    % 初始化游戏结果记录
+    if ~isprop(obj, 'game_outcomes') || isempty(obj.game_outcomes)
+        obj.game_outcomes = [];
+    end
+    
+    fprintf('博弈论参数初始化完成：\n');
+    fprintf('  - 站点数: %d\n', obj.n_stations);
+    fprintf('  - 资源类型数: %d\n', obj.n_resource_types);
+    fprintf('  - defense_costs矩阵大小: %dx%d\n', size(obj.defense_costs));
+end
+
+ function initializeDefenseCosts(obj)
+            % 紧急初始化defense_costs
+            if obj.n_stations <= 0 || obj.n_resource_types <= 0
+                error('Cannot initialize defense_costs: invalid parameters');
+            end
             
-            % 初始化防御成本矩阵 - 每个站点的每种防御措施的成本
             obj.defense_costs = zeros(obj.n_stations, obj.n_resource_types);
+            
             for i = 1:obj.n_stations
                 for j = 1:obj.n_resource_types
-                    % 基础成本 + 站点重要性调整
-                    base_cost = 10 + j * 5;  % 不同防御措施有不同基础成本
-                    importance_factor = 0.5 + 0.5 * rand(); % 将在initializeComponents后更新
-                    obj.defense_costs(i, j) = base_cost * importance_factor;
+                    % 使用简单的成本模型
+                    base_cost = 10 + (j-1) * 5;
+                    random_factor = 0.8 + 0.4 * rand();
+                    obj.defense_costs(i, j) = base_cost * random_factor;
                 end
             end
-            
-            % 健壮性检查
-            if obj.n_resource_types == 0
-                error('No resource types defined! Please check config.resource_types and config.resource_effectiveness.');
-            end
-            
-            % 初始化策略向量 - 均匀分布
-            obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            
-            % 初始化最优策略
-            obj.optimal_attacker_strategy = obj.attacker_strategy;
-            obj.optimal_defender_strategy = obj.defender_strategy;
-            
-            % 初始化决策向量
-            obj.attacker_actions = zeros(1, obj.n_stations);
-            obj.defender_actions = zeros(1, obj.n_stations);
-            
-            % 初始化RADI指数
-            obj.radi_defender = 0;
-            obj.radi_attacker = 0;
-            
-            % 初始化历史记录
-            obj.strategy_history = struct();
-            obj.strategy_history.attacker = [];
-            obj.strategy_history.defender = [];
-            obj.radi_history = struct();
-            obj.radi_history.defender = [];
-            obj.radi_history.attacker = [];
         end
-        
+
         function initializeComponents(obj)
             obj.component_importance = zeros(1, obj.total_components);
             obj.component_station_map = zeros(1, obj.total_components);
@@ -390,45 +457,100 @@ classdef TCSEnvironment < handle
         end
         
        function [constrained_actions, violation] = enforceResourceConstraints(obj, defender_actions)
-            % Robust shape check
-            if isempty(defender_actions) || numel(defender_actions) ~= 5
-                warning('TCSEnvironment.enforceResourceConstraints: defender_actions is empty or not length 5, auto-fixing...');
-                defender_actions = ones(1, 5);
-            end
-            defender_actions = reshape(defender_actions, 1, 5);
-            constrained_actions = defender_actions;
-            violation = false;
-            max_defense = size(obj.defense_costs, 2);
-            if max_defense == 0 || isempty(obj.defense_costs)
-                warning('No defense resources defined. Auto-rebuilding defense_costs...');
-                if isempty(obj.n_stations) || isempty(obj.n_resource_types) || obj.n_resource_types == 0
-                    error('Cannot rebuild defense_costs: n_stations or n_resource_types is invalid.');
-                end
-                obj.defense_costs = ones(obj.n_stations, obj.n_resource_types) * 10;
-                max_defense = size(obj.defense_costs, 2);
-            end
-            total_cost = 0;
-            for j = 1:obj.n_stations
-                idx = min(defender_actions(j), max_defense);
-                total_cost = total_cost + obj.defense_costs(j, idx);
-            end
-            if total_cost > obj.total_resources
-                violation = true;
-                [~, order] = sort(obj.optimal_defender_strategy, 'descend');
-                current_cost = 0;
-                constrained_actions = zeros(1, obj.n_stations);
-                for k = 1:length(order)
-                    j = order(k);
-                    idx = min(defender_actions(j), max_defense);
-                    new_cost = current_cost + obj.defense_costs(j, idx);
-                    if new_cost <= obj.total_resources
-                        constrained_actions(j) = idx;
-                        current_cost = new_cost;
-                    end
-                end
+    % 输入验证和规范化
+    if isempty(defender_actions)
+        warning('defender_actions is empty, using default actions');
+        defender_actions = ones(1, obj.n_stations);
+    end
+    
+    % 确保是正确的维度
+    defender_actions = reshape(defender_actions, 1, []);
+    if numel(defender_actions) ~= obj.n_stations
+        warning('defender_actions size mismatch, expected %d, got %d', obj.n_stations, numel(defender_actions));
+        if numel(defender_actions) < obj.n_stations
+            defender_actions = [defender_actions, ones(1, obj.n_stations - numel(defender_actions))];
+        else
+            defender_actions = defender_actions(1:obj.n_stations);
+        end
+    end
+    
+    % 验证defense_costs
+    if isempty(obj.defense_costs) || size(obj.defense_costs, 1) ~= obj.n_stations || size(obj.defense_costs, 2) == 0
+        % 只在必要时显示警告
+        if obj.time_step == 1  % 只在第一步显示警告
+            warning('defense_costs not properly initialized, rebuilding...');
+        end
+        obj.initializeDefenseCosts();
+    end
+    
+    constrained_actions = defender_actions;
+    violation = false;
+    
+    % 计算总成本
+    total_cost = 0;
+    max_defense = size(obj.defense_costs, 2);
+    
+    for j = 1:obj.n_stations
+        action_idx = max(1, min(defender_actions(j), max_defense));
+        total_cost = total_cost + obj.defense_costs(j, action_idx);
+    end
+    
+    % 检查资源约束
+    if total_cost > obj.total_resources
+        violation = true;
+        % 基于优先级调整
+        [~, priority_order] = sort(obj.optimal_defender_strategy, 'descend');
+        
+        current_cost = 0;
+        constrained_actions = zeros(1, obj.n_stations);
+        
+        for k = 1:length(priority_order)
+            j = priority_order(k);
+            action_idx = max(1, min(defender_actions(j), max_defense));
+            new_cost = current_cost + obj.defense_costs(j, action_idx);
+            
+            if new_cost <= obj.total_resources
+                constrained_actions(j) = action_idx;
+                current_cost = new_cost;
             end
         end
+    end
+end
         
+ function debugPrintState(obj)
+            % 打印当前环境状态，用于调试
+            fprintf('\n=== TCSEnvironment 状态调试信息 ===\n');
+            fprintf('基础参数:\n');
+            fprintf('  - n_stations: %d\n', obj.n_stations);
+            fprintf('  - n_resource_types: %d\n', obj.n_resource_types);
+            fprintf('  - n_attack_types: %d\n', obj.n_attack_types);
+            fprintf('  - total_resources: %d\n', obj.total_resources);
+            
+            if isprop(obj, 'defense_costs') && ~isempty(obj.defense_costs)
+                fprintf('\ndefense_costs矩阵:\n');
+                fprintf('  - 大小: %dx%d\n', size(obj.defense_costs));
+                fprintf('  - 范围: [%.2f, %.2f]\n', min(obj.defense_costs(:)), max(obj.defense_costs(:)));
+            else
+                fprintf('\ndefense_costs: 未初始化\n');
+            end
+            
+            if isprop(obj, 'component_status') && ~isempty(obj.component_status)
+                fprintf('\n组件状态:\n');
+                fprintf('  - 总组件数: %d\n', obj.total_components);
+                fprintf('  - 正常组件: %d\n', sum(obj.component_status == 1));
+                fprintf('  - 受损组件: %d\n', sum(obj.component_status < 1 & obj.component_status > 0));
+                fprintf('  - 失效组件: %d\n', sum(obj.component_status == 0));
+            end
+            
+            if isprop(obj, 'attacker_strategy') && ~isempty(obj.attacker_strategy)
+                fprintf('\n策略信息:\n');
+                fprintf('  - 攻击者策略: %s\n', mat2str(obj.attacker_strategy, 3));
+                fprintf('  - 防御者策略: %s\n', mat2str(obj.defender_strategy, 3));
+            end
+            
+            fprintf('==================================\n\n');
+ end
+ 
         function computeOptimalStrategies(obj)
             % 计算纳什均衡策略
             
