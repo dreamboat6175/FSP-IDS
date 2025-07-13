@@ -125,8 +125,11 @@ classdef CyberBattleTCSEnvironment < handle
                 end
             end
             
-            % 初始化策略向量 - 均匀分布
-            obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            % 初始化策略向量 - 攻击者只攻击一个主站
+            obj.attacker_strategy = zeros(1, obj.n_stations);
+            initial_focus_station = randi(obj.n_stations);
+            obj.attacker_strategy(initial_focus_station) = 1.0;
+            obj.attacker_strategy = obj.attacker_strategy / sum(obj.attacker_strategy);
             obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
             
             % 初始化最优策略
@@ -235,8 +238,11 @@ classdef CyberBattleTCSEnvironment < handle
             obj.attack_history = [];
             obj.defense_history = [];
             
-            % 重置策略为均匀分布
-            obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            % 重置策略 - 攻击者只攻击一个主站
+            obj.attacker_strategy = zeros(1, obj.n_stations);
+            initial_focus_station = randi(obj.n_stations);
+            obj.attacker_strategy(initial_focus_station) = 1.0;
+            obj.attacker_strategy = obj.attacker_strategy / sum(obj.attacker_strategy);
             obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
             
             % 重置RADI

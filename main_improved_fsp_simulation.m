@@ -64,7 +64,7 @@ try
                 defender_agents{i} = SARSAAgent(sprintf('SARSA-%d', i), ...
                                              'defender', config, ...
                                              env.state_dim, env.action_dim_defender);
-                defender_agents{i}.Q_table = defender_agents{i}.Q_table + 1.0;
+                % SARSA智能体已在构造函数中进行了优化的Q表初始化
                 
             case 'Double Q-Learning'
                 defender_agents{i} = DoubleQLearningAgent(sprintf('DoubleQ-%d', i), ...
@@ -191,109 +191,95 @@ end
 
 function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacker_agent, n_episodes, config)
     n_agents = length(defender_agents);
+    n_stations = env.n_stations;
+    n_resource_types = env.n_resource_types;
+    
+    % 初始化结果存储
     episode_results.radi_scores = zeros(n_episodes, n_agents);
     episode_results.resource_efficiency = zeros(n_episodes, n_agents);
     episode_results.allocation_balance = zeros(n_episodes, n_agents);
     episode_results.defender_rewards = zeros(n_episodes, n_agents);
     episode_results.attacker_rewards = zeros(n_episodes, 1);
-    episode_results.resource_allocations = zeros(n_episodes, n_agents, 5);
+    episode_results.resource_allocations = zeros(n_episodes, n_agents, n_resource_types);
     episode_results.attack_info = cell(n_episodes, 1);
+    
     for ep = 1:n_episodes
         state = env.reset();
         is_attack_episode = rand() < 0.7;
-        % 生成攻击者动作向量
+        
+        % 生成攻击者动作
         if is_attack_episode
-            attacker_action_vec = ones(1, env.n_stations);
-            for s = 1:env.n_stations
+            attacker_action_vec = ones(1, n_stations);
+            for s = 1:n_stations
                 attacker_action_vec(s) = randi([2, env.n_attack_types]);
             end
         else
-            attacker_action_vec = ones(1, env.n_stations); % 默认安全动作
+            attacker_action_vec = ones(1, n_stations);
         end
+        
         for agent_idx = 1:n_agents
             defender = defender_agents{agent_idx};
-            % --- 提取每站重要性特征作为state_vec ---
-            n_stations = env.n_stations;
-            station_features = state(1:n_stations*8);
-            state_vec = zeros(1, n_stations);
-            for s = 1:n_stations
-                state_vec(s) = station_features((s-1)*8 + 1);
-            end
-            defender_action = defender.selectAction(state_vec);
-            % --- Robust shape check for defender_action ---
-            if isempty(defender_action) || numel(defender_action) ~= 5
-                warning('main_improved_fsp_simulation: defender_action is empty or not length 5, auto-fixing...');
-                defender_action = ones(1, 5);
-            end
-            defender_action = reshape(defender_action, 1, 5);
-            % --- Robust shape check for attacker_action_vec ---
-            if isempty(attacker_action_vec) || numel(attacker_action_vec) ~= 5
-                warning('main_improved_fsp_simulation: attacker_action_vec is empty or not length 5, auto-fixing...');
-                attacker_action_vec = ones(1, 5);
-            end
-            attacker_action_vec = reshape(attacker_action_vec, 1, 5);
-            [next_state, reward_def, reward_att, info] = env.step(defender_action, attacker_action_vec);
-            % --- 提取next_state_vec ---
-            next_station_features = next_state(1:n_stations*8);
-            next_state_vec = zeros(1, n_stations);
-            for s = 1:n_stations
-                next_state_vec(s) = next_station_features((s-1)*8 + 1);
-            end
-            if isfield(info, 'resource_allocation')
-                if size(info.resource_allocation, 1) > 1
-                    current_allocation = info.resource_allocation(agent_idx, :);
-                else
-                    current_allocation = info.resource_allocation;
-                end
+            
+            % 智能体选择动作（每个站点选择一种资源类型）
+            if isa(defender, 'QLearningAgent') || isa(defender, 'SARSAAgent') || isa(defender, 'DoubleQLearningAgent')
+                % 使用智能体的selectAction方法直接选择动作
+                defender_action = defender.selectAction(state);
             else
-                current_allocation = ones(1, 5) * 0.2;
+                % 其他类型智能体的默认行为
+                defender_action = ones(1, n_stations);
             end
-            assert(isvector(current_allocation) && numel(current_allocation) == 5, ...
-                'current_allocation must be a 1x5 vector, got size %s', mat2str(size(current_allocation)));
+            
+            % 执行动作
+            [next_state, reward_def, ~, info] = env.step(defender_action, attacker_action_vec);
+            
+            % 获取资源分配（已经归一化）
+            if isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
+                current_allocation = info.resource_allocation;
+            else
+                % 备用方案：手动计算资源分配
+                current_allocation = env.calculateResourceAllocationFromActions(defender_action);
+            end
+            
+            % 验证资源分配
+            agent_name = sprintf('Agent-%d', agent_idx);
+            validateResourceAllocation(current_allocation, agent_name, ep);
+            
+            % 计算指标
             radi = calculateRADI(current_allocation, config.radi.optimal_allocation, config.radi);
             efficiency = calculateResourceEfficiency(current_allocation, info);
             balance = calculateAllocationBalance(current_allocation);
             radi_reward = calculateRADIReward(radi, efficiency, balance, config);
+            
+            % 记录结果
             episode_results.radi_scores(ep, agent_idx) = radi;
             episode_results.resource_efficiency(ep, agent_idx) = efficiency;
             episode_results.allocation_balance(ep, agent_idx) = balance;
             episode_results.defender_rewards(ep, agent_idx) = radi_reward;
             episode_results.resource_allocations(ep, agent_idx, :) = current_allocation;
-            if isa(defender, 'SARSAAgent')
-                next_action = defender.selectAction(next_state_vec);
-                defender.update(state_vec, defender_action, radi_reward, next_state_vec, next_action);
-            else
-                defender.update(state_vec, defender_action, radi_reward, next_state_vec, []);
-            end
+            
+            % 更新智能体 - 传递状态向量而不是状态索引
+            defender.update(state, defender_action, radi_reward, next_state, []);
+            
             if agent_idx == 1
                 episode_results.attack_info{ep} = info;
             end
         end
-        % --- Robust shape check for attacker_action_vec before update ---
-        if isempty(attacker_action_vec) || numel(attacker_action_vec) ~= 5
-            warning('main_improved_fsp_simulation: attacker_action_vec is empty or not length 5 (update), auto-fixing...');
-            attacker_action_vec = ones(1, 5);
-        end
-        attacker_action_vec = reshape(attacker_action_vec, 1, 5);
-        % --- 提取attacker_state_vec/next_state_vec ---
-        attacker_state_vec = zeros(1, n_stations);
-        for s = 1:n_stations
-            attacker_state_vec(s) = station_features((s-1)*8 + 1);
-        end
-        next_attacker_state_vec = zeros(1, n_stations);
-        for s = 1:n_stations
-            next_attacker_state_vec(s) = next_station_features((s-1)*8 + 1);
-        end
+        
+        % 更新攻击者 - 传递状态向量而不是状态索引
         avg_radi = mean(episode_results.radi_scores(ep, :));
         attacker_reward = avg_radi * 10;
-        attacker_agent.update(attacker_state_vec, attacker_action_vec, attacker_reward, next_attacker_state_vec, []);
+        attacker_agent.update(state, attacker_action_vec, attacker_reward, next_state, []);
         episode_results.attacker_rewards(ep) = attacker_reward;
     end
+    
+    % 计算平均值
     episode_results.avg_radi = mean(episode_results.radi_scores, 1);
     episode_results.avg_efficiency = mean(episode_results.resource_efficiency, 1);
     episode_results.avg_balance = mean(episode_results.allocation_balance, 1);
     episode_results.avg_defender_reward = mean(episode_results.defender_rewards, 1);
     episode_results.avg_attacker_reward = mean(episode_results.attacker_rewards);
+    
+    % 输出结果
     if n_episodes >= 10
         fprintf('\nEpisode批次完成:\n');
         for i = 1:n_agents
@@ -301,9 +287,15 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
                     i, episode_results.avg_radi(i), ...
                     episode_results.avg_efficiency(i) * 100, ...
                     episode_results.avg_balance(i) * 100);
+            
+            % 显示平均分配
+            avg_allocation = squeeze(mean(episode_results.resource_allocations(:, i, :), 1));
+            fprintf('    平均分配: [%.3f, %.3f, %.3f, %.3f, %.3f] (总和=%.3f)\n', ...
+                    avg_allocation, sum(avg_allocation));
         end
     end
 end
+
 
 function checkAndAdjustPerformanceRADI(defender_agents, monitor, iter, config)
     results = monitor.getResults();
@@ -373,33 +365,47 @@ function radi = calculateRADI(current_allocation, optimal_allocation, radi_confi
     radi = radi(1); % 保证输出为标量
 end
 function efficiency = calculateResourceEfficiency(allocation, info)
-    % 确保allocation是行向量
-    allocation = reshape(allocation, 1, []);
-    
+    % 计算资源利用效率
     if isfield(info, 'game_result') && isfield(info.game_result, 'resource_efficiency')
+        % 如果有游戏结果中的效率，使用它
         efficiency = info.game_result.resource_efficiency;
     else
-        % 计算实际资源利用率
-        total_allocated = sum(allocation);
-        max_possible = length(allocation); % 假设每个资源最大值为1
+        % 否则基于分配计算
+        % 考虑分配的均衡性和总量
+        total_allocation = sum(allocation);
         
-        if max_possible > 0
-            efficiency = total_allocated / max_possible;
+        % 效率 = 使用的资源比例 * 分配均衡度
+        if total_allocation > 0
+            utilization = min(1, total_allocation);
+            balance = 1 - std(allocation) / (mean(allocation) + eps);
+            efficiency = utilization * balance;
         else
             efficiency = 0;
         end
-        
-        % 确保效率在0-1之间
-        efficiency = max(0, min(1, efficiency));
     end
+    
+    % 确保在[0,1]范围内
+    efficiency = max(0, min(1, efficiency));
 end
 function balance = calculateAllocationBalance(allocation)
+    % 计算分配平衡度
     if sum(allocation) == 0
         balance = 0;
         return;
     end
-    cv = std(allocation) / (mean(allocation) + eps);
-    balance = 1 / (1 + cv);
+    
+    % 去除零值计算变异系数
+    non_zero_alloc = allocation(allocation > 0);
+    if isempty(non_zero_alloc)
+        balance = 0;
+    else
+        % 使用变异系数的倒数作为平衡度
+        cv = std(non_zero_alloc) / mean(non_zero_alloc);
+        balance = 1 / (1 + cv);
+    end
+    
+    % 确保在[0,1]范围内
+    balance = max(0, min(1, balance));
 end
 function reward = calculateRADIReward(radi, efficiency, balance, config)
     radi_penalty = -radi * 50;
@@ -412,5 +418,29 @@ function reward = calculateRADIReward(radi, efficiency, balance, config)
         reward = reward + 50;
     elseif radi <= config.radi.threshold_good
         reward = reward + 20;
+    end
+end
+
+function validateResourceAllocation(allocation, agent_name, episode)
+    % 验证资源分配的正确性
+    tolerance = 1e-6;
+    
+    % 检查总和
+    total = sum(allocation);
+    if abs(total - 1) > tolerance
+        error('Agent %s, Episode %d: 资源分配总和错误: %.6f (应该为1)', ...
+              agent_name, episode, total);
+    end
+    
+    % 检查非负性
+    if any(allocation < -tolerance)
+        error('Agent %s, Episode %d: 资源分配包含负值: %s', ...
+              agent_name, episode, mat2str(allocation));
+    end
+    
+    % 检查合理性（每个分配应该在[0,1]之间）
+    if any(allocation > 1 + tolerance)
+        error('Agent %s, Episode %d: 资源分配超过1: %s', ...
+              agent_name, episode, mat2str(allocation));
     end
 end

@@ -52,62 +52,79 @@ end
 
 function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
     % --- Robust shape check ---
-    if isempty(action_vec) || numel(action_vec) ~= 5
-        warning('QLearningAgent.update: action_vec is empty or not length 5, auto-fixing...');
+    if isempty(action_vec)
+        warning('QLearningAgent.update: action_vec is empty, auto-fixing...');
         action_vec = ones(1, 5);
     end
-    action_vec = reshape(action_vec, 1, 5);
-    if isempty(state_vec) || numel(state_vec) ~= 5
-        warning('QLearningAgent.update: state_vec is empty or not length 5, auto-fixing...');
-        state_vec = ones(1, 5);
+    action_vec = reshape(action_vec, 1, []);
+    if isempty(state_vec)
+        warning('QLearningAgent.update: state_vec is empty, auto-fixing...');
+        state_vec = ones(1, obj.state_dim);
     end
-    state_vec = reshape(state_vec, 1, 5);
-    if ~isempty(next_state_vec) && numel(next_state_vec) ~= 5
-        warning('QLearningAgent.update: next_state_vec is not length 5, auto-fixing...');
-        next_state_vec = ones(1, 5);
-    end
+    state_vec = reshape(state_vec, 1, []);
     if ~isempty(next_state_vec)
-        next_state_vec = reshape(next_state_vec, 1, 5);
+        next_state_vec = reshape(next_state_vec, 1, []);
     end
-    n = length(state_vec);
-    for j = 1:n
-        state = obj.getStateIndex(state_vec(j));
-        next_state = obj.getStateIndex(next_state_vec(j));
-        a = action_vec(j);
-        if isempty(next_action_vec)
-            max_next_q = max(obj.Q_table(next_state, :));
-        else
-            max_next_q = obj.Q_table(next_state, next_action_vec(j));
-        end
-        current_q = obj.Q_table(state, a);
-        td_error = reward + obj.discount_factor * max_next_q - current_q;
-        obj.Q_table(state, a) = current_q + obj.learning_rate * td_error;
-        obj.visit_count(state, a) = obj.visit_count(state, a) + 1;
+    
+    % 获取状态索引
+    state_idx = obj.getStateIndex(mean(state_vec));
+    next_state_idx = obj.getStateIndex(mean(next_state_vec));
+    
+    % 将站点级动作转换为Q表索引
+    n_stations = length(action_vec);
+    n_resource_types = obj.action_dim / n_stations;
+    
+    % 使用第一个站点的动作作为主要索引
+    primary_station = 1;
+    resource_type = action_vec(primary_station);
+    resource_type = max(1, min(n_resource_types, round(resource_type)));
+    q_action_idx = (primary_station - 1) * n_resource_types + resource_type;
+    q_action_idx = max(1, min(obj.action_dim, q_action_idx));
+    
+    % 计算TD误差
+    current_q = obj.Q_table(state_idx, q_action_idx);
+    if isempty(next_action_vec)
+        max_next_q = max(obj.Q_table(next_state_idx, :));
+    else
+        % 处理下一个动作
+        next_resource_type = next_action_vec(primary_station);
+        next_resource_type = max(1, min(n_resource_types, round(next_resource_type)));
+        next_q_action_idx = (primary_station - 1) * n_resource_types + next_resource_type;
+        next_q_action_idx = max(1, min(obj.action_dim, next_q_action_idx));
+        max_next_q = obj.Q_table(next_state_idx, next_q_action_idx);
     end
+    
+    td_error = reward + obj.discount_factor * max_next_q - current_q;
+    obj.Q_table(state_idx, q_action_idx) = current_q + obj.learning_rate * td_error;
+    obj.visit_count(state_idx, q_action_idx) = obj.visit_count(state_idx, q_action_idx) + 1;
+    
     obj.recordReward(reward);
     obj.update_count = obj.update_count + 1;
 end
 
-function action_vec = selectAction(obj, state_vec)
-            % 输入: state_vec (1 x n_stations)
+        function action_vec = selectAction(obj, state_vec)
+            % 输入: state_vec (1 x state_dim)
             % 输出: action_vec (1 x n_stations)
             % Robust shape check
-            if isempty(state_vec) || numel(state_vec) ~= 5
-                warning('QLearningAgent.selectAction: state_vec is empty or not length 5, auto-fixing...');
-                state_vec = ones(1, 5);
+            if isempty(state_vec)
+                warning('QLearningAgent.selectAction: state_vec is empty, auto-fixing...');
+                state_vec = ones(1, obj.state_dim);
             end
-            state_vec = reshape(state_vec, 1, 5);
-            n = length(state_vec);
-            action_vec = zeros(1, n);
-            for j = 1:n
-                state = obj.getStateIndex(state_vec(j));
-                q_values = obj.Q_table(state, :);
-                if obj.use_softmax
-                    action_vec(j) = obj.boltzmannAction(state, q_values);
-                else
-                    action_vec(j) = obj.epsilonGreedyAction(state, q_values);
-                end
+            state_vec = reshape(state_vec, 1, []);
+            
+            % 获取状态索引
+            state_idx = obj.getStateIndex(mean(state_vec));
+            
+            % 获取Q值
+            q_values = obj.Q_table(state_idx, :);
+            
+            % 确保Q值有效
+            if any(isnan(q_values)) || any(isinf(q_values))
+                q_values = ones(size(q_values)) * 1.0;
             end
+            
+            % 使用辅助函数转换为站点级动作
+            action_vec = obj.convertToStationActions(q_values, 5); % 固定为5个站点
         end
         
         function policy = getPolicy(obj)

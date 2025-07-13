@@ -15,81 +15,104 @@ classdef DoubleQLearningAgent < RLAgent
         end
         
         function action_vec = selectAction(obj, state_vec)
-            % Robust shape check
-            if isempty(state_vec) || numel(state_vec) ~= 5
-                warning('DoubleQLearningAgent.selectAction: state_vec is empty or not length 5, auto-fixing...');
-                state_vec = ones(1, 5);
-            end
-            state_vec = reshape(state_vec, 1, 5);
-            % 输入: state_vec (1 x n_stations)
+            % 输入: state_vec (1 x state_dim)
             % 输出: action_vec (1 x n_stations)
-            n = length(state_vec);
-            action_vec = zeros(1, n);
-            for j = 1:n
-                state_idx = obj.getStateIndex(state_vec(j));
-                Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
-                q_values = Q_combined(state_idx, :);
-                action_vec(j) = obj.epsilonGreedyAction(state_idx, q_values);
-                obj.recordAction(state_idx, action_vec(j));
+            % Robust shape check
+            if isempty(state_vec)
+                warning('DoubleQLearningAgent.selectAction: state_vec is empty, auto-fixing...');
+                state_vec = ones(1, obj.state_dim);
             end
+            state_vec = reshape(state_vec, 1, []);
+            
+            % 获取状态索引
+            state_idx = obj.getStateIndex(mean(state_vec));
+            
+            % 获取组合Q值
+            Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
+            q_values = Q_combined(state_idx, :);
+            
+            % 确保Q值有效
+            if any(isnan(q_values)) || any(isinf(q_values))
+                q_values = ones(size(q_values)) * 1.0;
+            end
+            
+            % 使用辅助函数转换为站点级动作
+            action_vec = obj.convertToStationActions(q_values, 5); % 固定为5个站点
+            
+            % 记录动作
+            obj.recordAction(state_idx, action_vec(1));
         end
         
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
             % Robust shape check
-            if isempty(action_vec) || numel(action_vec) ~= 5
-                warning('DoubleQLearningAgent.update: action_vec is empty or not length 5, auto-fixing...');
+            if isempty(action_vec)
+                warning('DoubleQLearningAgent.update: action_vec is empty, auto-fixing...');
                 action_vec = ones(1, 5);
             end
-            action_vec = reshape(action_vec, 1, 5);
-            if isempty(state_vec) || numel(state_vec) ~= 5
-                warning('DoubleQLearningAgent.update: state_vec is empty or not length 5, auto-fixing...');
-                state_vec = ones(1, 5);
+            action_vec = reshape(action_vec, 1, []);
+            if isempty(state_vec)
+                warning('DoubleQLearningAgent.update: state_vec is empty, auto-fixing...');
+                state_vec = ones(1, obj.state_dim);
             end
-            state_vec = reshape(state_vec, 1, 5);
-            if ~isempty(next_state_vec) && numel(next_state_vec) ~= 5
-                warning('DoubleQLearningAgent.update: next_state_vec is not length 5, auto-fixing...');
-                next_state_vec = ones(1, 5);
-            end
+            state_vec = reshape(state_vec, 1, []);
             if ~isempty(next_state_vec)
-                next_state_vec = reshape(next_state_vec, 1, 5);
-            end
-            if ~isempty(next_action_vec) && numel(next_action_vec) ~= 5
-                warning('DoubleQLearningAgent.update: next_action_vec is not length 5, auto-fixing...');
-                next_action_vec = ones(1, 5);
+                next_state_vec = reshape(next_state_vec, 1, []);
             end
             if ~isempty(next_action_vec)
-                next_action_vec = reshape(next_action_vec, 1, 5);
+                next_action_vec = reshape(next_action_vec, 1, []);
             end
-            n = length(state_vec);
-            for j = 1:n
-                state_idx = obj.getStateIndex(state_vec(j));
-                next_state_idx = obj.getStateIndex(next_state_vec(j));
-                a = action_vec(j);
-                if rand() < 0.5
-                    [~, best_action] = max(obj.Q1_table(next_state_idx, :));
-                    if isempty(next_action_vec)
-                        td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action) ...
-                                  - obj.Q1_table(state_idx, a);
-                    else
-                        td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, next_action_vec(j)) ...
-                                  - obj.Q1_table(state_idx, a);
-                    end
-                    obj.Q1_table(state_idx, a) = obj.Q1_table(state_idx, a) + ...
-                                                obj.learning_rate * td_error;
+            
+            % 获取状态索引
+            state_idx = obj.getStateIndex(mean(state_vec));
+            next_state_idx = obj.getStateIndex(mean(next_state_vec));
+            
+            % 将站点级动作转换为Q表索引
+            n_stations = length(action_vec);
+            n_resource_types = obj.action_dim / n_stations;
+            
+            % 使用第一个站点的动作作为主要索引
+            primary_station = 1;
+            resource_type = action_vec(primary_station);
+            resource_type = max(1, min(n_resource_types, round(resource_type)));
+            q_action_idx = (primary_station - 1) * n_resource_types + resource_type;
+            q_action_idx = max(1, min(obj.action_dim, q_action_idx));
+            
+            % Double Q-Learning更新
+            if rand() < 0.5
+                [~, best_action] = max(obj.Q1_table(next_state_idx, :));
+                if isempty(next_action_vec)
+                    td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action) ...
+                              - obj.Q1_table(state_idx, q_action_idx);
                 else
-                    [~, best_action] = max(obj.Q2_table(next_state_idx, :));
-                    if isempty(next_action_vec)
-                        td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action) ...
-                                  - obj.Q2_table(state_idx, a);
-                    else
-                        td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, next_action_vec(j)) ...
-                                  - obj.Q2_table(state_idx, a);
-                    end
-                    obj.Q2_table(state_idx, a) = obj.Q2_table(state_idx, a) + ...
-                                                obj.learning_rate * td_error;
+                    % 处理下一个动作
+                    next_resource_type = next_action_vec(primary_station);
+                    next_resource_type = max(1, min(n_resource_types, round(next_resource_type)));
+                    next_q_action_idx = (primary_station - 1) * n_resource_types + next_resource_type;
+                    next_q_action_idx = max(1, min(obj.action_dim, next_q_action_idx));
+                    td_error = reward + obj.discount_factor * obj.Q2_table(next_state_idx, next_q_action_idx) ...
+                              - obj.Q1_table(state_idx, q_action_idx);
                 end
-                obj.visit_count(state_idx, a) = obj.visit_count(state_idx, a) + 1;
+                obj.Q1_table(state_idx, q_action_idx) = obj.Q1_table(state_idx, q_action_idx) + ...
+                                                      obj.learning_rate * td_error;
+            else
+                [~, best_action] = max(obj.Q2_table(next_state_idx, :));
+                if isempty(next_action_vec)
+                    td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action) ...
+                              - obj.Q2_table(state_idx, q_action_idx);
+                else
+                    % 处理下一个动作
+                    next_resource_type = next_action_vec(primary_station);
+                    next_resource_type = max(1, min(n_resource_types, round(next_resource_type)));
+                    next_q_action_idx = (primary_station - 1) * n_resource_types + next_resource_type;
+                    next_q_action_idx = max(1, min(obj.action_dim, next_q_action_idx));
+                    td_error = reward + obj.discount_factor * obj.Q1_table(next_state_idx, next_q_action_idx) ...
+                              - obj.Q2_table(state_idx, q_action_idx);
+                end
+                obj.Q2_table(state_idx, q_action_idx) = obj.Q2_table(state_idx, q_action_idx) + ...
+                                                      obj.learning_rate * td_error;
             end
+            obj.visit_count(state_idx, q_action_idx) = obj.visit_count(state_idx, q_action_idx) + 1;
+            
             obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
         end
