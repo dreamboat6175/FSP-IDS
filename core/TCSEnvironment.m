@@ -304,26 +304,50 @@ classdef TCSEnvironment < handle
         end
         
         function radi = calculateRADIScore(obj, current_strategy, optimal_strategy)
-            % 计算资源分配偏差指数
-            % RADI = sum((current - optimal)^2) / sum(optimal^2)
-            
-            % 确保维度匹配
-            if length(current_strategy) ~= length(optimal_strategy)
-                error('策略维度不匹配');
-            end
-            
-            % 计算偏差
-            deviation = current_strategy - optimal_strategy;
-            
-            % 计算RADI
-            numerator = sum(deviation.^2);
-            denominator = sum(optimal_strategy.^2) + obj.epsilon;
-            
-            radi = numerator / denominator;
-            
-            % 记录历史
-            obj.radi_history(end+1) = radi;
+    % 改进的RADI计算，增加数值稳定性
+    epsilon = 1e-10;
+    
+    % 确保策略归一化
+    if sum(current_strategy) > epsilon
+        current_strategy = current_strategy / sum(current_strategy);
+    end
+    if sum(optimal_strategy) > epsilon
+        optimal_strategy = optimal_strategy / sum(optimal_strategy);
+    end
+    
+    % 计算欧氏距离的平方
+    deviation = current_strategy - optimal_strategy;
+    radi = sum(deviation.^2);
+    
+    % 添加调试输出
+    if radi < epsilon
+        fprintf('  [调试] RADI接近0: current=%s, optimal=%s\n', ...
+               mat2str(current_strategy, 3), mat2str(optimal_strategy, 3));
+    end
+end
+
+function diversity = calculateStrategyDiversity(obj, allocations)
+    % 计算策略多样性（基于分配向量的平均距离）
+    if size(allocations, 1) <= 1
+        diversity = 0;
+        return;
+    end
+    
+    n = size(allocations, 1);
+    total_distance = 0;
+    count = 0;
+    
+    for i = 1:n-1
+        for j = i+1:n
+            distance = norm(allocations(i, :) - allocations(j, :));
+            total_distance = total_distance + distance;
+            count = count + 1;
         end
+    end
+    
+    diversity = total_distance / count;
+end
+
         
         function [attack_results, defense_results] = executeAttackDefense(obj, attacker_targets, defender_allocation)
             % 执行攻防对抗

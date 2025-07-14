@@ -103,29 +103,74 @@ function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_
 end
 
         function action_vec = selectAction(obj, state_vec)
-            % 输入: state_vec (1 x state_dim)
-            % 输出: action_vec (1 x n_stations)
-            % Robust shape check
-            if isempty(state_vec)
-                warning('QLearningAgent.selectAction: state_vec is empty, auto-fixing...');
-                state_vec = ones(1, obj.state_dim);
+    % 输入: state_vec (1 x state_dim)
+    % 输出: action_vec (资源分配向量或动作索引)
+    
+    % 健壮性检查
+    if isempty(state_vec)
+        warning('QLearningAgent.selectAction: state_vec is empty, auto-fixing...');
+        state_vec = ones(1, obj.state_dim);
+    end
+    state_vec = reshape(state_vec, 1, []);
+    
+    % 获取状态索引
+    state_idx = obj.getStateIndex(mean(state_vec));
+    
+    % 获取Q值
+    q_values = obj.Q_table(state_idx, :);
+    
+    % 确保Q值有效
+    if any(isnan(q_values)) || any(isinf(q_values))
+        q_values = ones(size(q_values)) * 1.0;
+    end
+    
+    % === 关键修改：直接返回多样化的动作向量 ===
+    if obj.use_softmax
+        % 使用softmax产生概率分布
+        temperature = max(0.1, obj.temperature);
+        exp_values = exp(q_values / temperature);
+        probabilities = exp_values / sum(exp_values);
+        
+        % 返回概率分布作为资源分配
+        action_vec = probabilities;
+        
+    else
+        % Epsilon-greedy策略
+        if rand() < obj.epsilon
+            % 探索：生成随机动作向量
+            action_vec = rand(1, obj.action_dim);
+            % 添加一些结构化的变化
+            if rand() < 0.3
+                % 30%概率集中资源到少数类型
+                focus_types = randperm(obj.action_dim, randi([1, 2]));
+                action_vec = action_vec * 0.1;
+                action_vec(focus_types) = action_vec(focus_types) + 0.5;
             end
-            state_vec = reshape(state_vec, 1, []);
+        else
+            % 利用：基于Q值选择，但添加噪声
+            [~, best_action] = max(q_values);
+            action_vec = zeros(1, obj.action_dim);
+            action_vec(best_action) = 1;
             
-            % 获取状态索引
-            state_idx = obj.getStateIndex(mean(state_vec));
-            
-            % 获取Q值
-            q_values = obj.Q_table(state_idx, :);
-            
-            % 确保Q值有效
-            if any(isnan(q_values)) || any(isinf(q_values))
-                q_values = ones(size(q_values)) * 1.0;
-            end
-            
-            % 使用辅助函数转换为站点级动作
-            action_vec = obj.convertToStationActions(q_values, 5); % 固定为5个站点
+            % 添加小量噪声避免完全相同
+            noise_level = 0.1;
+            noise = randn(1, obj.action_dim) * noise_level;
+            action_vec = action_vec + noise;
         end
+    end
+    
+    % 确保非负并归一化
+    action_vec = max(0, action_vec);
+    if sum(action_vec) > 0
+        action_vec = action_vec / sum(action_vec);
+    else
+        action_vec = ones(1, obj.action_dim) / obj.action_dim;
+    end
+    
+    % 记录动作（如果需要单一索引）
+    [~, dominant_action] = max(action_vec);
+    obj.recordAction(state_idx, dominant_action);
+end
         
         function policy = getPolicy(obj)
             % 获取当前策略（Q表）
@@ -242,5 +287,11 @@ end
                 metrics.action_diversity = 0;
             end
         end
+         function prob = softmax(x)
+    % 计算softmax概率分布
+    exp_x = exp(x - max(x));  % 数值稳定性
+    prob = exp_x / sum(exp_x);
+end
     end
+   
 end

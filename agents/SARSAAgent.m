@@ -21,32 +21,70 @@ classdef SARSAAgent < RLAgent
         end
 
         function action_vec = selectAction(obj, state_vec)
-            % 输入: state_vec (1 x state_dim)
-            % 输出: action_vec (1 x n_stations)
-            % Robust shape check
-            if isempty(state_vec)
-                warning('SARSAAgent.selectAction: state_vec is empty, auto-fixing...');
-                state_vec = ones(1, obj.state_dim);
-            end
-            state_vec = reshape(state_vec, 1, []);
-            
-            % 获取状态索引
-            state_idx = obj.getStateIndex(mean(state_vec));
-            
-            % 获取Q值
-            q_values = obj.Q_table(state_idx, :);
-            
-            % 确保Q值有效
-            if any(isnan(q_values)) || any(isinf(q_values))
-                q_values = ones(size(q_values)) * 1.0;
-            end
-            
-            % 使用辅助函数转换为站点级动作
-            action_vec = obj.convertToStationActions(q_values, 5); % 固定为5个站点
-            
-            % 记录动作
-            obj.recordAction(state_idx, action_vec(1));
+    % SARSA智能体的动作选择
+    
+    % 健壮性检查
+    if isempty(state_vec)
+        warning('SARSAAgent.selectAction: state_vec is empty, auto-fixing...');
+        state_vec = ones(1, obj.state_dim);
+    end
+    state_vec = reshape(state_vec, 1, []);
+    
+    % 获取状态索引
+    state_idx = obj.getStateIndex(mean(state_vec));
+    
+    % 获取Q值
+    q_values = obj.Q_table(state_idx, :);
+    
+    % 确保Q值有效
+    if any(isnan(q_values)) || any(isinf(q_values))
+        q_values = ones(size(q_values)) * 1.0;
+    end
+    
+    % === SARSA特有的动作选择策略 ===
+    if obj.use_softmax
+        % Softmax选择
+        temperature = max(0.1, obj.temperature);
+        exp_values = exp(q_values / temperature);
+        probabilities = exp_values / sum(exp_values);
+        action_vec = probabilities;
+        
+        % SARSA特色：基于当前策略的噪声
+        if rand() < 0.2
+            policy_noise = randn(1, obj.action_dim) * 0.05;
+            action_vec = action_vec + policy_noise;
         end
+        
+    else
+        % Epsilon-greedy with SARSA twist
+        if rand() < obj.epsilon
+            % SARSA探索：倾向于平衡分配
+            action_vec = ones(1, obj.action_dim) + rand(1, obj.action_dim) * 0.5;
+        else
+            % 基于Q值的Boltzmann分布
+            beta = 2.0;  % 温度参数
+            weights = exp(beta * (q_values - max(q_values)));
+            action_vec = weights / sum(weights);
+            
+            % 添加策略噪声
+            noise = randn(1, obj.action_dim) * 0.08;
+            action_vec = action_vec + noise;
+        end
+    end
+    
+    % 确保非负并归一化
+    action_vec = max(0, action_vec);
+    if sum(action_vec) > 0
+        action_vec = action_vec / sum(action_vec);
+    else
+        action_vec = ones(1, obj.action_dim) / obj.action_dim;
+    end
+    
+    % 记录动作
+    [~, dominant_action] = max(action_vec);
+    obj.recordAction(state_idx, dominant_action);
+end
+
 
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
             % Robust shape check
@@ -146,5 +184,10 @@ classdef SARSAAgent < RLAgent
                 error('模型文件不存在: %s', filename);
             end
         end
+         function prob = softmax(x)
+    % 计算softmax概率分布
+    exp_x = exp(x - max(x));  % 数值稳定性
+    prob = exp_x / sum(exp_x);
+end
     end
 end

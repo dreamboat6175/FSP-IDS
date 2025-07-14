@@ -343,14 +343,31 @@ function radi = calculateRADI(current_allocation, optimal_allocation, radi_confi
     radi = sum(weights .* deviation);
 end
 function efficiency = calculateResourceEfficiency(allocation, info)
-    if isfield(info, 'defended_successfully')
-        total_resources = sum(allocation);
-        efficiency = info.defended_successfully / (1 + total_resources/100);
+    % 计算资源利用效率
+    if isfield(info, 'game_result') && isfield(info.game_result, 'resource_efficiency')
+        efficiency = info.game_result.resource_efficiency;
     else
-        utilization = sum(allocation) / 100;
-        efficiency = min(1, utilization);
+        % 基于分配的均衡性和利用率计算效率
+        total_allocation = sum(allocation);
+        
+        if total_allocation > 0
+            % 利用率：接近1最好
+            utilization = min(1, total_allocation);
+            
+            % 均衡性：标准差越小越好
+            balance = 1 - (std(allocation) / (mean(allocation) + 1e-10));
+            balance = max(0, min(1, balance));
+            
+            % 综合效率
+            efficiency = utilization * balance;
+        else
+            efficiency = 0;
+        end
     end
+    
+    efficiency = max(0, min(1, efficiency));
 end
+
 function balance = calculateAllocationBalance(allocation)
     if sum(allocation) == 0
         balance = 0;

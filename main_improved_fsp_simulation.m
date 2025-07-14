@@ -2,13 +2,10 @@
 % =========================================================================
 % 使用优化的环境和参数设置，提高检测率
 % =========================================================================
-
 %% 初始化
 clear all; close all; clc;
-
 % 添加所有子文件夹到MATLAB路径
 addpath(genpath(pwd));
-
 %% 主程序
 try
     % 1. 加载配置
@@ -47,37 +44,114 @@ try
     
     env =  TCSEnvironment(config); 
     
+    
     % 5. 初始化智能体（使用更小的状态空间）
     fprintf('正在初始化智能体...\n');
     defender_agents = cell(1, length(config.algorithms));
-    
     for i = 1:length(config.algorithms)
         switch config.algorithms{i}
             case 'Q-Learning'
                 defender_agents{i} = QLearningAgent(sprintf('Q-Learning-%d', i), ...
                                                   'defender', config, ...
                                                   env.state_dim, env.action_dim_defender);
-                % 优化Q表初始化
-                defender_agents{i}.Q_table = defender_agents{i}.Q_table + 1.0;  % 乐观初始化
+                
+                % === 关键修改：优化Q表初始化和参数设置 ===
+                % 乐观初始化 - 不同智能体使用不同的初始值
+                base_value = 2.0 + (i-1) * 0.5;  % 每个智能体不同的初始值
+                noise_level = 0.3;
+                defender_agents{i}.Q_table = ones(env.state_dim, env.action_dim_defender) * base_value + ...
+                                            randn(env.state_dim, env.action_dim_defender) * noise_level;
+                
+                % 设置不同的探索策略
+                defender_agents{i}.epsilon = 0.4 + (i-1) * 0.1;  % 不同的探索率
+                defender_agents{i}.use_softmax = mod(i, 2) == 1;  % 交替使用softmax和epsilon-greedy
+                defender_agents{i}.temperature = 1.0 + (i-1) * 0.2;  % 不同的温度参数
+                
+                fprintf('  智能体%d: epsilon=%.2f, softmax=%d, temp=%.2f\n', ...
+                       i, defender_agents{i}.epsilon, defender_agents{i}.use_softmax, ...
+                       defender_agents{i}.temperature);
                 
             case 'SARSA'
                 defender_agents{i} = SARSAAgent(sprintf('SARSA-%d', i), ...
                                              'defender', config, ...
                                              env.state_dim, env.action_dim_defender);
-                % SARSA智能体已在构造函数中进行了优化的Q表初始化
+                
+                % SARSA特有的初始化
+                base_value = 1.5 + (i-1) * 0.4;
+                noise_level = 0.4;
+                defender_agents{i}.Q_table = ones(env.state_dim, env.action_dim_defender) * base_value + ...
+                                            randn(env.state_dim, env.action_dim_defender) * noise_level;
+                
+                % SARSA参数设置
+                defender_agents{i}.epsilon = 0.3 + (i-1) * 0.15;
+                defender_agents{i}.use_softmax = mod(i, 3) == 1;  % 部分使用softmax
+                defender_agents{i}.temperature = 0.8 + (i-1) * 0.3;
+                
+                fprintf('  SARSA智能体%d: epsilon=%.2f, softmax=%d, temp=%.2f\n', ...
+                       i, defender_agents{i}.epsilon, defender_agents{i}.use_softmax, ...
+                       defender_agents{i}.temperature);
                 
             case 'Double Q-Learning'
                 defender_agents{i} = DoubleQLearningAgent(sprintf('DoubleQ-%d', i), ...
                                                        'defender', config, ...
                                                        env.state_dim, env.action_dim_defender);
-                defender_agents{i}.Q1_table = defender_agents{i}.Q1_table + 1.0;
-                defender_agents{i}.Q2_table = defender_agents{i}.Q2_table + 1.0;
+                
+                % Double Q-Learning初始化
+                base_value1 = 1.8 + (i-1) * 0.3;
+                base_value2 = 2.2 + (i-1) * 0.2;
+                noise_level = 0.35;
+                
+                defender_agents{i}.Q1_table = ones(env.state_dim, env.action_dim_defender) * base_value1 + ...
+                                             randn(env.state_dim, env.action_dim_defender) * noise_level;
+                defender_agents{i}.Q2_table = ones(env.state_dim, env.action_dim_defender) * base_value2 + ...
+                                             randn(env.state_dim, env.action_dim_defender) * noise_level;
+                
+                % Double Q参数设置
+                defender_agents{i}.epsilon = 0.35 + (i-1) * 0.12;
+                defender_agents{i}.use_softmax = i <= 2;  % 前两个使用softmax
+                defender_agents{i}.temperature = 1.1 + (i-1) * 0.25;
+                
+                fprintf('  DoubleQ智能体%d: epsilon=%.2f, softmax=%d, temp=%.2f\n', ...
+                       i, defender_agents{i}.epsilon, defender_agents{i}.use_softmax, ...
+                       defender_agents{i}.temperature);
+        end
+        
+        % === 为所有智能体设置共同属性 ===
+        if isprop(defender_agents{i}, 'learning_rate')
+            defender_agents{i}.learning_rate = 0.1 + (i-1) * 0.02;  % 不同学习率
+        end
+        
+        % 确保每个智能体都有必要的属性
+        if ~isprop(defender_agents{i}, 'use_softmax')
+            defender_agents{i}.use_softmax = false;
+        end
+        if ~isprop(defender_agents{i}, 'temperature')
+            defender_agents{i}.temperature = 1.0;
         end
     end
+
+    % =========================================================================
+    % === 代码修正：添加攻击者智能体的初始化 ===
+    % =========================================================================
+    fprintf('正在初始化攻击者智能体...\n');
+    % 假设攻击者也使用Q-Learning。攻击者的状态空间与防御者相同，
+    % 但动作空间（action_dim_attacker）由环境定义。
+    if ~isprop(env, 'action_dim_attacker')
+        % 如果环境中没有定义 `action_dim_attacker`，则根据逻辑推断。
+        % 在 `improvedRunEpisodesRADI` 函数中，攻击动作是 `randi([2, env.n_attack_types])`
+        % 这意味着动作空间维度就是攻击类型的数量。
+        env.action_dim_attacker = env.n_attack_types;
+        fprintf('  [警告] 环境中未定义 action_dim_attacker, 已根据逻辑推断为 %d\n', env.action_dim_attacker);
+    end
     
-    % 攻击者智能体
     attacker_agent = QLearningAgent('Attacker', 'attacker', config, ...
-                                 env.state_dim, env.action_dim_attacker);
+                                  env.state_dim, env.action_dim_attacker);
+    
+    % 为攻击者设置独立的学习参数
+    attacker_agent.learning_rate = config.learning_rate * 0.9; % 攻击者学习率可以略有不同
+    attacker_agent.epsilon = config.epsilon;                   % 攻击者使用基础探索率
+    fprintf('  攻击者智能体初始化完成。\n');
+    % =========================================================================
     
     % 6. 初始化性能监控器
     monitor = PerformanceMonitor(config.n_iterations, length(defender_agents), config);
@@ -133,14 +207,11 @@ catch ME
     end
     rethrow(ME);
 end
-
 %% 清理
 if exist('logger', 'var')
     delete(logger);
 end
-
 %% 辅助函数
-
 function [results, trained_agents] = improvedFSPTraining(env, defender_agents, attacker_agent, config, monitor, logger)
     % 改进的FSP训练循环 - RADI版本
     n_agents = length(defender_agents);
@@ -188,7 +259,6 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
     trained_agents.defenders = defender_agents;
     trained_agents.attacker = attacker_agent;
 end
-
 function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacker_agent, n_episodes, config)
     n_agents = length(defender_agents);
     n_stations = env.n_stations;
@@ -220,55 +290,62 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
         for agent_idx = 1:n_agents
             defender = defender_agents{agent_idx};
             
-            % 智能体选择动作（每个站点选择一种资源类型）
+            % === 关键修改：直接处理智能体动作，不使用parseDefenderAction ===
             if isa(defender, 'QLearningAgent') || isa(defender, 'SARSAAgent') || isa(defender, 'DoubleQLearningAgent')
-                % 使用智能体的selectAction方法直接选择动作
-                defender_action = defender.selectAction(state);
+                % 强化学习智能体 - 直接获取动作
+                raw_action = defender.selectAction(state);
+                
+                % 确保是行向量
+                if iscolumn(raw_action)
+                    raw_action = raw_action';
+                end
+                
+                % 将Q表动作转换为资源分配
+                allocation = convertQLearningActionToAllocation(raw_action, n_resource_types, defender);
+                
+            elseif isa(defender, 'FictitiousPlayAgent')
+                % 虚拟博弈智能体
+                allocation = defender.selectAction(state, env.attacker_strategy);
+                
             else
-                % 其他类型智能体的默认行为
-                defender_action = ones(1, n_stations);
+                % 其他智能体类型 - 默认行为
+                allocation = defender.selectAction(state);
             end
             
-            % 执行动作
-            [next_state, reward_def, ~, info] = env.step(defender_action, attacker_action_vec);
+            % 验证和归一化分配
+            allocation = validateAndNormalizeAllocation(allocation, n_resource_types, agent_idx, ep);
             
-            % 获取资源分配（已经归一化）
-            if isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
-                current_allocation = info.resource_allocation;
-            else
-                % 备用方案：手动计算资源分配
-                current_allocation = env.calculateResourceAllocationFromActions(defender_action);
-            end
+            % 存储分配 - 这里是关键！不使用env.parseDefenderAction
+            episode_results.resource_allocations(ep, agent_idx, :) = allocation;
             
-            % 验证资源分配
-            agent_name = sprintf('Agent-%d', agent_idx);
-            validateResourceAllocation(current_allocation, agent_name, ep);
-            
-            % 计算指标
-            radi = calculateRADI(current_allocation, config.radi.optimal_allocation, config.radi);
-            efficiency = calculateResourceEfficiency(current_allocation, info);
-            balance = calculateAllocationBalance(current_allocation);
-            radi_reward = calculateRADIReward(radi, efficiency, balance, config);
-            
-            % 记录结果
+            % 计算性能指标
+            optimal_allocation = config.radi.optimal_allocation;
+            radi = env.calculateRADIScore(allocation, optimal_allocation);
             episode_results.radi_scores(ep, agent_idx) = radi;
+            
+            % 计算效率和平衡度
+            efficiency = calculateResourceEfficiency(allocation, struct());
+            balance = calculateAllocationBalance(allocation);
             episode_results.resource_efficiency(ep, agent_idx) = efficiency;
             episode_results.allocation_balance(ep, agent_idx) = balance;
-            episode_results.defender_rewards(ep, agent_idx) = radi_reward;
-            episode_results.resource_allocations(ep, agent_idx, :) = current_allocation;
             
-            % 更新智能体 - 传递状态向量而不是状态索引
-            defender.update(state, defender_action, radi_reward, next_state, []);
+            % 计算奖励
+            defender_reward = calculateRADIReward(radi, efficiency, balance, config);
+            episode_results.defender_rewards(ep, agent_idx) = defender_reward;
             
-            if agent_idx == 1
-                episode_results.attack_info{ep} = info;
+            % 更新智能体 - 使用原始动作
+            if ismethod(defender, 'update')
+                next_state = state; % 简化处理
+                defender.update(state, raw_action, defender_reward, next_state, []);
             end
         end
         
-        % 更新攻击者 - 传递状态向量而不是状态索引
+        % 攻击者奖励
         avg_radi = mean(episode_results.radi_scores(ep, :));
         attacker_reward = avg_radi * 10;
-        attacker_agent.update(state, attacker_action_vec, attacker_reward, next_state, []);
+        if ismethod(attacker_agent, 'update')
+            attacker_agent.update(state, attacker_action_vec, attacker_reward, state, []);
+        end
         episode_results.attacker_rewards(ep) = attacker_reward;
     end
     
@@ -283,7 +360,7 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
     if n_episodes >= 10
         fprintf('\nEpisode批次完成:\n');
         for i = 1:n_agents
-            fprintf('  智能体%d - RADI: %.3f, 效率: %.2f%%, 平衡度: %.2f%%\n', ...
+            fprintf('  智能体%d - RADI: %.6f, 效率: %.2f%%, 平衡度: %.2f%%\n', ...
                     i, episode_results.avg_radi(i), ...
                     episode_results.avg_efficiency(i) * 100, ...
                     episode_results.avg_balance(i) * 100);
@@ -292,11 +369,13 @@ function episode_results = improvedRunEpisodesRADI(env, defender_agents, attacke
             avg_allocation = squeeze(mean(episode_results.resource_allocations(:, i, :), 1));
             fprintf('    平均分配: [%.3f, %.3f, %.3f, %.3f, %.3f] (总和=%.3f)\n', ...
                     avg_allocation, sum(avg_allocation));
+            
+            % 显示分配标准差 - 这里可以看出是否有变化
+            std_allocation = squeeze(std(episode_results.resource_allocations(:, i, :), 0, 1));
+            fprintf('    分配标准差: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', std_allocation);
         end
     end
 end
-
-
 function checkAndAdjustPerformanceRADI(defender_agents, monitor, iter, config)
     results = monitor.getResults();
     last_iters = max(1, iter-49):iter;
@@ -315,7 +394,6 @@ function checkAndAdjustPerformanceRADI(defender_agents, monitor, iter, config)
         end
     end
 end
-
 function displayFinalPerformance(results)
     fprintf('\n========================================\n');
     fprintf('最终性能总结（基于RADI）\n');
@@ -346,7 +424,6 @@ function displayFinalPerformance(results)
     end
     fprintf('\n========================================\n');
 end
-
 %% RADI相关辅助函数
 function radi = calculateRADI(current_allocation, optimal_allocation, radi_config)
     current_allocation = reshape(current_allocation, 1, []); % 保证为行向量
@@ -394,33 +471,45 @@ function balance = calculateAllocationBalance(allocation)
         return;
     end
     
-    % 去除零值计算变异系数
-    non_zero_alloc = allocation(allocation > 0);
-    if isempty(non_zero_alloc)
-        balance = 0;
-    else
-        % 使用变异系数的倒数作为平衡度
-        cv = std(non_zero_alloc) / mean(non_zero_alloc);
-        balance = 1 / (1 + cv);
-    end
+    % 使用基尼系数的补数作为平衡度
+    n = length(allocation);
+    sorted_alloc = sort(allocation);
     
-    % 确保在[0,1]范围内
+    % 基尼系数
+    gini = 0;
+    for i = 1:n
+        gini = gini + (2*i - n - 1) * sorted_alloc(i);
+    end
+    gini = gini / (n * sum(allocation));
+    
+    % 平衡度是基尼系数的补数
+    balance = 1 - abs(gini);
     balance = max(0, min(1, balance));
 end
 function reward = calculateRADIReward(radi, efficiency, balance, config)
+    % 改进的奖励函数
+    % 基础奖励
     radi_penalty = -radi * 50;
     efficiency_bonus = efficiency * 30;
     balance_bonus = balance * 20;
+    
+    % 权重应用
     reward = config.reward.w_radi * radi_penalty + ...
              config.reward.w_efficiency * efficiency_bonus + ...
              config.reward.w_balance * balance_bonus;
+    
+    % 阈值奖励
     if radi <= config.radi.threshold_excellent
         reward = reward + 50;
     elseif radi <= config.radi.threshold_good
         reward = reward + 20;
+    elseif radi <= config.radi.threshold_acceptable
+        reward = reward + 5;
     end
+    
+    % 确保奖励不会过大
+    reward = max(-100, min(100, reward));
 end
-
 function validateResourceAllocation(allocation, agent_name, episode)
     % 验证资源分配的正确性
     tolerance = 1e-6;
@@ -442,5 +531,68 @@ function validateResourceAllocation(allocation, agent_name, episode)
     if any(allocation > 1 + tolerance)
         error('Agent %s, Episode %d: 资源分配超过1: %s', ...
               agent_name, episode, mat2str(allocation));
+    end
+end
+function allocation = convertQLearningActionToAllocation(raw_action, n_resource_types, agent)
+% 将Q-Learning智能体的原始动作转换为资源分配向量
+
+if length(raw_action) == n_resource_types
+    % 已经是正确维度的分配向量
+    allocation = raw_action;
+elseif length(raw_action) == 1
+    % 单个动作索引 - 转换为one-hot向量
+    action_idx = max(1, min(n_resource_types, round(raw_action)));
+    allocation = zeros(1, n_resource_types);
+    allocation(action_idx) = 1;
+    
+    % 添加探索噪声
+    if isprop(agent, 'epsilon') && rand() < agent.epsilon
+        % 探索时添加随机性
+        noise = rand(1, n_resource_types) * 0.3;
+        allocation = allocation * 0.7 + noise;
+    end
+else
+    % 多维向量 - 截取或补充到正确维度
+    if length(raw_action) > n_resource_types
+        allocation = raw_action(1:n_resource_types);
+    else
+        allocation = [raw_action, zeros(1, n_resource_types - length(raw_action))];
+    end
+end
+end
+function allocation = validateAndNormalizeAllocation(allocation, n_resource_types, agent_idx, episode)
+    % 验证和归一化资源分配
+    
+    % 确保维度正确
+    if length(allocation) ~= n_resource_types
+        if length(allocation) < n_resource_types
+            allocation = [allocation, zeros(1, n_resource_types - length(allocation))];
+        else
+            allocation = allocation(1:n_resource_types);
+        end
+    end
+    
+    % 确保是行向量
+    if iscolumn(allocation)
+        allocation = allocation';
+    end
+    
+    % 确保非负
+    allocation = max(0, allocation);
+    
+    % 归一化
+    total = sum(allocation);
+    if total > 1e-10
+        allocation = allocation / total;
+    else
+        % 如果总和为0，使用随机分配避免均匀分配
+        allocation = rand(1, n_resource_types);
+        allocation = allocation / sum(allocation);
+        fprintf('警告：智能体%d在Episode %d分配总和为0，使用随机分配\n', agent_idx, episode);
+    end
+    
+    % 最终验证
+    if abs(sum(allocation) - 1) > 1e-6
+        error('智能体%d Episode %d: 分配归一化失败: 总和=%.6f', agent_idx, episode, sum(allocation));
     end
 end
