@@ -234,19 +234,22 @@ classdef (Abstract) RLAgent < handle
             action_vec = zeros(1, n_stations);
             
             % 计算每个站点的资源类型数量
-            n_resource_types = obj.action_dim / n_stations;
+            n_resource_types = round(obj.action_dim / n_stations);
             
             % 确保资源类型数量是有效的正整数
-            if n_resource_types <= 0 || ~isinteger(n_resource_types) || isinf(n_resource_types) || isnan(n_resource_types)
+            if n_resource_types <= 0 || isinf(n_resource_types) || isnan(n_resource_types)
                 n_resource_types = 5; % 默认值
             end
             
             % 为每个站点选择最佳资源类型
             for station = 1:n_stations
-                % 获取该站点的Q值
                 start_idx = (station-1) * n_resource_types + 1;
                 end_idx = min(station * n_resource_types, length(q_values));
-                station_q_values = q_values(start_idx : end_idx);
+                if start_idx > end_idx || start_idx > length(q_values)
+                    station_q_values = [];
+                else
+                    station_q_values = q_values(start_idx:end_idx);
+                end
                 
                 % 确保Q值有效
                 if any(isnan(station_q_values)) || any(isinf(station_q_values))
@@ -255,18 +258,21 @@ classdef (Abstract) RLAgent < handle
                 
                 % ε-贪婪选择
                 if rand() < obj.epsilon
-                    action_vec(station) = randi([1, max(1, round(n_resource_types))]);  % 随机选择资源类型
+                    action_vec(station) = randi([1, max(1, n_resource_types)]);  % 随机选择资源类型
                 else
-                    [~, best_action] = max(station_q_values);
-                    % 确保best_action是标量
-                    if length(best_action) > 1
-                        best_action = best_action(1); % 取第一个最大值
+                    if isempty(station_q_values)
+                        best_action = 1;
+                    else
+                        [~, best_action] = max(station_q_values);
+                        if ~isscalar(best_action)
+                            best_action = best_action(1);
+                        end
                     end
                     action_vec(station) = best_action;
                 end
                 
                 % 确保动作在有效范围内
-                action_vec(station) = max(1, min(max(1, round(n_resource_types)), round(action_vec(station))));
+                action_vec(station) = max(1, min(max(1, n_resource_types), round(action_vec(station))));
             end
         end
     end
