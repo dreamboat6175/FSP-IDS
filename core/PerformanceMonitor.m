@@ -47,8 +47,16 @@ classdef PerformanceMonitor < handle
             obj.current_episode = episode;
             radi = obj.calculateRADI(metrics.resource_allocation);
             obj.radi_scores(end+1) = radi;
-            obj.resource_efficiency(end+1) = metrics.resource_efficiency;
-            obj.allocation_balance(end+1) = metrics.allocation_balance;
+            if isfield(metrics, 'resource_efficiency')
+                obj.resource_efficiency(end+1) = metrics.resource_efficiency;
+            else
+                obj.resource_efficiency(end+1) = NaN;
+            end
+            if isfield(metrics, 'allocation_balance')
+                obj.allocation_balance(end+1) = metrics.allocation_balance;
+            else
+                obj.allocation_balance(end+1) = NaN;
+            end
             obj.resource_allocations.computation(end+1) = metrics.resource_allocation(1);
             obj.resource_allocations.bandwidth(end+1) = metrics.resource_allocation(2);
             obj.resource_allocations.sensors(end+1) = metrics.resource_allocation(3);
@@ -69,6 +77,11 @@ classdef PerformanceMonitor < handle
         function radi = calculateRADI(obj, resource_allocation)
             optimal = obj.config.radi.optimal_allocation;
             weights = [obj.config.radi.weight_computation, obj.config.radi.weight_bandwidth, obj.config.radi.weight_sensors, obj.config.radi.weight_scanning, obj.config.radi.weight_inspection];
+            % === 修正：自动对齐向量长度 ===
+            len = min([length(resource_allocation), length(optimal), length(weights)]);
+            resource_allocation = resource_allocation(1:len);
+            optimal = optimal(1:len);
+            weights = weights(1:len);
             deviation = abs(resource_allocation - optimal);
             radi = sum(weights .* deviation);
         end
@@ -85,8 +98,16 @@ classdef PerformanceMonitor < handle
             end
             obj.real_time_metrics.performance_level = performance_level;
             obj.real_time_metrics.current_radi = radi;
-            obj.real_time_metrics.current_efficiency = metrics.resource_efficiency;
-            obj.real_time_metrics.current_balance = metrics.allocation_balance;
+            if isfield(metrics, 'resource_efficiency')
+                obj.real_time_metrics.current_efficiency = metrics.resource_efficiency;
+            else
+                obj.real_time_metrics.current_efficiency = NaN;
+            end
+            if isfield(metrics, 'allocation_balance')
+                obj.real_time_metrics.current_balance = metrics.allocation_balance;
+            else
+                obj.real_time_metrics.current_balance = NaN;
+            end
         end
         
         function displayRealTimeStatus(obj, episode)
@@ -132,7 +153,11 @@ classdef PerformanceMonitor < handle
                 mean(obj.resource_allocations.inspection_depth(recent_idx:end))
             ];
             summary.target_achievement = struct();
-            summary.target_achievement.radi_achieved = summary.final_radi <= obj.config.training.performance_target_radi;
+            if isfield(obj.config, 'training') && isfield(obj.config.training, 'performance_target_radi')
+                summary.target_achievement.radi_achieved = summary.final_radi <= obj.config.training.performance_target_radi;
+            else
+                summary.target_achievement.radi_achieved = NaN;
+            end
         end
         
         function suggestions = generateImprovementSuggestions(obj)
