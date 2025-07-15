@@ -1,68 +1,78 @@
-%% TCSEnvironment.m - 基于攻击者策略的防守优化环境
-% =========================================================================
-% 描述: 实现基于攻击者策略计算最优防守策略的TCS环境
-% 防守者奖励基于资源分配偏差指数(RADI)
-% 攻击者目标是最大化成功攻击的基站数量
-% =========================================================================
 classdef TCSEnvironment < handle
+    % TCSEnvironment - 基于FSP的列控系统环境
+    % 实现理性攻击者（Q-learning）和FSP防御者
     
     properties
-        % 基本参数
-        n_stations              % 基站数量
-        n_components            % 每个基站的组件数量
-        total_components        % 总组件数
-        n_resource_types        % 防守资源类型数
-        n_attack_types          % 攻击类型数
+        % 系统参数
+        n_stations
+        n_components
+        total_components
+        station_values           % 站点价值向量
         
-        % 状态和动作空间
-        state_dim               % 状态维度
-        action_dim_defender     % 防守者动作维度
-        action_dim_attacker     % 攻击者动作维度
-        current_state           % 当前状态
+        % 博弈参数
+        attacker_strategy       % 当前攻击策略
+        defender_strategy       % 当前防守策略
+        optimal_defender_strategy
+        optimal_attacker_strategy
         
-        % 策略相关
-        attacker_strategy       % 攻击者当前策略
-        defender_strategy       % 防守者当前策略
-        optimal_defender_strategy % 基于攻击策略的最优防守策略
+        % FSP相关参数（新增）
+        attacker_avg_strategy   % σ̄_A: 防御者感知的攻击者平均策略
+        alpha_ewma             % EWMA遗忘因子
         
-        % 资源和成本
-        total_resources         % 总防守资源
-        defense_costs           % 防守成本矩阵
-        attack_costs            % 攻击成本
+        % 攻击者Q-learning参数（新增）
+        attacker_Q_table       % Q值表
+        attacker_lr           % 学习率
+        attacker_gamma        % 折扣因子
+        attacker_epsilon      % 探索率
+        attacker_epsilon_decay
+        attacker_epsilon_min
         
-        % 组件属性
-        component_importance    % 组件重要性
-        component_station_map   % 组件到基站的映射
-        station_values          % 基站价值
+        % 防御者RL参数（新增）
+        defender_Q_network    % 简化的Q网络
+        defender_lr          % 学习率
+        defender_gamma       % 折扣因子
         
-        % 攻击成功概率模型
-        base_attack_success_prob % 基础攻击成功概率
-        defense_effectiveness    % 防守效果矩阵
+        % 奖励权重（新增）
+        w_radi               % RADI权重
+        w_damage             % 损害权重
+        
+        % 资源参数
+        n_resource_types
+        n_attack_types
+        total_resources
+        defense_costs
+        defense_effectiveness
         
         % RADI相关
-        radi_score              % 当前RADI分数
-        radi_history            % RADI历史记录
+        radi_score           % 当前RADI分数
+        radi_history         % RADI历史
+        radi_defender        % 兼容性
+        radi_attacker        % 兼容性
         
-        % 博弈结果
-        attack_success_count    % 攻击成功数量
-        attack_success_rate_history % History of attack success rates
-        defense_history         % 防守历史
-        attack_target_history   % History of which stations were attacked
+        % 状态和动作空间
+        state_dim
+        action_dim
         
-        % 时间步
-        time_step               % 当前时间步
+        % 环境状态
+        current_state
+        time_step
         
-        % 优化参数
-        optimization_method     % 优化方法 ('analytical' 或 'numerical')
-        epsilon                 % 小常数，避免除零
+        % 历史记录
+        attack_success_rate_history
+        attack_target_history
+        defense_history
+        deployment_history    % 新增：防御部署历史
+        damage_history       % 新增：损害历史
+        reward_history       % 新增：奖励历史
+        attack_history       % 新增：攻击目标历史
         
-        % ========== FIXED: Added Compatibility Properties ==========
-        % Properties required by the new compatibility methods
-        optimal_attacker_strategy % Optimal attacker strategy
-        radi_defender             % RADI score for the defender
-        radi_attacker             % RADI score for the attacker
-        attacker_actions          % Attacker actions for compatibility methods
-        defender_actions          % Defender actions for compatibility methods
+        % 其他参数
+        epsilon
+        optimization_method
+        
+        % 兼容性属性
+        attacker_actions
+        defender_actions
     end
     
     methods
@@ -72,26 +82,24 @@ classdef TCSEnvironment < handle
             obj.n_components = config.n_components_per_station;
             obj.total_components = sum(obj.n_components);
             
-            % 设置资源和攻击类型数量（使用默认值或从配置读取）
+            % 设置资源和攻击类型数量
             if isfield(config, 'n_resource_types')
                 obj.n_resource_types = config.n_resource_types;
             else
-                % 默认值基于resource_types数组长度
                 if isfield(config, 'resource_types')
                     obj.n_resource_types = length(config.resource_types);
                 else
-                    obj.n_resource_types = 5;  % 默认5种资源类型
+                    obj.n_resource_types = 5;
                 end
             end
             
             if isfield(config, 'n_attack_types')
                 obj.n_attack_types = config.n_attack_types;
             else
-                % 默认值基于attack_types数组长度
                 if isfield(config, 'attack_types')
                     obj.n_attack_types = length(config.attack_types);
                 else
-                    obj.n_attack_types = 6;  % 默认6种攻击类型
+                    obj.n_attack_types = 6;
                 end
             end
             
@@ -99,10 +107,10 @@ classdef TCSEnvironment < handle
             if isfield(config, 'total_resources')
                 obj.total_resources = config.total_resources;
             else
-                obj.total_resources = 100;  % 默认总资源
+                obj.total_resources = 100;
             end
             
-            obj.epsilon = 1e-6; % FIXED: Using a smaller epsilon
+            obj.epsilon = 1e-6;
             obj.optimization_method = 'analytical';
             
             % 初始化各个组件
@@ -111,763 +119,472 @@ classdef TCSEnvironment < handle
             obj.initializeAttackModel();
             obj.calculateSpaceDimensions();
             
+            % 初始化FSP和RL参数
+            obj.initializeFSPParameters(config);
+            obj.initializeAttackerQLearning(config);
+            obj.initializeDefenderRL(config);
+            
             % 初始化策略
-            obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.optimal_defender_strategy = obj.defender_strategy;
+            obj.initializeStrategies();
             
             % 初始化历史记录
             obj.radi_history = [];
             obj.attack_success_rate_history = [];
             obj.attack_target_history = [];
             obj.defense_history = [];
-            obj.time_step = 0;
+            obj.deployment_history = [];
+            obj.damage_history = [];
+            obj.reward_history = struct('attacker', [], 'defender', []);
+            obj.attack_history = []; % 新增
+            
+            obj.reset();
         end
         
         function initializeComponents(obj)
-            % 初始化组件和基站价值
-            obj.component_importance = zeros(1, obj.total_components);
-            obj.component_station_map = zeros(1, obj.total_components);
+            % 初始化组件和计算站点价值
+            component_importance = rand(1, obj.total_components);
             obj.station_values = zeros(1, obj.n_stations);
             
             idx = 1;
             for s = 1:obj.n_stations
-                % 基站价值递减
-                base_value = 1 - (s-1) * 0.15 / obj.n_stations;
-                obj.station_values(s) = base_value;
-                
-                for c = 1:obj.n_components(s)
-                    % 组件重要性
-                    if c <= 2  % 核心组件
-                        obj.component_importance(idx) = 0.8 + 0.2 * rand();
-                    else  % 次要组件
-                        obj.component_importance(idx) = 0.3 + 0.4 * rand();
-                    end
-                    obj.component_station_map(idx) = s;
-                    idx = idx + 1;
-                end
+                station_components = obj.n_components(s);
+                obj.station_values(s) = sum(component_importance(idx:idx+station_components-1));
+                idx = idx + station_components;
             end
             
-            % 归一化
+            % 归一化站点价值
             obj.station_values = obj.station_values / sum(obj.station_values);
-            obj.component_importance = obj.component_importance / max(obj.component_importance);
         end
         
-        function initializeCosts(obj)
-            % 初始化成本矩阵
-            obj.defense_costs = zeros(obj.n_stations, obj.n_resource_types);
-            for i = 1:obj.n_stations
-                for j = 1:obj.n_resource_types
-                    % 成本随防守等级增加
-                    base_cost = 10 + j * 5;
-                    obj.defense_costs(i, j) = base_cost * (0.8 + 0.4 * obj.station_values(i));
-                end
+        function initializeFSPParameters(obj, config)
+            % 初始化FSP参数
+            obj.alpha_ewma = 0.1;  % EWMA遗忘因子
+            obj.w_radi = 0.5;      % RADI权重
+            obj.w_damage = 0.5;    % 损害权重
+            
+            if isfield(config, 'fsp_alpha')
+                obj.alpha_ewma = config.fsp_alpha;
             end
-            
-            % 攻击成本（简化模型）
-            obj.attack_costs = 5 * ones(1, obj.n_stations);
-        end
-        
-        function initializeAttackModel(obj)
-            % 初始化攻击成功概率模型
-            obj.base_attack_success_prob = 0.8;  % 无防守时的成功率
-            
-            % 防守效果矩阵 (防守类型 x 攻击类型)
-            obj.defense_effectiveness = zeros(obj.n_resource_types, obj.n_attack_types);
-            for i = 1:obj.n_resource_types
-                for j = 1:obj.n_attack_types
-                    % 对应防守类型效果最好
-                    if i == j
-                        obj.defense_effectiveness(i, j) = 0.8;
-                    else
-                        obj.defense_effectiveness(i, j) = 0.3 + 0.2 * rand();
-                    end
-                end
+            if isfield(config, 'w_radi')
+                obj.w_radi = config.w_radi;
+            end
+            if isfield(config, 'w_damage')
+                obj.w_damage = config.w_damage;
             end
         end
         
-        function calculateSpaceDimensions(obj)
-            % 计算状态和动作空间维度
-            % 状态包括：各站点状态、资源分配、历史信息
-            obj.state_dim = obj.n_stations * 5 + 10;
+        function initializeAttackerQLearning(obj, config)
+            % 初始化攻击者Q-learning参数
+            obj.attacker_lr = 0.1;
+            obj.attacker_gamma = 0.95;
+            obj.attacker_epsilon = 0.3;
+            obj.attacker_epsilon_decay = 0.995;
+            obj.attacker_epsilon_min = 0.01;
             
-            % 动作空间：每个站点的策略选择
-            obj.action_dim_defender = obj.n_stations;
-            obj.action_dim_attacker = obj.n_stations;
+            % 初始化Q表（简化版本）
+            n_defense_levels = 5;
+            state_space_size = n_defense_levels^obj.n_stations;
+            obj.attacker_Q_table = zeros(state_space_size, obj.n_stations);
+            
+            % 从配置读取参数
+            if isfield(config, 'attacker_lr')
+                obj.attacker_lr = config.attacker_lr;
+            end
+            if isfield(config, 'attacker_gamma')
+                obj.attacker_gamma = config.attacker_gamma;
+            end
+        end
+        
+        function initializeDefenderRL(obj, config)
+            % 初始化防御者RL参数
+            obj.defender_lr = 0.05;
+            obj.defender_gamma = 0.95;
+            
+            % 简化的Q网络
+            obj.defender_Q_network = struct();
+            obj.defender_Q_network.weights = randn(obj.n_stations, obj.n_stations) * 0.01;
+            obj.defender_Q_network.bias = zeros(1, obj.n_stations);
+            
+            if isfield(config, 'defender_lr')
+                obj.defender_lr = config.defender_lr;
+            end
+        end
+        
+        function initializeStrategies(obj)
+            % 初始化攻防策略
+            % 攻击者初始策略：基于站点价值的softmax分布
+            temperature = 2.0;
+            exp_values = exp(obj.station_values / temperature);
+            obj.attacker_strategy = exp_values / sum(exp_values);
+            
+            % 防御者初始策略：均匀分配
+            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            
+            % FSP：初始化攻击者平均策略为均匀分布
+            obj.attacker_avg_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            
+            % 初始化最优策略
+            obj.optimal_attacker_strategy = obj.attacker_strategy;
+            obj.optimal_defender_strategy = obj.defender_strategy;
         end
         
         function state = reset(obj)
             % 重置环境
             obj.time_step = 0;
+            
+            % 重置策略
+            obj.initializeStrategies();
+            
+            % 重置Q表
+            obj.attacker_Q_table(:) = 0;
+            
+            % 重置历史记录
+            obj.radi_history = [];
             obj.attack_success_rate_history = [];
             obj.attack_target_history = [];
             obj.defense_history = [];
-            obj.radi_history = [];
-            obj.attack_success_count = 0;
+            obj.deployment_history = [];
+            obj.damage_history = [];
+            obj.reward_history = struct('attacker', [], 'defender', []);
+            obj.attack_history = []; % 新增
             
-            % 重置策略
-            obj.attacker_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.optimal_defender_strategy = obj.defender_strategy;
+            % 重置RADI
             obj.radi_score = 0;
+            obj.radi_defender = 0;
+            obj.radi_attacker = 0;
             
-            % 生成初始状态
             state = obj.generateState();
             obj.current_state = state;
+        end
+        
+        function [next_state, reward_def, reward_att, info] = step(obj, defender_action, attacker_action)
+            % 执行一步环境交互 - 基于新模型
+            
+            % 1. 解析动作
+            defender_deployment = obj.parseDefenderAction(defender_action);
+            attacker_target = obj.parseAttackerAction(attacker_action);
+            
+            % 2. FSP: 更新攻击者平均策略（EWMA）
+            h_A = zeros(1, obj.n_stations);
+            h_A(attacker_target) = 1;
+            obj.attacker_avg_strategy = (1 - obj.alpha_ewma) * obj.attacker_avg_strategy + ...
+                                       obj.alpha_ewma * h_A;
+            obj.attacker_avg_strategy = obj.attacker_avg_strategy / sum(obj.attacker_avg_strategy);
+            
+            % 3. 计算攻击结果
+            defense_at_target = defender_deployment(attacker_target);
+            success_rate = 1 - tanh(defense_at_target / obj.total_resources);
+            attack_success = rand() < success_rate;
+            
+            % 4. 计算奖励
+            % 攻击者奖励：R_A = Success(A_A, d_t) × Value(A_A)
+            if attack_success
+                reward_att = success_rate * obj.station_values(attacker_target);
+                damage = obj.station_values(attacker_target);
+            else
+                reward_att = 0;
+                damage = 0;
+            end
+            
+            % 防御者奖励：复合奖励函数
+            % 计算事后最优部署
+            optimal_deployment = obj.computeOptimalDeploymentAfterAttack(attacker_target);
+            
+            % 计算RADI
+            obj.radi_score = obj.calculateRADI(defender_deployment, optimal_deployment);
+            
+            % 防御者奖励：R_D = w_radi(1-RADI) + w_damage(1-Damage)
+            reward_def = obj.w_radi * (1 - obj.radi_score) + obj.w_damage * (1 - damage);
+            
+            % 5. 更新Q-learning
+            obj.updateAttackerQ(defender_deployment, attacker_target, reward_att);
+            obj.updateDefenderQ(obj.attacker_avg_strategy, defender_deployment, reward_def);
+            
+            % 6. 更新历史记录
+            obj.updateHistory(attack_success, damage, attacker_target, defender_deployment);
+            
+            % 7. 生成下一状态
+            next_state = obj.generateState();
+            obj.current_state = next_state;
+            obj.time_step = obj.time_step + 1;
+            
+            % 8. 准备信息
+            info = obj.prepareStepInfo(attack_success, attacker_target, defender_deployment, damage);
+        end
+        
+        function optimal = computeOptimalDeploymentAfterAttack(obj, actual_attack)
+            % 计算事后最优防御部署（知道攻击目标后）
+            optimal = zeros(1, obj.n_stations);
+            
+            % 70%资源给被攻击站点
+            main_allocation = 0.7;
+            optimal(actual_attack) = obj.total_resources * main_allocation;
+            
+            % 30%根据站点价值分配给其他站点
+            remaining_resources = obj.total_resources * (1 - main_allocation);
+            other_stations = setdiff(1:obj.n_stations, actual_attack);
+            
+            if ~isempty(other_stations)
+                values = obj.station_values(other_stations);
+                values = values / sum(values);
+                for i = 1:length(other_stations)
+                    optimal(other_stations(i)) = remaining_resources * values(i);
+                end
+            end
+        end
+        
+        function radi = calculateRADI(obj, actual, optimal)
+            % 计算RADI - 使用相对偏差
+            radi = 0;
+            valid_count = 0;
+            
+            for i = 1:length(actual)
+                if optimal(i) > obj.epsilon
+                    relative_deviation = ((actual(i) - optimal(i))^2) / (optimal(i)^2);
+                    radi = radi + relative_deviation;
+                    valid_count = valid_count + 1;
+                end
+            end
+            
+            if valid_count > 0
+                radi = radi / valid_count;
+            end
+            
+            % 限制范围
+            radi = min(radi, 10);
+        end
+        
+        function updateAttackerQ(obj, defender_state, action, reward)
+            % 更新攻击者Q表
+            state_idx = obj.encodeDefenderState(defender_state);
+            
+            % Q-learning更新
+            current_q = obj.attacker_Q_table(state_idx, action);
+            max_next_q = max(obj.attacker_Q_table(state_idx, :));
+            
+            td_target = reward + obj.attacker_gamma * max_next_q;
+            td_error = td_target - current_q;
+            
+            obj.attacker_Q_table(state_idx, action) = current_q + obj.attacker_lr * td_error;
+            
+            % 更新探索率
+            obj.attacker_epsilon = max(obj.attacker_epsilon_min, ...
+                                      obj.attacker_epsilon * obj.attacker_epsilon_decay);
+        end
+        
+        function updateDefenderQ(obj, state, action, reward)
+            % 更新防御者Q网络
+            [~, action_idx] = max(action);
+            
+            % 计算Q值
+            q_values = state * obj.defender_Q_network.weights + obj.defender_Q_network.bias;
+            
+            % 简化的梯度更新
+            gradient = state' * reward;
+            obj.defender_Q_network.weights(:, action_idx) = ...
+                obj.defender_Q_network.weights(:, action_idx) + obj.defender_lr * gradient;
+        end
+        
+        function state_idx = encodeDefenderState(obj, deployment)
+            % 编码防守部署为离散状态索引
+            n_levels = 5;
+            levels = zeros(1, obj.n_stations);
+            
+            normalized_deployment = deployment / obj.total_resources;
+            for i = 1:obj.n_stations
+                levels(i) = min(n_levels-1, floor(normalized_deployment(i) * n_levels));
+            end
+            
+            % 转换为索引
+            state_idx = 1;
+            multiplier = 1;
+            for i = 1:obj.n_stations
+                state_idx = state_idx + levels(i) * multiplier;
+                multiplier = multiplier * n_levels;
+            end
+        end
+        
+        function target = selectAttackerAction(obj, defender_deployment)
+            % 理性攻击者选择动作（ε-贪婪）
+            if rand() < obj.attacker_epsilon
+                % 探索：随机选择
+                target = randi(obj.n_stations);
+            else
+                % 利用：基于Q值选择
+                state_idx = obj.encodeDefenderState(defender_deployment);
+                [~, target] = max(obj.attacker_Q_table(state_idx, :));
+            end
+        end
+        
+        function deployment = computeDefenderBestResponse(obj)
+            % FSP防御者：基于攻击者平均策略计算最佳响应
+            
+            % 使用Q网络计算Q值
+            q_values = obj.attacker_avg_strategy * obj.defender_Q_network.weights + ...
+                      obj.defender_Q_network.bias;
+            
+            % Softmax转换为概率
+            temperature = 0.5;
+            exp_q = exp(q_values / temperature);
+            deployment_probs = exp_q / sum(exp_q);
+            
+            % 分配资源
+            deployment = deployment_probs * obj.total_resources;
+        end
+        
+        function updateHistory(obj, attack_success, damage, attacker_target, defender_deployment)
+            % 更新历史记录
+            
+            % 计算并记录攻击成功率
+            if attack_success
+                obj.attack_success_rate_history(end+1) = 1;
+            else
+                obj.attack_success_rate_history(end+1) = 0;
+            end
+            
+            % 记录攻击目标
+            attack_vector = zeros(1, obj.n_stations);
+            attack_vector(attacker_target) = 1;
+            if isempty(obj.attack_target_history)
+                obj.attack_target_history = attack_vector;
+            else
+                obj.attack_target_history(end+1, :) = attack_vector;
+            end
+            
+            % 记录防御部署
+            obj.defense_history(end+1, :) = defender_deployment;
+            obj.deployment_history(end+1, :) = defender_deployment;
+            
+            % 记录损害和RADI
+            obj.damage_history(end+1) = damage;
+            obj.radi_history(end+1) = obj.radi_score;
+            
+            % 更新RADI（兼容性）
+            obj.radi_defender = obj.radi_score;
+            obj.radi_attacker = 0;  % 简化处理
+            % 新增：记录攻击目标编号
+            obj.attack_history(end+1) = attacker_target;
+        end
+        
+        function info = prepareStepInfo(obj, attack_success, attacker_target, defender_deployment, damage)
+            % 准备步骤信息
+            info = struct();
+            
+            info.attack_success = attack_success;
+            info.attack_target = attacker_target;
+            info.defender_deployment = defender_deployment;
+            info.radi_score = obj.radi_score;
+            info.damage = damage;
+            info.attacker_avg_strategy = obj.attacker_avg_strategy;
+            info.time_step = obj.time_step;
+            
+            % 兼容性字段
+            info.resource_allocation = defender_deployment / sum(defender_deployment);
+            info.current_strategies = struct();
+            info.current_strategies.attacker = obj.attacker_strategy;
+            info.current_strategies.defender = obj.defender_strategy;
+        end
+        
+        % ========== 兼容性方法 ==========
+        
+        function allocation = parseDefenderAction(obj, defender_action)
+            % 解析防御者动作
+            if length(defender_action) == obj.n_stations
+                allocation = defender_action;
+            else
+                allocation = zeros(1, obj.n_stations);
+                if defender_action >= 1 && defender_action <= obj.n_stations
+                    allocation(defender_action) = obj.total_resources;
+                end
+            end
+            
+            % 确保资源约束
+            if sum(allocation) > obj.total_resources
+                allocation = allocation / sum(allocation) * obj.total_resources;
+            end
+        end
+        
+        function target = parseAttackerAction(obj, attacker_action)
+            % 解析攻击者动作
+            if attacker_action >= 1 && attacker_action <= obj.n_stations
+                target = attacker_action;
+            else
+                target = randi(obj.n_stations);
+            end
         end
         
         function state = generateState(obj)
             % 生成状态向量
             state = zeros(1, obj.state_dim);
             
-            % 基站状态信息
+            % 当前防御部署
             idx = 1;
-            for i = 1:obj.n_stations
-                state(idx) = obj.station_values(i);  % 价值
-                state(idx+1) = obj.defender_strategy(i);  % 防守分配
-                state(idx+2) = obj.attacker_strategy(i);  % 攻击概率
-                state(idx+3) = obj.getStationVulnerability(i);  % 脆弱性
-                state(idx+4) = obj.getRecentAttackRate(i);  % 近期攻击率
-                idx = idx + 5;
-            end
-            
-            % 全局信息
-            state(idx) = obj.radi_score;  % RADI分数
-            state(idx+1) = obj.time_step / 1000;  % 归一化时间
-            state(idx+2) = sum(obj.defender_strategy > 0.1) / obj.n_stations;  % 防守覆盖率
-            state(idx+3) = obj.getAttackConcentration();  % 攻击集中度
-            
-            % 历史信息
-            if ~isempty(obj.attack_success_rate_history)
-                recent_success_rate = mean(obj.attack_success_rate_history(max(1,end-9):end));
-                state(idx+4) = recent_success_rate;
-            end
-        end
-        
-        function [next_state, reward_def, reward_att, info] = step(obj, defender_action, attacker_action)
-            % 执行一步环境交互
-            
-            % 解析动作
-            defender_allocation = obj.parseDefenderAction(defender_action);
-            attacker_targets = obj.parseAttackerAction(attacker_action);
-            
-            % 更新策略估计
-            obj.updateStrategies(defender_allocation, attacker_targets);
-            
-            % 计算基于攻击策略的最优防守策略
-            obj.optimal_defender_strategy = obj.computeOptimalDefenseStrategy(obj.attacker_strategy);
-            
-            % 计算RADI（资源分配偏差指数）
-            obj.radi_score = obj.calculateRADIScore(obj.defender_strategy, obj.optimal_defender_strategy);
-            
-            % 执行攻防对抗
-            [attack_results, defense_results] = obj.executeAttackDefense(attacker_targets, defender_allocation);
-            
-            % 计算奖励
-            reward_def = obj.calculateDefenderReward(defense_results, obj.radi_score);
-            reward_att = obj.calculateAttackerReward(attack_results);
-            
-            % 更新状态
-            obj.updateHistory(attack_results, defense_results, attacker_targets);
-            next_state = obj.generateState();
-            obj.current_state = next_state;
-            
-            % 准备信息
-            info = obj.prepareInfo(attack_results, defense_results, defender_allocation);
-            
-            obj.time_step = obj.time_step + 1;
-        end
-        
-       function optimal_defense = computeOptimalDefenseStrategy(obj, attack_strategy)
-    % 基于博弈论计算最优防守策略
-    % 防守者目标：最小化最大期望损失（minimax）
-    % 攻击者目标：最大化攻击成功基站数量
-    
-    n = obj.n_stations;
-    
-    % 构建收益矩阵（从攻击者角度）
-    % A[i,j] = 攻击者选择攻击站点i，防守者重点防守站点j时的收益
-    A = zeros(n, n);
-    
-    for i = 1:n  % 攻击者攻击站点i
-        for j = 1:n  % 防守者重点防守站点j
-            if i == j
-                % 攻击被防守，攻击者收益较低
-                A(i,j) = 0.2 * obj.station_values(i);  % 20%成功率
+            if ~isempty(obj.defense_history)
+                current_deployment = obj.defense_history(end, :) / obj.total_resources;
+                state(idx:idx+obj.n_stations-1) = current_deployment;
             else
-                % 攻击未被重点防守，攻击者收益较高
-                A(i,j) = 0.8 * obj.station_values(i);  % 80%成功率
+                state(idx:idx+obj.n_stations-1) = obj.defender_strategy;
             end
-        end
-    end
-    
-    % 求解混合策略纳什均衡（线性规划）
-    % 防守者的混合策略：min v
-    % s.t. A' * y >= v * ones(n,1)
-    %      sum(y) = 1, y >= 0
-    
-    % 设置线性规划参数
-    f = [zeros(n, 1); 1];  % 目标函数系数 [y; v]
-    A_ineq = [-A', ones(n, 1)];  % 不等式约束矩阵
-    b_ineq = zeros(n, 1);  % 不等式约束右侧
-    A_eq = [ones(1, n), 0];  % 等式约束：sum(y) = 1
-    b_eq = 1;
-    lb = [zeros(n, 1); -inf];  % 下界
-    ub = [ones(n, 1); inf];  % 上界
-    
-    % 求解
-    options = optimoptions('linprog', 'Display', 'off', 'Algorithm', 'dual-simplex');
-    [x, ~, exitflag] = linprog(f, A_ineq, b_ineq, A_eq, b_eq, lb, ub, options);
-    
-    if exitflag > 0 && ~isempty(x)
-        optimal_defense = x(1:n)';
-        % 确保是有效概率分布
-        optimal_defense = max(0, optimal_defense);
-        optimal_defense = optimal_defense / sum(optimal_defense);
-    else
-        % 如果线性规划失败，使用基于威胁的启发式方法
-        fprintf('  [警告] 线性规划求解失败，使用启发式方法\n');
-        
-        % 综合考虑攻击概率、站点价值和历史攻击
-        threat_scores = attack_strategy .* obj.station_values;
-        
-        % 添加历史信息权重
-        if ~isempty(obj.attack_success_rate_history)
-            historical_weight = 0.3;
-            current_weight = 0.7;
+            idx = idx + obj.n_stations;
             
-            % 计算历史威胁
-            if size(obj.attack_target_history, 1) > 0
-                historical_threats = mean(obj.attack_target_history, 1);
-                threat_scores = current_weight * threat_scores + ...
-                               historical_weight * (historical_threats .* obj.station_values);
+            % 攻击者平均策略
+            state(idx:idx+obj.n_stations-1) = obj.attacker_avg_strategy;
+            idx = idx + obj.n_stations;
+            
+            % 站点价值
+            state(idx:idx+obj.n_stations-1) = obj.station_values;
+            idx = idx + obj.n_stations;
+            
+            % 最近的成功率
+            if length(obj.attack_success_rate_history) > 10
+                state(idx) = mean(obj.attack_success_rate_history(end-9:end));
+            else
+                state(idx) = 0.5;
             end
         end
         
-        % 归一化
-        optimal_defense = threat_scores / sum(threat_scores);
-    end
-    
-    % 平滑处理，避免极端分配
-    smoothing_factor = 0.1;
-    optimal_defense = (1 - smoothing_factor) * optimal_defense + ...
-                      smoothing_factor * ones(1, n) / n;
-    
-    % 最终归一化
-    optimal_defense = optimal_defense / sum(optimal_defense);
-    
-    % 调试输出
-    fprintf('[调试] 攻击策略: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', attack_strategy);
-    fprintf('[调试] 最优防守: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', optimal_defense);
-end
-        
-       function radi = calculateRADIScore(obj, current_strategy, optimal_strategy)
-    % 改进的RADI计算 - 资源分配偏差指数
-    % RADI = sum((当前策略 - 最优策略)^2 / 最优策略^2)
-    
-    epsilon = 1e-10;
-    
-    % 确保策略归一化
-    current_strategy = abs(current_strategy);
-    optimal_strategy = abs(optimal_strategy);
-    
-    if sum(current_strategy) > epsilon
-        current_strategy = current_strategy / sum(current_strategy);
-    else
-        current_strategy = ones(size(current_strategy)) / length(current_strategy);
-    end
-    
-    if sum(optimal_strategy) > epsilon
-        optimal_strategy = optimal_strategy / sum(optimal_strategy);
-    else
-        optimal_strategy = ones(size(optimal_strategy)) / length(optimal_strategy);
-    end
-    
-    % 计算相对偏差
-    radi = 0;
-    valid_count = 0;
-    
-    for i = 1:length(current_strategy)
-        if optimal_strategy(i) > epsilon
-            % 相对偏差的平方
-            relative_deviation = (current_strategy(i) - optimal_strategy(i))^2 / optimal_strategy(i)^2;
-            radi = radi + relative_deviation;
-            valid_count = valid_count + 1;
+        function calculateSpaceDimensions(obj)
+            % 计算状态和动作空间维度
+            obj.state_dim = obj.n_stations * 3 + 1;  % 防御部署 + 攻击策略 + 站点价值 + 成功率
+            obj.action_dim = obj.n_stations;
         end
-    end
-    
-    % 平均RADI
-    if valid_count > 0
-        radi = radi / valid_count;
-    else
-        radi = 0;
-    end
-    
-    % 确保RADI在合理范围内
-    radi = min(radi, 10);  % 上限为10
-end
-
-function diversity = calculateStrategyDiversity(obj, allocations)
-    % 计算策略多样性（基于分配向量的平均距离）
-    if size(allocations, 1) <= 1
-        diversity = 0;
-        return;
-    end
-    
-    n = size(allocations, 1);
-    total_distance = 0;
-    count = 0;
-    
-    for i = 1:n-1
-        for j = i+1:n
-            distance = norm(allocations(i, :) - allocations(j, :));
-            total_distance = total_distance + distance;
-            count = count + 1;
-        end
-    end
-    
-    diversity = total_distance / count;
-end
-
         
-        function [attack_results, defense_results] = executeAttackDefense(obj, attacker_targets, defender_allocation)
-            % 执行攻防对抗
-            
-            attack_results = struct();
-            defense_results = struct();
-            
-            % 初始化结果
-            attack_results.success_count = 0;
-            attack_results.success_stations = [];
-            attack_results.total_attacks = sum(attacker_targets > 0);
-            
-            defense_results.defended_count = 0;
-            defense_results.defended_stations = [];
-            defense_results.resource_used = sum(defender_allocation);
-            
-            % 对每个基站进行攻防判定
+        function initializeCosts(obj)
+            % 初始化成本
+            obj.defense_costs = zeros(obj.n_stations, obj.n_resource_types);
             for i = 1:obj.n_stations
-                if attacker_targets(i) > 0  % 该基站被攻击
-                    % 计算攻击成功概率
-                    success_prob = obj.calculateAttackSuccessProbability(i, ...
-                        attacker_targets(i), defender_allocation(i));
-                    
-                    % 随机判定
-                    if rand() < success_prob
-                        attack_results.success_count = attack_results.success_count + 1;
-                        attack_results.success_stations(end+1) = i;
-                    else
-                        defense_results.defended_count = defense_results.defended_count + 1;
-                        defense_results.defended_stations(end+1) = i;
-                    end
+                for j = 1:obj.n_resource_types
+                    base_cost = 10 + j * 5;
+                    obj.defense_costs(i, j) = base_cost * (1 + obj.station_values(i));
                 end
             end
             
-            % 计算成功率
-            if attack_results.total_attacks > 0
-                attack_results.success_rate = attack_results.success_count / attack_results.total_attacks;
-            else
-                attack_results.success_rate = 0;
-            end
-            
-            obj.attack_success_count = attack_results.success_count;
+            % 初始化防御效果
+            obj.defense_effectiveness = ones(1, obj.n_resource_types) * 0.7;
         end
         
-        function success_prob = calculateAttackSuccessProbability(obj, station_idx, attack_strength, defense_strength)
-            % 计算单个基站的攻击成功概率
-            
-            % 基础成功概率
-            base_prob = obj.base_attack_success_prob;
-            
-            % 防守效果
-            if defense_strength > 0
-                % 简化模型：防守强度越大，成功率越低
-                defense_factor = defense_strength / (attack_strength + defense_strength + obj.epsilon);
-                success_prob = base_prob * (1 - defense_factor * 0.9);  % 最多降低90%
-            else
-                success_prob = base_prob;
-            end
-            
-            % 考虑基站脆弱性
-            vulnerability = obj.getStationVulnerability(station_idx);
-            success_prob = success_prob * (0.5 + 0.5 * vulnerability);
-            
-            % 确保在[0,1]范围内
-            success_prob = max(0, min(1, success_prob));
+        function initializeAttackModel(obj)
+            % 初始化攻击模型（简化）
+            % 实际实现中应包含更详细的攻击类型建模
         end
         
-        function reward = calculateDefenderReward(obj, defense_results, radi_score)
-            % 计算防守者奖励（基于RADI）
+        % 保留原有的兼容性方法
+        function optimal_defense = computeOptimalDefenseStrategy(obj, attack_strategy)
+            % 基于当前攻击策略计算最优防守（用于RADI计算）
+            % 这是防御者不知道具体攻击目标时的最优策略
             
-            % RADI惩罚（RADI越小越好）
-            radi_penalty = -100 * radi_score;
+            % 基于威胁评估分配资源
+            threat_assessment = attack_strategy .* obj.station_values;
+            threat_assessment = threat_assessment / sum(threat_assessment);
             
-            % 防守成功奖励
-            defense_bonus = 20 * defense_results.defended_count;
-            
-            % 资源效率奖励
-            if defense_results.resource_used > 0
-                efficiency = defense_results.defended_count / defense_results.resource_used;
-                efficiency_bonus = 10 * efficiency;
-            else
-                efficiency_bonus = 0;
-            end
-            
-            % 组合奖励
-            reward = radi_penalty + defense_bonus + efficiency_bonus;
-            
-            % 使用tanh归一化
-            reward = tanh(reward / 50);
+            optimal_defense = threat_assessment;
         end
         
-        function reward = calculateAttackerReward(obj, attack_results)
-            % 计算攻击者奖励（最大化攻击成功基站数）
-            
-            % 攻击成功奖励
-            success_reward = 50 * attack_results.success_count;
-            
-            % 攻击成功率奖励
-            if attack_results.total_attacks > 0
-                rate_bonus = 20 * attack_results.success_rate;
-            else
-                rate_bonus = 0;
-            end
-            
-            % 攻击高价值目标的额外奖励
-            value_bonus = 0;
-            for station = attack_results.success_stations
-                value_bonus = value_bonus + 30 * obj.station_values(station);
-            end
-            
-            % 组合奖励
-            reward = success_reward + rate_bonus + value_bonus;
-            
-            % 归一化
-            reward = tanh(reward / 50);
+        function radi = calculateRADIScore(obj, current_strategy, optimal_strategy)
+            % 计算RADI分数（兼容性方法）
+            radi = obj.calculateRADI(current_strategy, optimal_strategy);
         end
         
-        function updateStrategies(obj, defender_allocation, attacker_targets)
-            % 更新策略估计（使用指数移动平均）
-            alpha = 0.3;  % 学习率
-            
-            % 更新防守策略
-            current_defense = defender_allocation / (sum(defender_allocation) + obj.epsilon);
-            obj.defender_strategy = alpha * current_defense + (1-alpha) * obj.defender_strategy;
-            obj.defender_strategy = obj.defender_strategy / sum(obj.defender_strategy);
-            
-            % 更新攻击策略
-            current_attack = zeros(1, obj.n_stations);
-            for i = 1:obj.n_stations
-                if attacker_targets(i) > 0
-                    current_attack(i) = 1;
-                end
-            end
-            current_attack = current_attack / (sum(current_attack) + obj.epsilon);
-            obj.attacker_strategy = alpha * current_attack + (1-alpha) * obj.attacker_strategy;
-            obj.attacker_strategy = obj.attacker_strategy / sum(obj.attacker_strategy);
-        end
-        
-        function updateHistory(obj, attack_results, defense_results, attacker_targets)
-            % 更新历史记录
-            obj.attack_success_rate_history(end+1) = attack_results.success_rate;
-            
-            % Store which stations were attacked (as a logical row vector)
-            if isempty(obj.attack_target_history)
-                obj.attack_target_history = attacker_targets > 0;
-            else
-                obj.attack_target_history(end+1, :) = attacker_targets > 0;
-            end
-    
-            obj.defense_history(end+1) = defense_results.defended_count / (sum(obj.attacker_strategy > 0) + obj.epsilon);
-        end
-        
-        function info = prepareInfo(obj, attack_results, defense_results, defender_allocation)
-            % 准备返回信息
-            info = struct();
-            
-            % 基本信息
-            info.time_step = obj.time_step;
-            info.radi_score = obj.radi_score;
-            info.attack_success_count = attack_results.success_count;
-            info.defense_success_count = defense_results.defended_count;
-            
-            % 策略信息
-            info.current_strategies.attacker = obj.attacker_strategy;
-            info.current_strategies.defender = obj.defender_strategy;
-            info.optimal_defender_strategy = obj.optimal_defender_strategy;
-            
-            % 资源分配
-            info.resource_allocation = defender_allocation / (sum(defender_allocation) + obj.epsilon);
-            
-            % 性能指标
-            info.attack_success_rate = attack_results.success_rate;
-            if ~isempty(obj.radi_history)
-                info.avg_radi = mean(obj.radi_history(max(1,end-9):end));
-            else
-                info.avg_radi = 0;
-            end
-            
-            % 详细结果
-            info.attack_results = attack_results;
-            info.defense_results = defense_results;
-        end
-        
-        % 辅助方法
-        function defender_allocation = parseDefenderAction(obj, action)
-            % 解析防守动作为资源分配
-            if isa(action, 'numeric') && length(action) == obj.n_stations
-                % 直接是分配向量
-                defender_allocation = max(0, action);
-            else
-                % 动作索引转换为分配
-                defender_allocation = zeros(1, obj.n_stations);
-                if action >= 1 && action <= obj.n_stations
-                    defender_allocation(action) = 1;
-                end
-            end
-            
-            % 归一化到资源约束
-            total = sum(defender_allocation);
-            if total > 0
-                defender_allocation = defender_allocation * obj.total_resources / total;
-            end
-        end
-        
-        function attacker_targets = parseAttackerAction(obj, action)
-            % 解析攻击动作
-            if isa(action, 'numeric') && length(action) == obj.n_stations
-                % 攻击强度向量
-                attacker_targets = max(0, action);
-            else
-                % 单个目标
-                attacker_targets = zeros(1, obj.n_stations);
-                if action >= 1 && action <= obj.n_stations
-                    attacker_targets(action) = 1;
-                end
-            end
-        end
-        
-        function vulnerability = getStationVulnerability(obj, station_idx)
-            % 获取基站脆弱性（简化模型）
-            % 基于历史被攻击频率
-            if ~isempty(obj.attack_target_history)
-                num_time_steps = size(obj.attack_target_history, 1);
-                attack_frequency = sum(obj.attack_target_history(:, station_idx)) / num_time_steps;
-                % Vulnerability increases with attack frequency
-                vulnerability = 0.5 + 0.5 * attack_frequency;
-            else
-                vulnerability = 0.5; % Default vulnerability
-            end
-        end
-        
-        function rate = getRecentAttackRate(obj, station_idx)
-            % 获取近期攻击率
-            rate = obj.attacker_strategy(station_idx);
-        end
-        
-        function concentration = getAttackConcentration(obj)
-            % 计算攻击集中度（熵的负数）
-            p = obj.attacker_strategy + obj.epsilon;
-            concentration = -sum(p .* log(p));
-            concentration = concentration / log(obj.n_stations);  % 归一化
-        end
-        
-        function optimal_defense = numericalOptimization(obj, attack_strategy)
-            % 数值优化方法（备用）
-            % 最小化期望损失
-            
-            % 目标函数：期望损失
-            objective = @(x) obj.expectedLoss(x, attack_strategy);
-            
-            % 约束条件
-            A = [];
-            b = [];
-            Aeq = ones(1, obj.n_stations);  % sum = 1
-            beq = 1;
-            lb = zeros(1, obj.n_stations);
-            ub = ones(1, obj.n_stations);
-            
-            % 初始猜测
-            x0 = ones(1, obj.n_stations) / obj.n_stations;
-            
-            % 优化选项
-            options = optimoptions('fmincon', 'Display', 'off', 'Algorithm', 'sqp'); % FIXED: specified algorithm
-            
-            % 求解
-            [optimal_defense, ~] = fmincon(objective, x0, A, b, Aeq, beq, lb, ub, [], options);
-        end
-        
-        function loss = expectedLoss(obj, defense_strategy, attack_strategy)
-            % 计算期望损失
-            loss = 0;
-            for i = 1:obj.n_stations
-                success_prob = obj.calculateAttackSuccessProbability(i, ...
-                    attack_strategy(i), defense_strategy(i) * obj.total_resources);
-                loss = loss + success_prob * obj.station_values(i) * attack_strategy(i);
-            end
-        end
-        
-        function plotStrategies(obj)
-            % 可视化当前策略
-            figure('Name', 'TCS环境策略分析');
-            
-            subplot(2,2,1);
-            bar(1:obj.n_stations, [obj.attacker_strategy; obj.defender_strategy; obj.optimal_defender_strategy]');
-            xlabel('基站编号');
-            ylabel('策略概率');
-            title('策略对比');
-            legend('攻击策略', '当前防守', '最优防守');
-            grid on;
-            
-            subplot(2,2,2);
-            plot(obj.radi_history, 'LineWidth', 2);
-            xlabel('时间步');
-            ylabel('RADI分数');
-            title('RADI演化');
-            grid on;
-            
-            subplot(2,2,3);
-            if ~isempty(obj.attack_success_rate_history)
-                plot(obj.attack_success_rate_history, 'r-', 'LineWidth', 2);
-                hold on;
-                plot(obj.defense_history, 'b-', 'LineWidth', 2);
-                xlabel('时间步');
-                ylabel('成功率');
-                title('攻防成功率');
-                legend('攻击成功率', '防守成功率');
-                grid on;
-                ylim([0 1]); % FIXED: Set y-axis limit for rates
-            end
-            
-            subplot(2,2,4);
-            bar(1:obj.n_stations, obj.station_values);
-            xlabel('基站编号');
-            ylabel('价值');
-            title('基站价值分布');
-            grid on;
-        end
-    
-    % ========== 用户新增兼容方法 ========== 
-    function state = generateInitialState(obj)
-        % 生成初始状态（兼容旧版本）
-        state = obj.generateState();
-    end
-    
-    function allocation = calculateResourceAllocationFromActions(obj, defender_actions)
-        % 从动作计算资源分配（兼容旧版本）
-        if isa(defender_actions, 'numeric') && length(defender_actions) == obj.n_stations
-            allocation = abs(defender_actions);
-            allocation = allocation / (sum(allocation) + obj.epsilon);
-        else
-            % 单个动作索引
-            allocation = zeros(1, obj.n_resource_types);
-            if defender_actions >= 1 && defender_actions <= obj.n_stations
-                % 简化映射：将站点索引映射到资源类型
-                resource_idx = mod(defender_actions - 1, obj.n_resource_types) + 1;
-                allocation(resource_idx) = 1;
-            end
-            allocation = allocation / (sum(allocation) + obj.epsilon);
-        end
-        % FIXED: Ensure the output dimension matches n_resource_types instead of being hardcoded
-        if length(allocation) < obj.n_resource_types
-            allocation = [allocation, zeros(1, obj.n_resource_types - length(allocation))];
-        elseif length(allocation) > obj.n_resource_types
-            allocation = allocation(1:obj.n_resource_types);
-        end
-    end
-    
-    function updateStrategiesBasedOnRADI(obj)
-        % 基于RADI更新策略（兼容方法）
-        % 使用学习率逐步调整策略向最优策略靠近
-        learning_rate = 0.1;
-        % 更新防守策略
-        obj.defender_strategy = (1 - learning_rate) * obj.defender_strategy + ...
-                                learning_rate * obj.optimal_defender_strategy;
-        % 归一化
-        obj.defender_strategy = obj.defender_strategy / sum(obj.defender_strategy);
-    end
-    
-    function result = executeGameAndEvaluate(obj)
-        % 执行博弈并评估（兼容旧版本接口）
-        % FIXED: This method uses attacker_actions and defender_actions, which are now class properties.
-        % Ensure they are set before calling this method.
-        [attack_results, defense_results] = obj.executeAttackDefense(...
-            obj.attacker_actions, obj.defender_actions);
-        % 构造兼容的结果结构
-        result.attack_success = attack_results.success_count;
-        result.defense_effectiveness = defense_results.defended_count / (attack_results.total_attacks + obj.epsilon);
-        result.total_attacks = attack_results.total_attacks;
-        result.total_defenses = sum(obj.defender_actions > 0);
-        result.resource_efficiency = defense_results.resource_used / obj.total_resources;
-    end
-    
-    function computeOptimalStrategies(obj)
-        % 计算最优策略（使用新的优化方法）
-        % 更新攻击者策略评估
-        station_values = obj.station_values;
-        % 简单的威胁评估
-        threat_levels = obj.attacker_strategy * 0.5 + 0.5;
-        % 攻击者最优策略
-        attack_utilities = station_values .* threat_levels;
-        obj.optimal_attacker_strategy = attack_utilities / sum(attack_utilities);
-        % 使用新方法计算防守者最优策略
-        obj.optimal_defender_strategy = obj.computeOptimalDefenseStrategy(obj.attacker_strategy);
-    end
-    
-    % FIXED: Renamed the conflicting method from 'calculateRADI' to 'calculateAllRADI'
-    function calculateAllRADI(obj)
-        % 计算RADI（兼容方法）
-        obj.radi_defender = obj.calculateRADIScore(obj.defender_strategy, obj.optimal_defender_strategy);
-        
-        % Ensure optimal_attacker_strategy is computed before use
-        if isempty(obj.optimal_attacker_strategy)
-            obj.computeOptimalStrategies();
-        end
-        obj.radi_attacker = obj.calculateRADIScore(obj.attacker_strategy, obj.optimal_attacker_strategy);
-    end
-    
-    % FIXED: Removed the problematic get.resource_effectiveness method.
-    % The property 'defense_effectiveness' is correctly initialized in the constructor.
-    
-    function value = get.defense_costs(obj)
-        % 确保defense_costs存在
-        if isempty(obj.defense_costs)
-            obj.initializeCosts();
-        end
-        value = obj.defense_costs;
-    end
-    
-    function threat_level = assessStationThreatLevel(obj, station)
-        % 评估单个站点的威胁级别
-        % 基于历史攻击频率和当前攻击策略
-        historical_weight = 0.3;
-        current_weight = 0.7;
-        % 当前威胁
-        current_threat = obj.attacker_strategy(station);
-        % 历史威胁
-        if ~isempty(obj.attack_target_history)
-            % Calculate the historical attack frequency for this specific station
-            num_time_steps = size(obj.attack_target_history, 1);
-            historical_threat = sum(obj.attack_target_history(:, station)) / num_time_steps;
-        else
-            % No history, so threat is based on initial uniform strategy
-            historical_threat = 1 / obj.n_stations;
-        end
-        threat_level = historical_weight * historical_threat + current_weight * current_threat;
-    end
-    
-    function [next_state, reward_def, done, info] = stepFSPSimulatorCompat(obj, defender_action, attacker_action)
-        % 确保与FSPSimulator兼容的step方法
-        % 调用新的step方法
-        [next_state, reward_def, reward_att, info] = obj.step(defender_action, attacker_action);
-        % 添加done标志（FSP中通常不使用）
-        done = false;
-        % 确保info包含所需字段
-        if ~isfield(info, 'resource_allocation')
-            info.resource_allocation = obj.calculateResourceAllocationFromActions(defender_action);
-        end
-        % 添加其他可能需要的字段
-        info.attack_reward = reward_att;
-    end
+        % 其他必要的兼容性方法...
     end
 end
