@@ -46,6 +46,14 @@ classdef QLearningAgent < RLAgent
     obj.lr_scheduler.initial_lr = config.learning_rate;
     obj.lr_scheduler.min_lr = 0.001;
     obj.lr_scheduler.decay_steps = 1000;
+    
+    % === 直接赋默认值（这些属性已在基类声明） ===
+    obj.epsilon_min = 0.01;
+    obj.epsilon_decay = 0.995;
+    obj.temperature = 1.0;
+    obj.temperature_decay = 0.995;
+    obj.learning_rate_min = 0.01;
+    obj.learning_rate_decay = 0.9995;
 end
 
 % 修改 update 方法，添加自适应学习率：
@@ -103,12 +111,10 @@ function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_
 end
 
         function action_vec = selectAction(obj, state_vec)
-    % 输入: state_vec (1 x state_dim)
-    % 输出: action_vec (资源分配向量或动作索引)
+    % 改进的动作选择，增加多样性
     
     % 健壮性检查
     if isempty(state_vec)
-        warning('QLearningAgent.selectAction: state_vec is empty, auto-fixing...');
         state_vec = ones(1, obj.state_dim);
     end
     state_vec = reshape(state_vec, 1, []);
@@ -121,53 +127,109 @@ end
     
     % 确保Q值有效
     if any(isnan(q_values)) || any(isinf(q_values))
-        q_values = ones(size(q_values)) * 1.0;
+        q_values = randn(size(q_values)) * 0.1;
     end
     
-    % === 关键修改：直接返回多样化的动作向量 ===
-    if obj.use_softmax
-        % 使用softmax产生概率分布
-        temperature = max(0.1, obj.temperature);
-        exp_values = exp(q_values / temperature);
-        probabilities = exp_values / sum(exp_values);
+    % 动态调整参数
+    if isprop(obj, 'epsilon_decay')
+        obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+    end
+    if isprop(obj, 'temperature_decay') && obj.use_softmax
+        obj.temperature = max(0.1, obj.temperature * obj.temperature_decay);
+    end
+    if isprop(obj, 'learning_rate_decay')
+        obj.learning_rate = max(obj.learning_rate_min, obj.learning_rate * obj.learning_rate_decay);
+    end
+    
+    % 获取访问统计
+    visit_counts = obj.visit_count(state_idx, :);
+    total_visits = sum(visit_counts);
+    
+    % 自适应探索率
+    if total_visits < 10
+        effective_epsilon = min(0.9, obj.epsilon * 2);
+    elseif total_visits < 50
+        effective_epsilon = min(0.7, obj.epsilon * 1.5);
+    else
+        effective_epsilon = obj.epsilon;
+    end
+    
+    % 探索 vs 利用
+    if rand() < effective_epsilon
+        % 探索：使用多种策略
+        strategy = randi(4);
         
-        % 返回概率分布作为资源分配
-        action_vec = probabilities;
+        switch strategy
+            case 1
+                % 完全随机
+                action_vec = rand(1, obj.action_dim);
+                
+            case 2
+                % 基于访问次数的探索
+                exploration_weights = 1 ./ (visit_counts + 1);
+                action_vec = exploration_weights / sum(exploration_weights);
+                % 添加噪声
+                action_vec = action_vec + randn(1, obj.action_dim) * 0.1;
+                
+            case 3
+                % 集中式探索
+                n_focus = randi([1, min(3, obj.action_dim)]);
+                focus_actions = randperm(obj.action_dim, n_focus);
+                action_vec = ones(1, obj.action_dim) * 0.05;
+                action_vec(focus_actions) = (0.85 + rand() * 0.1) / n_focus;
+                
+            case 4
+                % Thompson采样风格的探索
+                sampled_values = q_values + randn(size(q_values)) * std(q_values);
+                action_vec = exp(sampled_values) / sum(exp(sampled_values));
+        end
         
     else
-        % Epsilon-greedy策略
-        if rand() < obj.epsilon
-            % 探索：生成随机动作向量
-            action_vec = rand(1, obj.action_dim);
-            % 添加一些结构化的变化
-            if rand() < 0.3
-                % 30%概率集中资源到少数类型
-                focus_types = randperm(obj.action_dim, randi([1, 2]));
-                action_vec = action_vec * 0.1;
-                action_vec(focus_types) = action_vec(focus_types) + 0.5;
-            end
-        else
-            % 利用：基于Q值选择，但添加噪声
-            [~, best_action] = max(q_values);
-            action_vec = zeros(1, obj.action_dim);
-            action_vec(best_action) = 1;
+        % 利用：基于Q值
+        if obj.use_softmax
+            % Softmax策略
+            q_normalized = q_values - max(q_values);  % 避免数值溢出
+            exp_values = exp(q_normalized / obj.temperature);
+            action_vec = exp_values / sum(exp_values);
             
-            % 添加小量噪声避免完全相同
-            noise_level = 0.1;
-            noise = randn(1, obj.action_dim) * noise_level;
+            % 添加小量噪声
+            noise = randn(1, obj.action_dim) * 0.05;
             action_vec = action_vec + noise;
+            
+        else
+            % 改进的ε-greedy
+            % 使用UCB来打破平局
+            c = 2;  % UCB常数
+            ucb_bonus = sqrt(c * log(total_visits + 1) ./ (visit_counts + 1));
+            ucb_values = q_values + ucb_bonus;
+            
+            [~, best_action] = max(ucb_values);
+            
+            % 不使用纯one-hot，而是主导动作+其他小概率
+            action_vec = ones(1, obj.action_dim) * 0.05;
+            action_vec(best_action) = 0.75;
+            
+            % 给相似Q值的动作更多概率
+            q_threshold = 0.9 * max(q_values);
+            good_actions = q_values > q_threshold;
+            n_good = sum(good_actions);
+            if n_good > 1
+                extra_prob = 0.15 / n_good;
+                action_vec(good_actions) = action_vec(good_actions) + extra_prob;
+            end
         end
     end
     
     % 确保非负并归一化
     action_vec = max(0, action_vec);
-    if sum(action_vec) > 0
-        action_vec = action_vec / sum(action_vec);
+    total = sum(action_vec);
+    if total > 1e-10
+        action_vec = action_vec / total;
     else
         action_vec = ones(1, obj.action_dim) / obj.action_dim;
     end
     
-    % 记录动作（如果需要单一索引）
+    % 记录选择
     [~, dominant_action] = max(action_vec);
     obj.recordAction(state_idx, dominant_action);
 end

@@ -1,0 +1,4 @@
+[2025-07-15 10:49:38] [INFO] 日志系统初始化
+[2025-07-15 10:49:38] [INFO] 改进版FSP仿真开始
+[2025-07-15 10:49:45] [ERROR] 仿真出错: resource_allocations 类型错误，必须为数值型
+[2025-07-15 10:49:45] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_improved_fsp_simulation.m, 行号: 335

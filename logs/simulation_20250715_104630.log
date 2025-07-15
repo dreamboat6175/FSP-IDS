@@ -1,0 +1,4 @@
+[2025-07-15 10:46:31] [INFO] 日志系统初始化
+[2025-07-15 10:46:31] [INFO] 改进版FSP仿真开始
+[2025-07-15 10:46:38] [ERROR] 仿真出错: 未识别类 'PerformanceMonitor' 的方法、属性或字段 'results'。
+[2025-07-15 10:46:38] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_improved_fsp_simulation.m, 行号: 328

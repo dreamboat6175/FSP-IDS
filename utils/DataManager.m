@@ -43,38 +43,44 @@ classdef DataManager
             if ~exist('results', 'dir')
                 mkdir('results');
             end
-            agent_names = arrayfun(@(x) sprintf('Agent_%d', x), 1:results.n_agents, 'UniformOutput', false);
+            n_agents = results.n_agents;
+            agent_names = arrayfun(@(x) sprintf('Agent_%d', x), 1:n_agents, 'UniformOutput', false);
             % RADI数据
             if isfield(results, 'radi')
-                radi_table = array2table(results.radi', 'VariableNames', agent_names);
+                radi_data = results.radi(1:n_agents, :)';
+                radi_table = array2table(radi_data, 'VariableNames', agent_names);
                 radi_table.Iteration = (1:results.n_iterations)';
                 radi_table = radi_table(:, ['Iteration', agent_names]);
                 writetable(radi_table, sprintf('results/radi_%s.csv', timestamp));
             end
             % 资源效率数据
             if isfield(results, 'resource_efficiency')
-                eff_table = array2table(results.resource_efficiency', 'VariableNames', agent_names);
+                eff_data = results.resource_efficiency(1:n_agents, :)';
+                eff_table = array2table(eff_data, 'VariableNames', agent_names);
                 eff_table.Iteration = (1:results.n_iterations)';
                 eff_table = eff_table(:, ['Iteration', agent_names]);
                 writetable(eff_table, sprintf('results/resource_efficiency_%s.csv', timestamp));
             end
             % 分配均衡性数据
             if isfield(results, 'allocation_balance')
-                bal_table = array2table(results.allocation_balance', 'VariableNames', agent_names);
+                bal_data = results.allocation_balance(1:n_agents, :)';
+                bal_table = array2table(bal_data, 'VariableNames', agent_names);
                 bal_table.Iteration = (1:results.n_iterations)';
                 bal_table = bal_table(:, ['Iteration', agent_names]);
                 writetable(bal_table, sprintf('results/allocation_balance_%s.csv', timestamp));
             end
             % 收敛性数据
             if isfield(results, 'convergence_metrics')
-                conv_table = array2table(results.convergence_metrics', 'VariableNames', agent_names);
+                conv_data = results.convergence_metrics(1:n_agents, :)';
+                conv_table = array2table(conv_data, 'VariableNames', agent_names);
                 conv_table.Iteration = (1:results.n_iterations)';
                 conv_table = conv_table(:, ['Iteration', agent_names]);
                 writetable(conv_table, sprintf('results/convergence_metrics_%s.csv', timestamp));
             end
             % 奖励数据
             if isfield(results, 'defender_rewards')
-                reward_table = array2table(results.defender_rewards', 'VariableNames', agent_names);
+                reward_data = results.defender_rewards(1:n_agents, :)';
+                reward_table = array2table(reward_data, 'VariableNames', agent_names);
                 reward_table.Iteration = (1:results.n_iterations)';
                 reward_table = reward_table(:, ['Iteration', agent_names]);
                 writetable(reward_table, sprintf('results/defender_rewards_%s.csv', timestamp));
@@ -87,12 +93,25 @@ classdef DataManager
         end
         function summary = calculateSummaryStats(results)
             last_iters = max(1, results.n_iterations-99):results.n_iterations;
-            for i = 1:results.n_agents
-                summary.agent(i).final_radi = mean(results.radi(i, last_iters));
-                summary.agent(i).final_resource_efficiency = mean(results.resource_efficiency(i, last_iters));
-                summary.agent(i).final_allocation_balance = mean(results.allocation_balance(i, last_iters));
+            % shape检查
+            [n_agents, n_iters] = size(results.radi);
+            for i = 1:n_agents
+                % 越界保护
+                valid_iters = last_iters(last_iters <= n_iters);
+                if isempty(valid_iters)
+                    summary.agent(i).final_radi = NaN;
+                    summary.agent(i).final_resource_efficiency = NaN;
+                    summary.agent(i).final_allocation_balance = NaN;
+                    summary.agent(i).final_convergence = NaN;
+                    summary.agent(i).max_radi = NaN;
+                    summary.agent(i).min_radi = NaN;
+                    continue;
+                end
+                summary.agent(i).final_radi = mean(results.radi(i, valid_iters));
+                summary.agent(i).final_resource_efficiency = mean(results.resource_efficiency(i, valid_iters));
+                summary.agent(i).final_allocation_balance = mean(results.allocation_balance(i, valid_iters));
                 if isfield(results, 'convergence_metrics')
-                    summary.agent(i).final_convergence = mean(results.convergence_metrics(i, last_iters));
+                    summary.agent(i).final_convergence = mean(results.convergence_metrics(i, valid_iters));
                 else
                     summary.agent(i).final_convergence = NaN;
                 end

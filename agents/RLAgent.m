@@ -16,6 +16,11 @@ classdef (Abstract) RLAgent < handle
         epsilon           % 探索率
         epsilon_min       % 最小探索率
         epsilon_decay     % 探索率衰减
+        temperature       % Boltzmann温度参数
+        temperature_min   % 温度下限
+        temperature_decay % 温度衰减
+        learning_rate_min % 最小学习率
+        learning_rate_decay % 学习率衰减
 
         % 策略相关
         strategy_pool     % 策略池
@@ -33,7 +38,6 @@ classdef (Abstract) RLAgent < handle
         action_history    % 动作历史
 
         % 其他参数
-        temperature       % Boltzmann温度参数
         use_softmax      % 是否使用softmax策略
     end
 

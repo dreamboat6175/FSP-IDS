@@ -51,26 +51,101 @@ try
     for i = 1:length(config.algorithms)
         switch config.algorithms{i}
             case 'Q-Learning'
-                defender_agents{i} = QLearningAgent(sprintf('Q-Learning-%d', i), ...
-                                                  'defender', config, ...
-                                                  env.state_dim, env.action_dim_defender);
-                
-                % === 关键修改：优化Q表初始化和参数设置 ===
-                % 乐观初始化 - 不同智能体使用不同的初始值
-                base_value = 2.0 + (i-1) * 0.5;  % 每个智能体不同的初始值
-                noise_level = 0.3;
-                defender_agents{i}.Q_table = ones(env.state_dim, env.action_dim_defender) * base_value + ...
-                                            randn(env.state_dim, env.action_dim_defender) * noise_level;
-                
-                % 设置不同的探索策略
-                defender_agents{i}.epsilon = 0.4 + (i-1) * 0.1;  % 不同的探索率
-                defender_agents{i}.use_softmax = mod(i, 2) == 1;  % 交替使用softmax和epsilon-greedy
-                defender_agents{i}.temperature = 1.0 + (i-1) * 0.2;  % 不同的温度参数
-                
-                fprintf('  智能体%d: epsilon=%.2f, softmax=%d, temp=%.2f\n', ...
-                       i, defender_agents{i}.epsilon, defender_agents{i}.use_softmax, ...
-                       defender_agents{i}.temperature);
-                
+    defender_agents{i} = QLearningAgent(sprintf('Q-Learning-%d', i), ...
+                                      'defender', config, ...
+                                      env.state_dim, env.action_dim_defender);
+    
+    if i == 1
+        % 智能体1：激进探索策略（修复过度集中问题）
+        % 使用接近0的初始值，强制探索
+        defender_agents{i}.Q_table = randn(env.state_dim, env.action_dim_defender) * 0.01;
+        
+        % 极高探索率
+        defender_agents{i}.epsilon = 0.95;
+        defender_agents{i}.epsilon_min = 0.4;
+        defender_agents{i}.epsilon_decay = 0.999;  % 非常慢的衰减
+        
+        % 使用高温度softmax
+        defender_agents{i}.use_softmax = true;
+        defender_agents{i}.temperature = 10.0;
+        defender_agents{i}.temperature_min = 2.0;
+        defender_agents{i}.temperature_decay = 0.999;
+        
+        % 高学习率
+        defender_agents{i}.learning_rate = 0.5;
+        defender_agents{i}.learning_rate_min = 0.1;
+        defender_agents{i}.learning_rate_decay = 0.9999;
+        
+        fprintf('  智能体1: 激进探索 - epsilon=%.2f, temp=%.1f, lr=%.2f\n', ...
+               defender_agents{i}.epsilon, defender_agents{i}.temperature, ...
+               defender_agents{i}.learning_rate);
+        
+    elseif i == 2
+        % 智能体2：平衡策略（当前表现尚可，微调）
+        defender_agents{i}.Q_table = ones(env.state_dim, env.action_dim_defender) * 0.5 + ...
+                                    randn(env.state_dim, env.action_dim_defender) * 0.2;
+        
+        defender_agents{i}.epsilon = 0.5;
+        defender_agents{i}.epsilon_min = 0.15;
+        defender_agents{i}.epsilon_decay = 0.997;
+        
+        defender_agents{i}.use_softmax = false;  % 使用ε-greedy
+        defender_agents{i}.learning_rate = 0.2;
+        defender_agents{i}.learning_rate_min = 0.05;
+        defender_agents{i}.learning_rate_decay = 0.9998;
+        
+        fprintf('  智能体2: 平衡策略 - epsilon=%.2f, softmax=%d, lr=%.2f\n', ...
+               defender_agents{i}.epsilon, defender_agents{i}.use_softmax, ...
+               defender_agents{i}.learning_rate);
+        
+    else
+        % 智能体3：需要增加探索（当前完全没有探索）
+        defender_agents{i}.Q_table = ones(env.state_dim, env.action_dim_defender) * 1.0 + ...
+                                    randn(env.state_dim, env.action_dim_defender) * 0.3;
+        
+        % 增加探索率，避免过早收敛
+        defender_agents{i}.epsilon = 0.3;
+        defender_agents{i}.epsilon_min = 0.05;
+        defender_agents{i}.epsilon_decay = 0.995;
+        
+        % 使用温和的softmax
+        defender_agents{i}.use_softmax = true;
+        defender_agents{i}.temperature = 2.0;
+        defender_agents{i}.temperature_min = 0.5;
+        defender_agents{i}.temperature_decay = 0.998;
+        
+        defender_agents{i}.learning_rate = 0.15;
+        defender_agents{i}.learning_rate_min = 0.03;
+        defender_agents{i}.learning_rate_decay = 0.9997;
+        
+        fprintf('  智能体3: 改进探索 - epsilon=%.2f, temp=%.1f, lr=%.2f\n', ...
+               defender_agents{i}.epsilon, defender_agents{i}.temperature, ...
+               defender_agents{i}.learning_rate);
+    end
+    
+    % 为所有智能体添加必要属性
+    if ~isprop(defender_agents{i}, 'epsilon_min')
+        addprop(defender_agents{i}, 'epsilon_min');
+    end
+    if ~isprop(defender_agents{i}, 'epsilon_decay')
+        addprop(defender_agents{i}, 'epsilon_decay');
+    end
+    if ~isprop(defender_agents{i}, 'temperature_min')
+        addprop(defender_agents{i}, 'temperature_min');
+        defender_agents{i}.temperature_min = 0.1;
+    end
+    if ~isprop(defender_agents{i}, 'temperature_decay')
+        addprop(defender_agents{i}, 'temperature_decay');
+        defender_agents{i}.temperature_decay = 0.995;
+    end
+    if ~isprop(defender_agents{i}, 'learning_rate_min')
+        addprop(defender_agents{i}, 'learning_rate_min');
+    end
+    if ~isprop(defender_agents{i}, 'learning_rate_decay')
+        addprop(defender_agents{i}, 'learning_rate_decay');
+    end
+
+
             case 'SARSA'
                 defender_agents{i} = SARSAAgent(sprintf('SARSA-%d', i), ...
                                              'defender', config, ...
@@ -244,6 +319,34 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
             avg_efficiency = mean(episode_results.avg_efficiency);
             fprintf('[迭代 %d] 平均RADI: %.3f, 资源效率: %.2f%%, 探索率: %.3f\n', ...
                    iter, avg_radi, avg_efficiency * 100, current_epsilon);
+            % 攻防动态输出
+            fprintf('\n[攻防动态] 迭代 %d\n', iter);
+            if isprop(env, 'attacker_strategy') && isprop(env, 'optimal_defender_strategy')
+                fprintf('当前攻击策略: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', env.attacker_strategy);
+                fprintf('最优防守策略: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', env.optimal_defender_strategy);
+            end
+            results = monitor.getResults();
+            if isfield(results, 'resource_allocations')
+                fields = {'computation', 'bandwidth', 'sensors', 'scanning_freq', 'inspection_depth'};
+                for i = 1:min(3, n_agents)
+                    recent_alloc = zeros(1, 5);
+                    for j = 1:5
+                        field_data = results.resource_allocations.(fields{j});
+                        n = size(field_data, 1);
+                        recent_range = max(1, n-49):n;
+                        % 兼容一维和二维
+                        if isvector(field_data)
+                            agent_data = field_data(recent_range);
+                        elseif size(field_data, 2) >= i
+                            agent_data = field_data(recent_range, i);
+                        else
+                            agent_data = field_data(recent_range, 1);
+                        end
+                        recent_alloc(j) = mean(agent_data);
+                    end
+                    fprintf('智能体%d实际分配: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', i, recent_alloc);
+                end
+            end
         end
         if mod(iter, 200) == 0
             checkAndAdjustPerformanceRADI(defender_agents, monitor, iter, config);
@@ -252,7 +355,55 @@ function [results, trained_agents] = improvedFSPTraining(env, defender_agents, a
     results = monitor.getResults();
     % 字段兼容性整理，确保RADI体系主字段
     if isfield(results, 'radi_scores')
-        results.radi = results.radi_scores;
+        % 保证为[n_agents, n_iterations]结构
+        if size(results.radi_scores, 1) == n_iterations && size(results.radi_scores, 2) == n_agents
+            results.radi = results.radi_scores';
+        elseif size(results.radi_scores, 2) == n_iterations && size(results.radi_scores, 1) == n_agents
+            results.radi = results.radi_scores;
+        elseif size(results.radi_scores, 1) == n_agents && size(results.radi_scores, 2) ~= n_iterations
+            % 补齐或截断
+            pad = n_iterations - size(results.radi_scores, 2);
+            if pad > 0
+                results.radi = [results.radi_scores, nan(n_agents, pad)];
+            else
+                results.radi = results.radi_scores(:, 1:n_iterations);
+            end
+        else
+            % 其他情况，强制转置
+            results.radi = results.radi_scores';
+        end
+    end
+    if isfield(results, 'resource_efficiency')
+        if size(results.resource_efficiency, 1) == n_iterations && size(results.resource_efficiency, 2) == n_agents
+            results.resource_efficiency = results.resource_efficiency';
+        elseif size(results.resource_efficiency, 2) == n_iterations && size(results.resource_efficiency, 1) == n_agents
+            % ok
+        elseif size(results.resource_efficiency, 1) == n_agents && size(results.resource_efficiency, 2) ~= n_iterations
+            pad = n_iterations - size(results.resource_efficiency, 2);
+            if pad > 0
+                results.resource_efficiency = [results.resource_efficiency, nan(n_agents, pad)];
+            else
+                results.resource_efficiency = results.resource_efficiency(:, 1:n_iterations);
+            end
+        else
+            results.resource_efficiency = results.resource_efficiency';
+        end
+    end
+    if isfield(results, 'allocation_balance')
+        if size(results.allocation_balance, 1) == n_iterations && size(results.allocation_balance, 2) == n_agents
+            results.allocation_balance = results.allocation_balance';
+        elseif size(results.allocation_balance, 2) == n_iterations && size(results.allocation_balance, 1) == n_agents
+            % ok
+        elseif size(results.allocation_balance, 1) == n_agents && size(results.allocation_balance, 2) ~= n_iterations
+            pad = n_iterations - size(results.allocation_balance, 2);
+            if pad > 0
+                results.allocation_balance = [results.allocation_balance, nan(n_agents, pad)];
+            else
+                results.allocation_balance = results.allocation_balance(:, 1:n_iterations);
+            end
+        else
+            results.allocation_balance = results.allocation_balance';
+        end
     end
     results.n_agents = n_agents;
     results.n_iterations = n_iterations;
@@ -487,29 +638,57 @@ function balance = calculateAllocationBalance(allocation)
     balance = max(0, min(1, balance));
 end
 function reward = calculateRADIReward(radi, efficiency, balance, config)
-    % 改进的奖励函数
+    % 基于RADI的奖励函数，针对不同RADI范围使用不同策略
+    
     % 基础奖励
-    radi_penalty = -radi * 50;
-    efficiency_bonus = efficiency * 30;
-    balance_bonus = balance * 20;
+    base_reward = 0;
     
-    % 权重应用
-    reward = config.reward.w_radi * radi_penalty + ...
-             config.reward.w_efficiency * efficiency_bonus + ...
-             config.reward.w_balance * balance_bonus;
-    
-    % 阈值奖励
-    if radi <= config.radi.threshold_excellent
-        reward = reward + 50;
-    elseif radi <= config.radi.threshold_good
-        reward = reward + 20;
-    elseif radi <= config.radi.threshold_acceptable
-        reward = reward + 5;
+    % RADI奖励/惩罚（分段处理）
+    if radi <= 0.05  % 优秀
+        radi_component = 100;
+    elseif radi <= 0.1  % 良好
+        radi_component = 80 - (radi - 0.05) * 400;
+    elseif radi <= 0.5  % 可接受
+        radi_component = 60 - (radi - 0.1) * 150;
+    elseif radi <= 1.0  % 较差
+        radi_component = -50 - (radi - 0.5) * 100;
+    else  % 很差（如智能体1的情况）
+        radi_component = -100 - (radi - 1.0) * 200;
     end
     
-    % 确保奖励不会过大
-    reward = max(-100, min(100, reward));
+    % 效率奖励
+    if efficiency > 0.8
+        efficiency_component = 50 + (efficiency - 0.8) * 250;
+    elseif efficiency > 0.5
+        efficiency_component = (efficiency - 0.5) * 166.67;
+    else
+        efficiency_component = efficiency * 100 - 50;
+    end
+    
+    % 平衡度奖励
+    balance_component = balance * 50;
+    
+    % 综合奖励
+    reward = radi_component * config.reward.w_radi + ...
+             efficiency_component * config.reward.w_efficiency + ...
+             balance_component * config.reward.w_balance;
+    
+    % 特殊情况处理
+    if radi > 1.5 && efficiency < 0.1
+        % 严重问题（如智能体1），给予额外惩罚
+        reward = reward - 100;
+    end
+    
+    if radi < 0.01 && balance > 0.95
+        %接近完美，给予额外奖励
+        reward = reward + 100;
+    end
+    
+    % 限制范围
+    reward = max(-500, min(500, reward));
 end
+
+
 function validateResourceAllocation(allocation, agent_name, episode)
     % 验证资源分配的正确性
     tolerance = 1e-6;
@@ -534,31 +713,111 @@ function validateResourceAllocation(allocation, agent_name, episode)
     end
 end
 function allocation = convertQLearningActionToAllocation(raw_action, n_resource_types, agent)
-% 将Q-Learning智能体的原始动作转换为资源分配向量
-
-if length(raw_action) == n_resource_types
-    % 已经是正确维度的分配向量
-    allocation = raw_action;
-elseif length(raw_action) == 1
-    % 单个动作索引 - 转换为one-hot向量
-    action_idx = max(1, min(n_resource_types, round(raw_action)));
-    allocation = zeros(1, n_resource_types);
-    allocation(action_idx) = 1;
+    % 将Q-Learning动作转换为资源分配，确保多样性
     
-    % 添加探索噪声
-    if isprop(agent, 'epsilon') && rand() < agent.epsilon
-        % 探索时添加随机性
-        noise = rand(1, n_resource_types) * 0.3;
-        allocation = allocation * 0.7 + noise;
+    % 获取智能体编号（从名称中提取）
+    agent_num = 0;
+    if contains(agent.name, '1')
+        agent_num = 1;
+    elseif contains(agent.name, '2')
+        agent_num = 2;
+    elseif contains(agent.name, '3')
+        agent_num = 3;
     end
-else
-    % 多维向量 - 截取或补充到正确维度
-    if length(raw_action) > n_resource_types
-        allocation = raw_action(1:n_resource_types);
+    
+    if isscalar(raw_action)
+        % 单一动作索引
+        action_idx = max(1, min(n_resource_types, round(raw_action)));
+        
+        % 根据智能体和探索率决定分配策略
+        if agent_num == 1
+            % 智能体1：强制多样化
+            if agent.epsilon > 0.7
+                % 高探索：使用更均匀的分配
+                allocation = ones(1, n_resource_types) * 0.15;
+                allocation(action_idx) = 0.25;
+                % 随机增强其他资源
+                boost_indices = randperm(n_resource_types, min(3, n_resource_types));
+                for idx = boost_indices
+                    allocation(idx) = allocation(idx) + rand() * 0.1;
+                end
+            else
+                % 中等探索：避免过度集中
+                allocation = ones(1, n_resource_types) * 0.1;
+                allocation(action_idx) = 0.4;
+                % 相邻资源也获得分配
+                if action_idx > 1
+                    allocation(action_idx-1) = 0.2;
+                end
+                if action_idx < n_resource_types
+                    allocation(action_idx+1) = 0.2;
+                end
+            end
+            
+        elseif agent_num == 3
+            % 智能体3：增加随机性
+            if rand() < 0.3  % 30%概率使用随机策略
+                allocation = rand(1, n_resource_types);
+            else
+                % 正常分配但添加噪声
+                allocation = ones(1, n_resource_types) * 0.1;
+                allocation(action_idx) = 0.5;
+                noise = randn(1, n_resource_types) * 0.1;
+                allocation = allocation + noise;
+            end
+            
+        else
+            % 智能体2和其他：标准策略
+            allocation = ones(1, n_resource_types) * 0.05;
+            allocation(action_idx) = 0.6;
+            % 添加适度噪声
+            if agent.epsilon > 0.1
+                noise = randn(1, n_resource_types) * agent.epsilon * 0.2;
+                allocation = allocation + noise;
+            end
+        end
+        
     else
-        allocation = [raw_action, zeros(1, n_resource_types - length(raw_action))];
+        % 向量输入
+        allocation = raw_action;
+        
+        % 为智能体1和3添加额外噪声
+        if agent_num == 1
+            noise_level = 0.3;
+            allocation = allocation + randn(1, n_resource_types) * noise_level;
+        elseif agent_num == 3
+            noise_level = 0.15;
+            allocation = allocation + randn(1, n_resource_types) * noise_level;
+        end
     end
-end
+    
+    % 确保非负
+    allocation = max(0, allocation);
+    
+    % 归一化
+    total = sum(allocation);
+    if total > 1e-10
+        allocation = allocation / total;
+    else
+        % 使用带扰动的均匀分配
+        allocation = ones(1, n_resource_types) / n_resource_types;
+        allocation = allocation + randn(1, n_resource_types) * 0.05;
+        allocation = max(0, allocation);
+        allocation = allocation / sum(allocation);
+    end
+    
+    % 最终检查：确保没有极端分配
+    max_allocation = max(allocation);
+    if max_allocation > 0.7 && agent_num == 1
+        % 智能体1不允许超过70%集中在一个资源上
+        allocation(allocation == max_allocation) = 0.7;
+        excess = max_allocation - 0.7;
+        other_indices = find(allocation ~= 0.7);
+        if ~isempty(other_indices)
+            allocation(other_indices) = allocation(other_indices) + excess / length(other_indices);
+        end
+        allocation = allocation / sum(allocation);
+    end
 end
 function allocation = validateAndNormalizeAllocation(allocation, n_resource_types, agent_idx, episode)
     % 验证和归一化资源分配

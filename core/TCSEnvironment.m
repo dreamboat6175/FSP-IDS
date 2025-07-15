@@ -278,52 +278,133 @@ classdef TCSEnvironment < handle
             obj.time_step = obj.time_step + 1;
         end
         
-        function optimal_defense = computeOptimalDefenseStrategy(obj, attack_strategy)
-            % 基于攻击策略计算最优防守策略
-            % 使用解析解或数值优化
-            
-            if strcmp(obj.optimization_method, 'analytical')
-                % 解析解：防守资源与攻击强度和基站价值成正比
-                weighted_threats = attack_strategy .* obj.station_values;
-                
-                % 考虑防守成本效率
-                avg_costs = mean(obj.defense_costs, 2)';
-                defense_efficiency = weighted_threats ./ (avg_costs + obj.epsilon);
-                
-                % 归一化得到最优策略
-                optimal_defense = defense_efficiency / sum(defense_efficiency);
-                
+       function optimal_defense = computeOptimalDefenseStrategy(obj, attack_strategy)
+    % 基于博弈论计算最优防守策略
+    % 防守者目标：最小化最大期望损失（minimax）
+    % 攻击者目标：最大化攻击成功基站数量
+    
+    n = obj.n_stations;
+    
+    % 构建收益矩阵（从攻击者角度）
+    % A[i,j] = 攻击者选择攻击站点i，防守者重点防守站点j时的收益
+    A = zeros(n, n);
+    
+    for i = 1:n  % 攻击者攻击站点i
+        for j = 1:n  % 防守者重点防守站点j
+            if i == j
+                % 攻击被防守，攻击者收益较低
+                A(i,j) = 0.2 * obj.station_values(i);  % 20%成功率
             else
-                % 数值优化方法
-                optimal_defense = obj.numericalOptimization(attack_strategy);
+                % 攻击未被重点防守，攻击者收益较高
+                A(i,j) = 0.8 * obj.station_values(i);  % 80%成功率
             end
+        end
+    end
+    
+    % 求解混合策略纳什均衡（线性规划）
+    % 防守者的混合策略：min v
+    % s.t. A' * y >= v * ones(n,1)
+    %      sum(y) = 1, y >= 0
+    
+    % 设置线性规划参数
+    f = [zeros(n, 1); 1];  % 目标函数系数 [y; v]
+    A_ineq = [-A', ones(n, 1)];  % 不等式约束矩阵
+    b_ineq = zeros(n, 1);  % 不等式约束右侧
+    A_eq = [ones(1, n), 0];  % 等式约束：sum(y) = 1
+    b_eq = 1;
+    lb = [zeros(n, 1); -inf];  % 下界
+    ub = [ones(n, 1); inf];  % 上界
+    
+    % 求解
+    options = optimoptions('linprog', 'Display', 'off', 'Algorithm', 'dual-simplex');
+    [x, ~, exitflag] = linprog(f, A_ineq, b_ineq, A_eq, b_eq, lb, ub, options);
+    
+    if exitflag > 0 && ~isempty(x)
+        optimal_defense = x(1:n)';
+        % 确保是有效概率分布
+        optimal_defense = max(0, optimal_defense);
+        optimal_defense = optimal_defense / sum(optimal_defense);
+    else
+        % 如果线性规划失败，使用基于威胁的启发式方法
+        fprintf('  [警告] 线性规划求解失败，使用启发式方法\n');
+        
+        % 综合考虑攻击概率、站点价值和历史攻击
+        threat_scores = attack_strategy .* obj.station_values;
+        
+        % 添加历史信息权重
+        if ~isempty(obj.attack_success_rate_history)
+            historical_weight = 0.3;
+            current_weight = 0.7;
             
-            % 确保是有效的概率分布
-            optimal_defense = max(0, optimal_defense);
-            optimal_defense = optimal_defense / sum(optimal_defense);
+            % 计算历史威胁
+            if size(obj.attack_target_history, 1) > 0
+                historical_threats = mean(obj.attack_target_history, 1);
+                threat_scores = current_weight * threat_scores + ...
+                               historical_weight * (historical_threats .* obj.station_values);
+            end
         end
         
-        function radi = calculateRADIScore(obj, current_strategy, optimal_strategy)
-    % 改进的RADI计算，增加数值稳定性
+        % 归一化
+        optimal_defense = threat_scores / sum(threat_scores);
+    end
+    
+    % 平滑处理，避免极端分配
+    smoothing_factor = 0.1;
+    optimal_defense = (1 - smoothing_factor) * optimal_defense + ...
+                      smoothing_factor * ones(1, n) / n;
+    
+    % 最终归一化
+    optimal_defense = optimal_defense / sum(optimal_defense);
+    
+    % 调试输出
+    fprintf('[调试] 攻击策略: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', attack_strategy);
+    fprintf('[调试] 最优防守: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', optimal_defense);
+end
+        
+       function radi = calculateRADIScore(obj, current_strategy, optimal_strategy)
+    % 改进的RADI计算 - 资源分配偏差指数
+    % RADI = sum((当前策略 - 最优策略)^2 / 最优策略^2)
+    
     epsilon = 1e-10;
     
     % 确保策略归一化
+    current_strategy = abs(current_strategy);
+    optimal_strategy = abs(optimal_strategy);
+    
     if sum(current_strategy) > epsilon
         current_strategy = current_strategy / sum(current_strategy);
+    else
+        current_strategy = ones(size(current_strategy)) / length(current_strategy);
     end
+    
     if sum(optimal_strategy) > epsilon
         optimal_strategy = optimal_strategy / sum(optimal_strategy);
+    else
+        optimal_strategy = ones(size(optimal_strategy)) / length(optimal_strategy);
     end
     
-    % 计算欧氏距离的平方
-    deviation = current_strategy - optimal_strategy;
-    radi = sum(deviation.^2);
+    % 计算相对偏差
+    radi = 0;
+    valid_count = 0;
     
-    % 添加调试输出
-    if radi < epsilon
-        fprintf('  [调试] RADI接近0: current=%s, optimal=%s\n', ...
-               mat2str(current_strategy, 3), mat2str(optimal_strategy, 3));
+    for i = 1:length(current_strategy)
+        if optimal_strategy(i) > epsilon
+            % 相对偏差的平方
+            relative_deviation = (current_strategy(i) - optimal_strategy(i))^2 / optimal_strategy(i)^2;
+            radi = radi + relative_deviation;
+            valid_count = valid_count + 1;
+        end
     end
+    
+    % 平均RADI
+    if valid_count > 0
+        radi = radi / valid_count;
+    else
+        radi = 0;
+    end
+    
+    % 确保RADI在合理范围内
+    radi = min(radi, 10);  % 上限为10
 end
 
 function diversity = calculateStrategyDiversity(obj, allocations)
