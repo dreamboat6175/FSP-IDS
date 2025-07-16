@@ -345,22 +345,54 @@ end
     end
 end
         
-        function radi = calculateRADI(obj, actual, optimal)
-    % 计算RADI - 使用标准化的相对误差
-    
-    % 避免除零错误
-    epsilon = 1e-6;
-    optimal = optimal + epsilon;
-    
-    % 计算相对误差
-    relative_errors = abs(actual - optimal) ./ optimal;
-    
-    % 使用加权平均，权重为站点价值
-    weights = obj.station_values / sum(obj.station_values);
-    radi = sum(weights .* relative_errors);
-    
-    % 修正：限制RADI在合理范围内
-    radi = min(radi, 5.0); % 降低上限
+        function radi = calculateRADI(obj, current_allocation, optimal_allocation, weights)
+    % Debug: Print nargin and argument info
+    disp(['[DEBUG] calculateRADI nargin = ', num2str(nargin)]);
+    disp(['  current_allocation: ', class(current_allocation), ' size: ', mat2str(size(current_allocation))]);
+    disp(['  optimal_allocation: ', class(optimal_allocation), ' size: ', mat2str(size(optimal_allocation))]);
+    if exist('weights','var')
+        disp(['  weights: ', class(weights), ' size: ', mat2str(size(weights))]);
+    else
+        disp('  weights: <not provided>');
+    end
+    % 类型保护，确保输入为数值型向量
+    if iscell(current_allocation)
+        current_allocation = cell2mat(current_allocation);
+    end
+    if iscell(optimal_allocation)
+        optimal_allocation = cell2mat(optimal_allocation);
+    end
+    if isobject(current_allocation)
+        error('calculateRADI:InvalidInput', 'current_allocation is an object of class %s, expected numeric vector.', class(current_allocation));
+    end
+    if isobject(optimal_allocation)
+        error('calculateRADI:InvalidInput', 'optimal_allocation is an object of class %s, expected numeric vector.', class(optimal_allocation));
+    end
+    current_allocation = double(current_allocation);
+    optimal_allocation = double(optimal_allocation);
+    % 确保向量长度一致
+    n = min(length(current_allocation), length(optimal_allocation));
+    if n == 0
+        radi = 0;
+        return;
+    end
+    current_allocation = current_allocation(1:n);
+    optimal_allocation = optimal_allocation(1:n);
+    % 标准化到[0,1]范围
+    current_allocation = current_allocation / sum(current_allocation);
+    optimal_allocation = optimal_allocation / sum(optimal_allocation);
+    % 计算加权绝对偏差
+    deviation = abs(current_allocation - optimal_allocation);
+    % 默认等权重
+    if nargin < 4 || isempty(weights)
+        weights = ones(1, n) / n;
+    else
+        weights = weights(1:n);
+        weights = weights / sum(weights);
+    end
+    radi = sum(weights .* deviation);
+    % RADI范围应该在[0, 2]之间（最坏情况是完全相反的分配）
+    radi = min(radi, 2);
 end
         
         function updateAttackerQ(obj, defender_state, action, reward)

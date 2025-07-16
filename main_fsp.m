@@ -42,7 +42,6 @@ end
 
 function config = createMultiAgentConfiguration()
     % 创建多智能体配置
-    
     config = struct();
     
     % === 基础环境参数 ===
@@ -51,8 +50,17 @@ function config = createMultiAgentConfiguration()
     config.total_resources = 100;
     config.random_seed = 42;
     
+    % === 站点价值设置 ===
+    config.station_values = [0.8, 0.6, 0.9, 0.5, 0.7, 1.0, 0.6, 0.8, 0.7, 0.95];
+    [~, config.highest_value_station] = max(config.station_values);  % 找出最高价值站点
+    
+    % === 初始策略设置 ===
+    config.initial_defense_strategy = 'random';  % 防守资源随机分配
+    config.initial_attack_strategy = 'focused';   % 攻击集中在最高价值站点
+    config.attack_focus_ratio = 0.8;              % 80%攻击资源集中在最高价值站点
+    
     % === 仿真参数 ===
-    config.n_episodes = 500;
+    config.n_episodes = 1000;  % 增加到1000轮
     config.max_steps_per_episode = 100;
     config.convergence_threshold = 0.01;
     config.performance_check_interval = 50;
@@ -97,7 +105,7 @@ function config = createMultiAgentConfiguration()
     config.output.generate_plots = true;
     config.output.save_data = true;
     config.output.results_dir = fullfile(pwd, 'results');
-    config.output.verbose = true;  % 详细输出
+    config.output.verbose = true; % 详细输出
     
     if ~exist(config.output.results_dir, 'dir')
         mkdir(config.output.results_dir);

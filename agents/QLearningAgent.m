@@ -49,9 +49,13 @@ classdef QLearningAgent < RLAgent
             state_idx = obj.encodeState(state);
             
             % 调试信息
-            if isnan(state_idx) || isinf(state_idx) || state_idx < 1 || state_idx > obj.state_dim
-                warning('QLearningAgent: Invalid state_idx = %g, state_dim = %d', state_idx, obj.state_dim);
-                state_idx = 1;
+            try
+                if isnan(state_idx) || isinf(state_idx) || state_idx < 1 || state_idx > obj.state_dim
+                    warning(ME.identifier, '%s', ME.message);
+                    state_idx = 1;
+                end
+            catch ME
+                warning(ME.identifier, '%s', ME.message);
             end
             
             % Epsilon-greedy动作选择
