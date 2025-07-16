@@ -7,8 +7,7 @@ function enhanced_main_fsp()
     addpath(genpath(pwd));
     
     % 初始化日志系统
-    log_file = fullfile(pwd, 'logs', ['simulation_' datestr(now, 'yyyymmdd_HHMMSS') '.log']);
-    logger = FSPLogger(log_file, 'INFO');
+    logger = initializeLogger();
     
     try
         logger.info('FSP-TCS多智能体仿真开始');
@@ -107,11 +106,22 @@ end
 function agents = createMultipleAgents(environment, config)
     % 创建多个智能体
     
+    state_dim = environment.state_dim;
+    action_dim = environment.action_dim;
+    
     % 创建攻击者智能体（共享）
-    agents.attacker = AgentFactory.createAttackerAgent(config, environment);
+    attacker_config = config.agents.attacker;
+    agents.attacker = createAgent('attacker', attacker_config.type, ...
+                                 attacker_config, state_dim, action_dim);
     
     % 创建多个防御者智能体
-    agents.defenders = AgentFactory.createDefenderAgents(config, environment);
+    agents.defenders = {};
+    for i = 1:config.n_defenders
+        defender_name = sprintf('defender_%s', config.defender_types{i});
+        defender_config = config.agents.defenders{i};
+        agents.defenders{i} = createAgent(defender_name, defender_config.type, ...
+                                         defender_config, state_dim, action_dim);
+    end
 end
 
 function monitors = createMultipleMonitors(config)
@@ -196,7 +206,7 @@ function episode_data = runSingleEpisode(environment, attacker, defender, initia
         
         % 记录攻击和检测结果
         episode_data.attack_success = [episode_data.attack_success; info.attack_success];
-        % episode_data.detection_success = [episode_data.detection_success; info.detection_success];
+        episode_data.detection_success = [episode_data.detection_success; info.detection_success];
         episode_data.damages = [episode_data.damages; info.damage];
         
         % 累计奖励
@@ -229,7 +239,7 @@ function displayDetailedProgress(episode, agents, monitors, config, logger)
     logger.info(sprintf('\n========== Episode %d ==========', episode));
     
     % 显示攻击者策略
-    if ismethod(agents.attacker, 'getStrategy')
+    if hasmethod(agents.attacker, 'getStrategy')
         att_strategy = agents.attacker.getStrategy();
         logger.info(sprintf('攻击者策略: [%s]', num2str(att_strategy, '%.3f ')));
     end
@@ -239,7 +249,7 @@ function displayDetailedProgress(episode, agents, monitors, config, logger)
         logger.info(sprintf('\n--- %s 防御者 ---', config.defender_types{i}));
         
         % 防御策略
-        if ismethod(agents.defenders{i}, 'getStrategy')
+        if hasmethod(agents.defenders{i}, 'getStrategy')
             def_strategy = agents.defenders{i}.getStrategy();
             logger.info(sprintf('防御策略: [%s]', num2str(def_strategy, '%.3f ')));
         end
@@ -276,6 +286,8 @@ function results = initializeMultiAgentResults(config)
     % 攻击者结果
     results.attacker = struct();
     results.attacker.strategy_history = [];
+    
+    return results;
 end
 
 function results = updateMultiAgentResults(results, episode_results, monitors, episode)
@@ -295,6 +307,8 @@ function results = updateMultiAgentResults(results, episode_results, monitors, e
         results.(name).rewards.defender = [results.(name).rewards.defender; ...
                                           monitors{i}.episode_rewards(end, 2)];
     end
+    
+    return results;
 end
 
 function results = finalizeResults(results, monitors, agents, config)
@@ -308,6 +322,8 @@ function results = finalizeResults(results, monitors, agents, config)
         results.(name).final_detection_rate = mean(monitors{i}.detection_rate_history(end-min(49,end-1):end));
         results.(name).avg_damage = mean(monitors{i}.damage_history);
     end
+    
+    return results;
 end
 
 %% 增强版可视化报告生成

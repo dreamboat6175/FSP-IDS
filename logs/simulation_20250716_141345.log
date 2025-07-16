@@ -1,0 +1,16 @@
+[2025-07-16 14:13:45] [INFO] 日志系统初始化
+[2025-07-16 14:13:45] [INFO] FSP-TCS仿真开始
+[2025-07-16 14:13:46] [INFO] Episode 50: RADI=2.726, Success Rate=0.990
+[2025-07-16 14:13:46] [INFO] Episode 100: RADI=2.653, Success Rate=0.990
+[2025-07-16 14:13:47] [INFO] Episode 150: RADI=2.585, Success Rate=1.000
+[2025-07-16 14:13:47] [INFO] Episode 200: RADI=2.608, Success Rate=0.990
+[2025-07-16 14:13:48] [INFO] Episode 250: RADI=2.729, Success Rate=1.000
+[2025-07-16 14:13:49] [INFO] Episode 300: RADI=2.667, Success Rate=1.000
+[2025-07-16 14:13:49] [INFO] Episode 350: RADI=2.750, Success Rate=0.980
+[2025-07-16 14:13:50] [INFO] Episode 400: RADI=2.275, Success Rate=0.970
+[2025-07-16 14:13:51] [INFO] Episode 450: RADI=2.780, Success Rate=0.970
+[2025-07-16 14:13:52] [INFO] Episode 500: RADI=2.820, Success Rate=0.980
+[2025-07-16 14:13:52] [INFO] 开始生成可视化报告...
+[2025-07-16 14:13:53] [ERROR] 仿真出错: 设置类 '<a href="matlab:doc matlab.graphics.chart.primitive.Bar">Bar</a>' 的属性 'FaceColor' 时出错:
+RGB 三元组无效。指定由 0 到 1 之间的值组成的三元素向量。
+[2025-07-16 14:13:53] [ERROR] 错误位置: C:/Program Files/MATLAB/R2024b/toolbox/matlab/graphics/graphics/specgraph/+matlab/+graphics/+chart/+primitive/@Bar/Bar.p

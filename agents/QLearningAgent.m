@@ -134,11 +134,50 @@ classdef QLearningAgent < RLAgent
         end
         
         function strategy = getStrategy(obj)
-            % 获取当前策略（用于可视化）
-            [~, strategy] = max(obj.Q_table, [], 2);
-            % 返回前几个状态的策略
-            strategy = strategy(1:min(10, end))';
+    % 获取当前策略分布
+    
+    % 对于防御者，返回资源分配策略
+    if contains(obj.name, 'defender')
+        % 计算每个站点的平均Q值
+        n_stations = 10;  % 或从配置获取
+        n_resources = 5;
+        strategy = zeros(1, n_stations);
+        
+        for station = 1:n_stations
+            station_q_values = [];
+            for resource = 1:n_resources
+                action_idx = (station - 1) * n_resources + resource;
+                if action_idx <= obj.action_dim
+                    avg_q = mean(obj.Q_table(:, action_idx));
+                    station_q_values(end+1) = avg_q;
+                end
+            end
+            if ~isempty(station_q_values)
+                strategy(station) = mean(station_q_values);
+            end
         end
+        
+        % 归一化
+        if sum(strategy) > 0
+            strategy = strategy / sum(strategy);
+        else
+            strategy = ones(1, n_stations) / n_stations;
+        end
+        
+    else  % 攻击者
+        % 返回攻击概率分布
+        avg_q = mean(obj.Q_table, 1);
+        if any(avg_q)
+            strategy = exp(avg_q) / sum(exp(avg_q));  % softmax
+        else
+            strategy = ones(1, obj.action_dim) / obj.action_dim;
+        end
+    end
+    
+    % 确保是行向量
+    strategy = strategy(:)';
+end
+
     end
     
     methods (Access = private)

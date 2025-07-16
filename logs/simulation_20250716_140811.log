@@ -1,0 +1,16 @@
+[2025-07-16 14:08:11] [INFO] 日志系统初始化
+[2025-07-16 14:08:11] [INFO] FSP-TCS仿真开始
+[2025-07-16 14:08:12] [INFO] Episode 50: RADI=2.633, Success Rate=0.980
+[2025-07-16 14:08:13] [INFO] Episode 100: RADI=2.769, Success Rate=0.990
+[2025-07-16 14:08:14] [INFO] Episode 150: RADI=2.717, Success Rate=1.000
+[2025-07-16 14:08:14] [INFO] Episode 200: RADI=2.769, Success Rate=0.990
+[2025-07-16 14:08:15] [INFO] Episode 250: RADI=2.676, Success Rate=0.990
+[2025-07-16 14:08:16] [INFO] Episode 300: RADI=2.691, Success Rate=1.000
+[2025-07-16 14:08:16] [INFO] Episode 350: RADI=2.686, Success Rate=0.980
+[2025-07-16 14:08:17] [INFO] Episode 400: RADI=2.676, Success Rate=0.990
+[2025-07-16 14:08:18] [INFO] Episode 450: RADI=2.664, Success Rate=1.000
+[2025-07-16 14:08:19] [INFO] Episode 500: RADI=2.627, Success Rate=1.000
+[2025-07-16 14:08:19] [INFO] 开始生成可视化报告...
+[2025-07-16 14:08:19] [ERROR] 仿真出错: <a href="matlab: opentoline('D:/CODE/FSP-IDS/visualization/EnhancedVisualization.m',619,64)">文件: EnhancedVisualization.m 行: 619 列: 64</a>
+运算符的使用无效。
+[2025-07-16 14:08:19] [ERROR] 错误位置: D:/CODE/FSP-IDS/visualization/visualize_results.m

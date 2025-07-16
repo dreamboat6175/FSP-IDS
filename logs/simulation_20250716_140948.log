@@ -1,0 +1,15 @@
+[2025-07-16 14:09:48] [INFO] 日志系统初始化
+[2025-07-16 14:09:48] [INFO] FSP-TCS仿真开始
+[2025-07-16 14:09:49] [INFO] Episode 50: RADI=2.624, Success Rate=0.980
+[2025-07-16 14:09:49] [INFO] Episode 100: RADI=2.502, Success Rate=0.990
+[2025-07-16 14:09:50] [INFO] Episode 150: RADI=2.615, Success Rate=0.990
+[2025-07-16 14:09:51] [INFO] Episode 200: RADI=2.743, Success Rate=0.960
+[2025-07-16 14:09:51] [INFO] Episode 250: RADI=2.659, Success Rate=0.980
+[2025-07-16 14:09:52] [INFO] Episode 300: RADI=2.700, Success Rate=0.960
+[2025-07-16 14:09:53] [INFO] Episode 350: RADI=2.633, Success Rate=0.970
+[2025-07-16 14:09:53] [INFO] Episode 400: RADI=2.633, Success Rate=0.960
+[2025-07-16 14:09:54] [INFO] Episode 450: RADI=2.700, Success Rate=0.980
+[2025-07-16 14:09:55] [INFO] Episode 500: RADI=2.732, Success Rate=0.990
+[2025-07-16 14:09:55] [INFO] 开始生成可视化报告...
+[2025-07-16 14:09:56] [ERROR] 仿真出错: 类 Line 的属性 Alpha 无法识别。
+[2025-07-16 14:09:56] [ERROR] 错误位置: D:/CODE/FSP-IDS/visualization/EnhancedVisualization.m

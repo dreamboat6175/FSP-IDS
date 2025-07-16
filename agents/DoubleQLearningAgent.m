@@ -4,6 +4,8 @@ classdef DoubleQLearningAgent < RLAgent
         Q1_table
         Q2_table
         visit_count
+        use_softmax
+        update_count
     end
     
     methods
@@ -12,6 +14,7 @@ classdef DoubleQLearningAgent < RLAgent
             obj.Q1_table = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
             obj.Q2_table = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
             obj.visit_count = zeros(state_dim, action_dim);
+            obj.use_softmax = false;
         end
         
         function action_vec = selectAction(obj, state_vec)
@@ -25,7 +28,7 @@ classdef DoubleQLearningAgent < RLAgent
     state_vec = reshape(state_vec, 1, []);
     
     % 获取状态索引
-    state_idx = obj.getStateIndex(mean(state_vec));
+    state_idx = obj.encodeState(mean(state_vec));
     
     % 获取组合Q值
     Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
@@ -81,7 +84,7 @@ classdef DoubleQLearningAgent < RLAgent
     
     % 记录动作
     [~, dominant_action] = max(action_vec);
-    obj.recordAction(state_idx, dominant_action);
+    % obj.recordAction(state_idx, dominant_action);
 end
         
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
@@ -104,8 +107,8 @@ end
             end
             
             % 获取状态索引
-            state_idx = obj.getStateIndex(mean(state_vec));
-            next_state_idx = obj.getStateIndex(mean(next_state_vec));
+            state_idx = obj.encodeState(mean(state_vec));
+            next_state_idx = obj.encodeState(mean(next_state_vec));
             
             % 将站点级动作转换为Q表索引
             n_stations = length(action_vec);
@@ -154,7 +157,7 @@ end
             end
             obj.visit_count(state_idx, q_action_idx) = obj.visit_count(state_idx, q_action_idx) + 1;
             
-            obj.recordReward(reward);
+            % obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
         end
         
@@ -195,5 +198,56 @@ end
     exp_x = exp(x - max(x));  % 数值稳定性
     prob = exp_x / sum(exp_x);
 end
+
+    function state_idx = encodeState(obj, state)
+        if isempty(state) || ~isnumeric(state)
+            state_idx = 1;
+            return;
+        end
+        state = double(state(:));
+        state(isnan(state)) = 0;
+        state(isinf(state)) = 0;
+        state_idx = mod(sum(state .* (1:numel(state))), obj.state_dim) + 1;
+        state_idx = max(1, min(obj.state_dim, round(state_idx)));
+    end
+
+    function strategy = getStrategy(obj)
+        % Double Q-Learning的策略提取
+        if contains(obj.name, 'defender')
+            n_stations = 10;
+            n_resources = 5;
+            strategy = zeros(1, n_stations);
+            % 使用两个Q表的平均
+            Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
+            for station = 1:n_stations
+                station_values = [];
+                for resource = 1:n_resources
+                    action_idx = (station - 1) * n_resources + resource;
+                    if action_idx <= obj.action_dim
+                        avg_q = mean(Q_combined(:, action_idx));
+                        station_values(end+1) = avg_q;
+                    end
+                end
+                if ~isempty(station_values)
+                    strategy(station) = mean(station_values);
+                end
+            end
+            if sum(strategy) > 0
+                strategy = strategy / sum(strategy);
+            else
+                strategy = ones(1, n_stations) / n_stations;
+            end
+        else
+            Q_combined = (obj.Q1_table + obj.Q2_table) / 2;
+            avg_q = mean(Q_combined, 1);
+            if any(avg_q)
+                % Double Q-Learning使用更保守的温度
+                strategy = exp(avg_q * 0.8) / sum(exp(avg_q * 0.8));
+            else
+                strategy = ones(1, obj.action_dim) / obj.action_dim;
+            end
+        end
+        strategy = strategy(:)';
+    end
     end
 end

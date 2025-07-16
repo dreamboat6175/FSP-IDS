@@ -3,6 +3,8 @@ classdef SARSAAgent < RLAgent
     properties
         Q_table
         visit_count
+        use_softmax
+        update_count
     end
     
     methods
@@ -31,7 +33,7 @@ classdef SARSAAgent < RLAgent
     state_vec = reshape(state_vec, 1, []);
     
     % 获取状态索引
-    state_idx = obj.getStateIndex(mean(state_vec));
+    state_idx = obj.encodeState(mean(state_vec));
     
     % 获取Q值
     q_values = obj.Q_table(state_idx, :);
@@ -82,7 +84,7 @@ classdef SARSAAgent < RLAgent
     
     % 记录动作
     [~, dominant_action] = max(action_vec);
-    obj.recordAction(state_idx, dominant_action);
+    % obj.recordAction(state_idx, dominant_action);
 end
 
 
@@ -106,8 +108,8 @@ end
             end
             
             % 获取状态索引
-            state_idx = obj.getStateIndex(mean(state_vec));
-            next_state_idx = obj.getStateIndex(mean(next_state_vec));
+            state_idx = obj.encodeState(mean(state_vec));
+            next_state_idx = obj.encodeState(mean(next_state_vec));
             
             % 将站点级动作转换为Q表索引
             % action_vec包含每个站点的资源类型选择 (1-5)
@@ -147,7 +149,7 @@ end
             obj.Q_table(state_idx, q_action_idx) = current_q + obj.learning_rate * td_error;
             obj.visit_count(state_idx, q_action_idx) = obj.visit_count(state_idx, q_action_idx) + 1;
             
-            obj.recordReward(reward);
+            % obj.recordReward(reward);
             obj.update_count = obj.update_count + 1;
         end
         
@@ -189,5 +191,67 @@ end
     exp_x = exp(x - max(x));  % 数值稳定性
     prob = exp_x / sum(exp_x);
 end
+
+        function strategy = getStrategy(obj)
+            % SARSA的策略提取
+            if contains(obj.name, 'defender')
+                n_stations = 10;
+                n_resources = 5;
+                strategy = zeros(1, n_stations);
+                for station = 1:n_stations
+                    station_values = [];
+                    for resource = 1:n_resources
+                        action_idx = (station - 1) * n_resources + resource;
+                        if action_idx <= obj.action_dim
+                            % SARSA使用当前策略的Q值
+                            avg_q = mean(obj.Q_table(:, action_idx));
+                            station_values(end+1) = avg_q;
+                        end
+                    end
+                    if ~isempty(station_values)
+                        strategy(station) = mean(station_values);
+                    end
+                end
+                if sum(strategy) > 0
+                    strategy = strategy / sum(strategy);
+                else
+                    strategy = ones(1, n_stations) / n_stations;
+                end
+            else
+                avg_q = mean(obj.Q_table, 1);
+                if any(avg_q)
+                    strategy = exp(avg_q * 1.5) / sum(exp(avg_q * 1.5));  % 更高温度
+                else
+                    strategy = ones(1, obj.action_dim) / obj.action_dim;
+                end
+            end
+            strategy = strategy(:)';
+        end
+
+        function action_vec = convertToStationActions(obj, q_values, n_stations)
+            % 将Q值向量转换为每个站点的资源类型动作
+            n_resource_types = obj.action_dim / n_stations;
+            action_vec = zeros(1, n_stations);
+            for s = 1:n_stations
+                idx_start = (s-1)*n_resource_types + 1;
+                idx_end = s*n_resource_types;
+                [~, best_resource] = max(q_values(idx_start:idx_end));
+                action_vec(s) = best_resource;
+            end
+        end
+
+        function state_idx = encodeState(obj, state)
+            % 将状态向量编码为索引（与QLearningAgent一致）
+            if isempty(state) || ~isnumeric(state)
+                state_idx = 1;
+                return;
+            end
+            state = double(state(:));
+            state(isnan(state)) = 0;
+            state(isinf(state)) = 0;
+            % 简单哈希
+            state_idx = mod(sum(state .* (1:numel(state))), obj.state_dim) + 1;
+            state_idx = max(1, min(obj.state_dim, round(state_idx))); % 保证索引有效
+        end
     end
 end
