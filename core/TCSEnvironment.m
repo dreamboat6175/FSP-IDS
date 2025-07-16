@@ -489,7 +489,7 @@ end
     
     % 修正：更新防御者策略
     obj.defender_strategy = deployment / obj.total_resources;
-        end
+end
         
         function updateHistory(obj, attack_success, damage, attacker_target, defender_deployment)
             % 更新历史记录
@@ -594,38 +594,25 @@ end
         end
         
         function state = generateState(obj)
-            % 生成状态向量
+            % 生成简化的状态向量
             state = zeros(1, obj.state_dim);
             
-            % 当前防御部署
-            idx = 1;
+            % 使用当前防御部署的前几个元素作为状态
             if ~isempty(obj.defense_history)
                 current_deployment = obj.defense_history(end, :) / obj.total_resources;
-                state(idx:idx+obj.n_stations-1) = current_deployment;
             else
-                state(idx:idx+obj.n_stations-1) = obj.defender_strategy;
+                current_deployment = obj.defender_strategy;
             end
-            idx = idx + obj.n_stations;
             
-            % 攻击者平均策略
-            state(idx:idx+obj.n_stations-1) = obj.attacker_avg_strategy;
-            idx = idx + obj.n_stations;
-            
-            % 站点价值
-            state(idx:idx+obj.n_stations-1) = obj.station_values;
-            idx = idx + obj.n_stations;
-            
-            % 最近的成功率
-            if length(obj.attack_success_rate_history) > 10
-                state(idx) = mean(obj.attack_success_rate_history(end-9:end));
-            else
-                state(idx) = 0.5;
-            end
+            % 只使用前几个元素，避免状态空间过大
+            n_elements = min(length(current_deployment), obj.state_dim);
+            state(1:n_elements) = current_deployment(1:n_elements);
         end
         
         function calculateSpaceDimensions(obj)
             % 计算状态和动作空间维度
-            obj.state_dim = obj.n_stations * 3 + 1;  % 防御部署 + 攻击策略 + 站点价值 + 成功率
+            % 简化状态表示：只使用站点数量作为状态维度
+            obj.state_dim = min(50, obj.n_stations * 2);  % 限制最大状态数为50
             obj.action_dim = obj.n_stations;
         end
         
