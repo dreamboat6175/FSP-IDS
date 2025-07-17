@@ -190,10 +190,16 @@ function episode_data = runSingleEpisode(environment, attacker, defender, initia
     for step = 1:config.max_steps_per_episode
         % 智能体选择动作
         attacker_action = attacker.selectAction(state);
-        defender_action = defender.selectAction(state);
+        defender_action_raw = defender.selectAction(state);
+        
+        % 保证传给环境的是向量
+        defender_action = defender_action_raw;
+        if isscalar(defender_action_raw)
+            defender_action = environment.parseDefenderAction(defender_action_raw);
+        end
         
         % 环境执行动作
-        [next_state, reward_def, reward_att, info] = environment.step(attacker_action, defender_action);
+        [next_state, reward_def, reward_att, info] = environment.step(defender_action, attacker_action);
         
         % 记录数据
         episode_data.states = [episode_data.states; state];
@@ -213,7 +219,7 @@ function episode_data = runSingleEpisode(environment, attacker, defender, initia
         
         % 智能体学习
         attacker.update(state, attacker_action, reward_att, next_state, []);
-        defender.update(state, defender_action, reward_def, next_state, []);
+        defender.update(state, defender_action_raw, reward_def, next_state, []);
         
         % 状态转移
         state = next_state;

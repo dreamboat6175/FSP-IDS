@@ -75,16 +75,40 @@ classdef PerformanceMonitor < handle
         end
         
         function radi = calculateRADI(obj, resource_allocation)
-            optimal = obj.config.radi.optimal_allocation;
-            weights = [obj.config.radi.weight_computation, obj.config.radi.weight_bandwidth, obj.config.radi.weight_sensors, obj.config.radi.weight_scanning, obj.config.radi.weight_inspection];
-            % === 修正：自动对齐向量长度 ===
-            len = min([length(resource_allocation), length(optimal), length(weights)]);
-            resource_allocation = resource_allocation(1:len);
-            optimal = optimal(1:len);
-            weights = weights(1:len);
-            deviation = abs(resource_allocation - optimal);
-            radi = sum(weights .* deviation);
-        end
+    % 计算RADI指标
+    % 输入:
+    %   resource_allocation - 资源分配向量
+    % 输出:
+    %   radi - RADI指标值
+    
+    optimal = obj.config.radi.optimal_allocation;
+    weights = [
+        obj.config.radi.weight_computation, 
+        obj.config.radi.weight_bandwidth, 
+        obj.config.radi.weight_sensors, 
+        obj.config.radi.weight_scanning, 
+        obj.config.radi.weight_inspection
+    ];
+    
+    % 自动对齐向量长度
+    len = min([length(resource_allocation), length(optimal), length(weights)]);
+    resource_allocation = resource_allocation(1:len);
+    optimal = optimal(1:len);
+    weights = weights(1:len);
+    
+    % 标准化权重
+    if sum(weights) > 0
+        weights = weights / sum(weights);
+    else
+        weights = ones(1, len) / len;
+    end
+    
+    % 计算偏差
+    deviation = abs(resource_allocation - optimal);
+    
+    % 计算RADI
+    radi = sum(weights .* deviation);
+end
         
         function performance_level = evaluateCurrentPerformance(obj, metrics, radi)
             if radi <= obj.config.radi.threshold_excellent

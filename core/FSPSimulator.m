@@ -332,14 +332,42 @@ end
 
 %% RADI相关计算函数
 function radi = calculateRADI(current_allocation, optimal_allocation, radi_config)
-    weights = [
-        radi_config.weight_computation,
-        radi_config.weight_bandwidth,
-        radi_config.weight_sensors,
-        radi_config.weight_scanning,
-        radi_config.weight_inspection
-    ];
+    % 计算RADI指标（独立函数版本）
+    % 输入:
+    %   current_allocation - 当前资源分配向量
+    %   optimal_allocation - 最优资源分配向量
+    %   radi_config - RADI配置结构体
+    % 输出:
+    %   radi - RADI指标值
+    
+    % 验证输入
+    if nargin < 3
+        error('calculateRADI:InsufficientArgs', '需要3个输入参数');
+    end
+    
+    % 提取权重
+    if isstruct(radi_config)
+        weights = [
+            radi_config.weight_computation,
+            radi_config.weight_bandwidth,
+            radi_config.weight_sensors,
+            radi_config.weight_scanning,
+            radi_config.weight_inspection
+        ];
+    else
+        error('calculateRADI:InvalidConfig', 'radi_config必须是结构体');
+    end
+    
+    % 确保向量长度一致
+    n = min([length(current_allocation), length(optimal_allocation), length(weights)]);
+    current_allocation = current_allocation(1:n);
+    optimal_allocation = optimal_allocation(1:n);
+    weights = weights(1:n);
+    
+    % 计算偏差
     deviation = abs(current_allocation - optimal_allocation);
+    
+    % 计算加权RADI
     radi = sum(weights .* deviation);
 end
 function efficiency = calculateResourceEfficiency(allocation, info)

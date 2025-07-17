@@ -1,0 +1,5 @@
+[2025-07-17 00:08:21] [INFO] 日志系统初始化
+[2025-07-17 00:08:21] [INFO] FSP-TCS多智能体仿真开始
+[2025-07-17 00:08:21] [ERROR] 仿真出错: 错误: <a href="matlab: opentoline('D:\CODE\FSP-IDS\core\TCSEnvironment.m',348,7)">文件: TCSEnvironment.m 行: 348 列: 7</a>
+'calculateRADI' 已在 'TCSEnvironment' 类中定义为方法。
+[2025-07-17 00:08:21] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_fsp.m
