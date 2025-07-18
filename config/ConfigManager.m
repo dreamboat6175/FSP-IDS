@@ -26,7 +26,7 @@ classdef ConfigManager
                     config = jsondecode(config_text);
                     fprintf('✓ 配置文件加载成功: %s\n', filename);
                 catch ME
-                    warning('配置文件解析失败: %s', ME.message);
+                    warning(ME.identifier, '%s', ME.message);
                     config = ConfigManager.getDefaultConfig();
                 end
             else
@@ -69,7 +69,9 @@ classdef ConfigManager
             config.temperature_decay = 0.995;
             
             % === 4. 算法配置 ===
-            config.algorithms = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
+            config.algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
+            % 为了兼容性，同时提供 defender_types 字段
+            config.defender_types = config.algorithms;
             
             % === 5. 攻击系统配置 ===
             config.attack_types = {'wireless_spoofing', 'dos_attack', 'semantic_attack', ...
@@ -174,6 +176,14 @@ classdef ConfigManager
             config.compatibility = struct();
             config.compatibility.matlab_version = version('-release');
             config.compatibility.toolbox_required = {'Statistics and Machine Learning Toolbox'};
+            
+            % === 18. 智能体配置 ===
+            config.agents = struct();
+            config.agents.defenders = cell(1, numel(config.defender_types));
+            for i = 1:numel(config.defender_types)
+                config.agents.defenders{i} = struct();
+            end
+            config.agents.attacker = struct();
         end
         
         function config = getOptimizedConfig()
@@ -225,7 +235,7 @@ classdef ConfigManager
             config.epsilon_decay = 0.99;
             
             % 简化配置
-            config.algorithms = {'Q-Learning'};
+            config.algorithms = {'QLearning'};
             config.debug.mode = true;
             config.performance.display_interval = 10;
         end

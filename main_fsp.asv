@@ -5,12 +5,13 @@
 % =========================================================================
 
 function main_fsp()
+    % FSP-TCS主程序入口
     
     clc; clear; close all;
     
     % 添加所有子目录到路径
     addpath(genpath(pwd));
-
+    
     try
         %% === 1. 系统初始化 ===
         fprintf('\n=== FSP-TCS 智能防御系统仿真 v2.1 ===\n');
