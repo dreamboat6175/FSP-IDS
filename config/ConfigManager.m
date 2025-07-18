@@ -44,7 +44,7 @@ classdef ConfigManager
         end
         
         function config = getDefaultConfig()
-            % 获取完整的默认配置 - 集中所有初始化参数
+            % 获取完整的默认配置 - 确保所有智能体参数都被正确设置
             
             % === 1. 基础系统参数 ===
             config.n_stations = 5;
@@ -57,9 +57,9 @@ classdef ConfigManager
             config.n_episodes_per_iter = 100;
             config.pool_size_limit = 50;
             config.pool_update_interval = 10;
-            config.alpha_ewma = 0.1;  % 策略平均更新参数
+            config.alpha_ewma = 0.1;
             
-            % === 3. 强化学习参数 ===
+            % === 3. 强化学习参数（主要配置） ===
             config.learning_rate = 0.15;
             config.discount_factor = 0.95;
             config.epsilon = 0.4;
@@ -70,7 +70,6 @@ classdef ConfigManager
             
             % === 4. 算法配置 ===
             config.algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
-            % 为了兼容性，同时提供 defender_types 字段
             config.defender_types = config.algorithms;
             
             % === 5. 攻击系统配置 ===
@@ -90,18 +89,9 @@ classdef ConfigManager
             config.detection_sensitivity = 0.8;
             config.false_positive_rate = 0.1;
             
-            % === 8. 环境内部Q-Learning参数（用于baseline） ===
-            config.env_internal = struct();
-            config.env_internal.attacker_lr = 0.1;
-            config.env_internal.attacker_gamma = 0.95;
-            config.env_internal.attacker_epsilon = 0.3;
-            config.env_internal.attacker_epsilon_decay = 0.995;
-            config.env_internal.attacker_epsilon_min = 0.01;
-            config.env_internal.max_defense_states = 1000;
-            
-            % === 9. RADI评估体系配置 ===
+            % === 8. RADI评估体系配置 ===
             config.radi = struct();
-            config.radi.optimal_allocation = [0.2, 0.2, 0.2, 0.2, 0.2];
+            config.radi.optimal_allocation = ones(1, config.n_stations) / config.n_stations;
             config.radi.weight_computation = 0.3;
             config.radi.weight_bandwidth = 0.2;
             config.radi.weight_sensors = 0.2;
@@ -111,7 +101,7 @@ classdef ConfigManager
             config.radi.threshold_good = 0.2;
             config.radi.threshold_acceptable = 0.3;
             
-            % === 10. 奖励函数配置 ===
+            % === 9. 奖励函数配置 ===
             config.reward = struct();
             config.reward.w_radi = 0.4;
             config.reward.w_efficiency = 0.3;
@@ -124,67 +114,143 @@ classdef ConfigManager
             config.reward.false_positive = -3;
             config.reward.false_negative = -150;
             
-            % === 11. 性能监控配置 ===
+            % === 10. 性能监控配置 ===
             config.performance = struct();
             config.performance.display_interval = 50;
             config.performance.save_interval = 100;
             config.performance.param_update_interval = 50;
             config.performance.convergence_threshold = 0.01;
-            config.performance.performance_check_interval = 25;
             
-            % === 12. 训练目标配置 ===
-            config.training = struct();
-            config.training.performance_target_radi = 0.15;
-            config.training.target_success_rate = 0.85;
-            config.training.target_efficiency = 0.8;
-            config.training.early_stopping_patience = 100;
-            
-            % === 13. 输出和存储配置 ===
+            % === 11. 输出配置 ===
             config.output = struct();
             config.output.visualization = true;
             config.output.generate_report = true;
-            config.output.save_models = true;
-            config.output.save_checkpoints = true;
+            config.output.save_models = false;
+            config.output.save_checkpoints = false;
             config.output.checkpoint_interval = 500;
-            
-            % 生成时间戳用于文件命名
-            timestamp = datestr(now, 'yyyymmdd_HHMMSS');
-            config.output.log_file = sprintf('logs/simulation_%s.log', timestamp);
             config.output.results_dir = 'results';
             config.output.report_dir = 'reports';
-            config.output.models_dir = 'models';
-            config.output.checkpoints_dir = 'checkpoints';
             
-            % === 14. 计算配置 ===
-            config.computation = struct();
-            config.computation.use_parallel = false;
-            config.computation.num_workers = 4;
-            config.computation.memory_limit_mb = 1000;
-            config.computation.use_gpu = false;
+            % 时间戳
+            timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+            config.output.log_file = sprintf('logs/simulation_%s.log', timestamp);
             
-            % === 15. 调试和测试配置 ===
-            config.debug = struct();
-            config.debug.mode = false;
-            config.debug.verbose = true;
-            config.debug.save_intermediate = false;
-            config.debug.plot_interval = 100;
-            
-            % === 16. 随机性控制 ===
+            % === 12. 随机种子 ===
             config.random_seed = 42;
             
-            % === 17. 兼容性设置 ===
-            config.compatibility = struct();
-            config.compatibility.matlab_version = version('-release');
-            config.compatibility.toolbox_required = {'Statistics and Machine Learning Toolbox'};
-            
-            % === 18. 智能体配置 ===
+            % ===== 关键修复：智能体配置 =====
+            % 确保每个智能体都能获得完整的配置参数
             config.agents = struct();
-            config.agents.defenders = cell(1, numel(config.defender_types));
-            for i = 1:numel(config.defender_types)
+            
+            % 防御者智能体配置
+            config.agents.defenders = cell(1, length(config.algorithms));
+            for i = 1:length(config.algorithms)
                 config.agents.defenders{i} = struct();
+                config.agents.defenders{i}.learning_rate = config.learning_rate;
+                config.agents.defenders{i}.discount_factor = config.discount_factor;
+                config.agents.defenders{i}.epsilon = config.epsilon;
+                config.agents.defenders{i}.epsilon_decay = config.epsilon_decay;
+                config.agents.defenders{i}.epsilon_min = config.epsilon_min;
+                config.agents.defenders{i}.temperature = config.temperature;
+                config.agents.defenders{i}.temperature_decay = config.temperature_decay;
+                config.agents.defenders{i}.n_stations = config.n_stations;
+                config.agents.defenders{i}.total_resources = config.total_resources;
             end
+            
+            % 攻击者智能体配置
             config.agents.attacker = struct();
+            config.agents.attacker.learning_rate = config.learning_rate;
+            config.agents.attacker.discount_factor = config.discount_factor;
+            config.agents.attacker.epsilon = config.epsilon;
+            config.agents.attacker.epsilon_decay = config.epsilon_decay;
+            config.agents.attacker.epsilon_min = config.epsilon_min;
+            config.agents.attacker.temperature = config.temperature;
+            config.agents.attacker.temperature_decay = config.temperature_decay;
+            config.agents.attacker.n_stations = config.n_stations;
+            
+            % === 13. 确保所有基于n_stations的配置都正确 ===
+            config = ensureStationConsistency(config);
         end
+        
+        % === 添加新的辅助函数：确保站点相关配置的一致性 ===
+        function config = ensureStationConsistency(config)
+            % 确保所有基于n_stations的配置都是一致的
+            
+            n_stations = config.n_stations;
+            
+            % 调整组件数量向量
+            if length(config.n_components_per_station) ~= n_stations
+                if length(config.n_components_per_station) < n_stations
+                    % 扩展：重复最后一个值
+                    last_val = config.n_components_per_station(end);
+                    config.n_components_per_station = [config.n_components_per_station, ...
+                                                      repmat(last_val, 1, n_stations - length(config.n_components_per_station))];
+                else
+                    % 截断
+                    config.n_components_per_station = config.n_components_per_station(1:n_stations);
+                end
+                config.total_components = sum(config.n_components_per_station);
+            end
+            
+            % 调整攻击检测难度
+            if length(config.attack_detection_difficulty) ~= length(config.attack_types)
+                config.attack_detection_difficulty = ConfigManager.adjustArrayLength(config.attack_detection_difficulty, length(config.attack_types), 0.5);
+            end
+            
+            % 调整攻击严重程度
+            if length(config.attack_severity) ~= length(config.attack_types)
+                config.attack_severity = ConfigManager.adjustArrayLength(config.attack_severity, length(config.attack_types), 0.5);
+            end
+            
+            % 调整资源效果
+            if length(config.resource_effectiveness) ~= length(config.resource_types)
+                config.resource_effectiveness = ConfigManager.adjustArrayLength(config.resource_effectiveness, length(config.resource_types), 0.7);
+            end
+            
+
+            function adjusted_array = adjustArrayLength(array, target_length, default_value)
+                % 调整数组长度到目标长度
+                if length(array) < target_length
+                    % 扩展数组
+                    adjusted_array = [array, repmat(default_value, 1, target_length - length(array))];
+                elseif length(array) > target_length
+                    % 截断数组
+                    adjusted_array = array(1:target_length);
+                else
+                    adjusted_array = array;
+                end
+            end    
+
+            % 调整RADI最优分配
+            config.radi.optimal_allocation = ones(1, n_stations) / n_stations;
+            
+            % 更新所有智能体配置中的n_stations
+            if isfield(config, 'agents')
+                if isfield(config.agents, 'defenders')
+                    for i = 1:length(config.agents.defenders)
+                        config.agents.defenders{i}.n_stations = n_stations;
+                    end
+                end
+                if isfield(config.agents, 'attacker')
+                    config.agents.attacker.n_stations = n_stations;
+                end
+            end
+            
+            fprintf('[ConfigManager] 已调整配置以匹配 %d 个站点\n', n_stations);
+        end
+        
+        function adjusted_array = adjustArrayLength(array, target_length, default_value)
+            % 调整数组长度到目标长度
+            if length(array) < target_length
+                % 扩展数组
+                adjusted_array = [array, repmat(default_value, 1, target_length - length(array))];
+            elseif length(array) > target_length
+                % 截断数组
+                adjusted_array = array(1:target_length);
+            else
+                adjusted_array = array;
+            end
+        end    
         
         function config = getOptimizedConfig()
             % 获取性能优化的配置
@@ -312,20 +378,6 @@ classdef ConfigManager
             end
             if length(config.radi.optimal_allocation) ~= n_resource_types
                 config.radi.optimal_allocation = ones(1, n_resource_types) / n_resource_types;
-            end
-        end
-        
-        function adjusted_array = adjustArrayLength(array, target_length, default_value)
-            % 调整数组长度到目标长度
-            
-            if length(array) < target_length
-                % 扩展数组
-                adjusted_array = [array, repmat(default_value, 1, target_length - length(array))];
-            elseif length(array) > target_length
-                % 截断数组
-                adjusted_array = array(1:target_length);
-            else
-                adjusted_array = array;
             end
         end
         

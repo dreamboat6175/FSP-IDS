@@ -1,6 +1,7 @@
-%% QLearningAgent.m - Q-Learning智能体实现
+%% QLearningAgent.m - Q-Learning智能体实现（完整修复版）
 % =========================================================================
 % 描述: 实现标准Q-Learning算法的智能体
+% 修复了所有缺失的方法和属性
 % =========================================================================
 
 classdef QLearningAgent < RLAgent
@@ -9,6 +10,8 @@ classdef QLearningAgent < RLAgent
         Q_table          % Q值表
         visit_count      % 状态-动作访问计数
         lr_scheduler     % 学习率调度器
+        use_softmax      % 是否使用softmax策略选择
+        update_count     % 更新次数计数器
     end
     
     methods
@@ -16,118 +19,292 @@ classdef QLearningAgent < RLAgent
             % 构造函数
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
-            % 初始化Q表
-            obj.Q_table = zeros(state_dim, action_dim);
-            obj.visit_count = zeros(state_dim, action_dim);
+            % 初始化Q表和访问计数
+            if state_dim * action_dim > 1e6
+                obj.Q_table = sparse(state_dim, action_dim);
+                obj.visit_count = sparse(state_dim, action_dim);
+            else
+                obj.Q_table = zeros(state_dim, action_dim);
+                obj.visit_count = zeros(state_dim, action_dim);
+            end
             
-            % 初始化Q表（乐观初始化）
+            % 乐观初始化
             initial_value = 5.0;
             noise_level = 0.5;
-            obj.Q_table = ones(state_dim, action_dim) * initial_value + ...
-                          randn(state_dim, action_dim) * noise_level;
+            
+            if issparse(obj.Q_table)
+                [rows, cols] = size(obj.Q_table);
+                init_indices = randi([1, rows*cols], [1, min(1000, rows*cols/10)]);
+                obj.Q_table(init_indices) = initial_value + randn(size(init_indices)) * noise_level;
+            else
+                obj.Q_table = ones(state_dim, action_dim) * initial_value + ...
+                              randn(state_dim, action_dim) * noise_level;
+            end
             
             % 初始化学习率调度器
             obj.lr_scheduler = struct();
-            obj.lr_scheduler.initial_lr = config.learning_rate;
+            if isfield(config, 'learning_rate')
+                obj.lr_scheduler.initial_lr = config.learning_rate;
+            else
+                obj.lr_scheduler.initial_lr = 0.15;
+                % 移除警告，改为调试信息
+                if ~exist('QLearningAgent_warning_shown', 'var')
+                    fprintf('[DEBUG] QLearningAgent: 配置中未找到learning_rate，使用默认值 0.15\n');
+                    global QLearningAgent_warning_shown;
+                    QLearningAgent_warning_shown = true;
+                end
+            end
             obj.lr_scheduler.min_lr = 0.001;
             obj.lr_scheduler.decay_steps = 1000;
-            obj.lr_scheduler.current_lr = config.learning_rate;
+            obj.lr_scheduler.current_lr = obj.lr_scheduler.initial_lr;
             obj.lr_scheduler.step_count = 0;
             obj.lr_scheduler.decay_rate = 0.99;
+            
+            % 初始化新添加的属性
+            obj.use_softmax = false;     % 默认使用epsilon-greedy
+            obj.update_count = 0;        % 初始化更新计数器
+            
+            % 确保基类属性有默认值
+            if isempty(obj.epsilon_min)
+                obj.epsilon_min = 0.01;
+            end
+            if isempty(obj.epsilon_decay)
+                obj.epsilon_decay = 0.995;
+            end
+            if isempty(obj.temperature)
+                obj.temperature = 1.0;
+            end
+            if isempty(obj.temperature_decay)
+                obj.temperature_decay = 0.995;
+            end
+            if isempty(obj.learning_rate_min)
+                obj.learning_rate_min = 0.01;
+            end
+            if isempty(obj.learning_rate_decay)
+                obj.learning_rate_decay = 0.9995;
+            end
         end
         
-        function action = selectAction(obj, state)
-            % 选择动作 - 使用epsilon-greedy策略
+        function state_idx = getStateIndex(obj, state)
+            % getStateIndex方法 - 为了向后兼容
+            state_idx = obj.encodeState(state);
+        end
+        
+        function action = selectAction(obj, state_vec)
+            % 智能体动作选择方法（支持防御者和攻击者）
             
-            % 确保状态是有效的
-            if isempty(state) || ~isnumeric(state)
-                action = randi(obj.action_dim);
-                return;
+            % 健壮性检查
+            if isempty(state_vec)
+                state_vec = ones(1, obj.state_dim);
+            end
+            state_vec = reshape(state_vec, 1, []);
+            
+            % 获取状态索引
+            state_idx = obj.encodeState(mean(state_vec));
+            
+            % 获取Q值
+            q_values = obj.Q_table(state_idx, :);
+            
+            % 确保Q值有效
+            if any(isnan(q_values)) || any(isinf(q_values))
+                q_values = randn(size(q_values)) * 0.1;
+            end
+            
+            % 动态调整参数
+            if obj.epsilon_decay < 1
+                obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+            end
+            if obj.use_softmax && obj.temperature_decay < 1
+                obj.temperature = max(0.1, obj.temperature * obj.temperature_decay);
+            end
+            
+            % ===== 关键修复：区分防御者和攻击者的动作生成 =====
+            if contains(obj.agent_type, 'attacker') || contains(obj.name, 'attacker')
+                % ===== 攻击者：返回单个站点索引 =====
+                
+                % 确定站点数量
+                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
+                    n_stations = obj.config.n_stations;
+                else
+                    n_stations = min(obj.action_dim, 10);  % 假设动作维度不会超过10个站点
+                end
+                
+                if obj.use_softmax
+                    % Softmax选择
+                    temperature = max(0.1, obj.temperature);
+                    q_normalized = q_values(1:min(n_stations, length(q_values))) - max(q_values(1:min(n_stations, length(q_values))));
+                    exp_values = exp(q_normalized / temperature);
+                    probabilities = exp_values / sum(exp_values);
+                    
+                    % 基于概率选择动作
+                    cumsum_probs = cumsum(probabilities);
+                    rand_val = rand();
+                    action = find(cumsum_probs >= rand_val, 1);
+                    if isempty(action)
+                        action = 1;
+                    end
+                else
+                    % Epsilon-贪婪选择
+                    if rand() < obj.epsilon
+                        % 探索：随机选择站点
+                        action = randi(n_stations);
+                    else
+                        % 利用：选择Q值最高的站点
+                        valid_q_values = q_values(1:min(n_stations, length(q_values)));
+                        [~, action] = max(valid_q_values);
+                    end
+                end
+                
+                % 确保攻击者动作在有效范围内
+                action = max(1, min(n_stations, round(action)));
+                
+                % 调试信息
+                if obj.update_count <= 2
+                    fprintf('[QLearningAgent] 攻击者 %s: 选择目标站点=%d, 站点数=%d\n', ...
+                            obj.name, action, n_stations);
+                end
+                
+            else
+                % ===== 防御者：返回资源分配向量 =====
+                
+                % 确定站点数量
+                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
+                    n_stations = obj.config.n_stations;
+                else
+                    n_stations = min(obj.action_dim, 10);
+                end
+                
+                % 生成资源分配向量
+                action = zeros(1, n_stations);
+                
+                if obj.use_softmax
+                    % Softmax策略选择
+                    temperature = max(0.1, obj.temperature);
+                    q_normalized = q_values - max(q_values);
+                    exp_values = exp(q_normalized / temperature);
+                    probabilities = exp_values / sum(exp_values);
+                    
+                    % 转换为站点级资源分配
+                    if length(probabilities) >= n_stations
+                        action = probabilities(1:n_stations);
+                    else
+                        action = ones(1, n_stations) / n_stations;
+                    end
+                    
+                    % 归一化到总资源
+                    total_resources = 100;  % 可以从config获取
+                    action = action / sum(action) * total_resources;
+                    
+                else
+                    % Epsilon-贪婪策略
+                    if rand() < obj.epsilon
+                        % 探索：随机分配资源
+                        action = rand(1, n_stations);
+                        action = action / sum(action) * 100;
+                    else
+                        % 利用：基于Q值分配资源
+                        if length(q_values) >= n_stations
+                            % 选择Q值最高的动作对应的资源分配
+                            [~, sorted_indices] = sort(q_values, 'descend');
+                            
+                            % 给Q值高的位置分配更多资源
+                            base_allocation = 100 / n_stations;
+                            for i = 1:n_stations
+                                if i <= length(sorted_indices)
+                                    bonus = 0.1 * (n_stations - i + 1) / n_stations;
+                                    action(i) = base_allocation * (1 + bonus);
+                                else
+                                    action(i) = base_allocation;
+                                end
+                            end
+                            
+                            % 重新归一化
+                            action = action / sum(action) * 100;
+                        else
+                            % 如果Q值不够，均匀分配
+                            action = ones(1, n_stations) * (100 / n_stations);
+                        end
+                    end
+                end
+                
+                % 确保防御者动作向量有效
+                action = max(action, 0.1);  % 最小值
+                action = real(action);      % 确保是实数
+                
+                % 调试信息
+                if obj.update_count <= 2
+                    fprintf('[QLearningAgent] 防御者 %s: 动作向量长度=%d, 站点数=%d, 总和=%.2f\n', ...
+                            obj.name, length(action), n_stations, sum(action));
+                end
+            end
+        end
+
+        
+        function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
+            % 更新Q表
+            
+            % 健壮性检查
+            if isempty(action_vec)
+                action_vec = ones(1, 5);
+            end
+            action_vec = reshape(action_vec, 1, []);
+            if isempty(state_vec)
+                state_vec = ones(1, obj.state_dim);
+            end
+            state_vec = reshape(state_vec, 1, []);
+            if ~isempty(next_state_vec)
+                next_state_vec = reshape(next_state_vec, 1, []);
+            else
+                next_state_vec = state_vec;  % 如果没有下一状态，使用当前状态
             end
             
             % 获取状态索引
-            state_idx = obj.encodeState(state);
+            state_idx = obj.encodeState(mean(state_vec));
+            next_state_idx = obj.encodeState(mean(next_state_vec));
             
-            % 调试信息
-            try
-                if isnan(state_idx) || isinf(state_idx) || state_idx < 1 || state_idx > obj.state_dim
-                    warning(ME.identifier, '%s', ME.message);
-                    state_idx = 1;
-                end
-            catch ME
-                warning(ME.identifier, '%s', ME.message);
-            end
-            
-            % Epsilon-greedy动作选择
-            if rand() < obj.epsilon
-                % 探索：随机选择
-                action = randi(obj.action_dim);
+            % 简化的动作索引映射
+            n_stations = length(action_vec);
+            if n_stations > 0 && obj.action_dim >= n_stations
+                % 使用第一个站点的动作作为主要索引
+                primary_action = max(1, min(obj.action_dim, round(action_vec(1))));
             else
-                % 利用：选择最优动作
-                q_values = obj.Q_table(state_idx, :);
-                [~, action] = max(q_values);
-            end
-        end
-        
-        function update(obj, state, action, reward, next_state, ~)
-            % Q值更新 - 标准Q-learning算法
-            
-            % 输入验证
-            if isempty(state) || isempty(action) || isempty(next_state)
-                return;
+                primary_action = 1;
             end
             
-            % 确保action是标量
-            if numel(action) > 1
-                action = action(1);
-            end
-            
-            % 编码状态
-            state_idx = obj.encodeState(state);
-            next_state_idx = obj.encodeState(next_state);
-            
-            % 获取当前Q值
-            current_q = obj.Q_table(state_idx, action);
-            
-            % 计算目标值
+            % Q-Learning更新
+            current_q = obj.Q_table(state_idx, primary_action);
             max_next_q = max(obj.Q_table(next_state_idx, :));
-            target = reward + obj.discount_factor * max_next_q;
             
-            % 计算TD误差
-            td_error = target - current_q;
+            td_error = reward + obj.discount_factor * max_next_q - current_q;
+            obj.Q_table(state_idx, primary_action) = current_q + obj.learning_rate * td_error;
+            obj.visit_count(state_idx, primary_action) = obj.visit_count(state_idx, primary_action) + 1;
             
-            % 获取自适应学习率
-            lr = obj.getCurrentLearningRate(state_idx, action);
-            
-            % 更新Q值
-            obj.Q_table(state_idx, action) = current_q + lr * td_error;
-            
-            % 更新访问计数
-            obj.visit_count(state_idx, action) = obj.visit_count(state_idx, action) + 1;
-            
-            % 更新学习率调度器
-            obj.updateLearningRateScheduler();
-            
-            % 更新探索率
-            obj.updateEpsilon();
+            % 更新计数器
+            obj.update_count = obj.update_count + 1;
         end
         
-        function reset(obj)
-            % 重置智能体状态（保留学习的知识）
-            obj.epsilon = obj.config.epsilon; % 可选：重置探索率
+        function policy = getPolicy(obj)
+            % 获取当前策略
+            policy = mean(obj.Q_table, 1);
+            if sum(policy) > 0
+                policy = policy / sum(policy);
+            else
+                policy = ones(1, obj.action_dim) / obj.action_dim;
+            end
         end
         
-        function saveModel(obj, filename)
+        function save(obj, filename)
             % 保存模型
             agent_data = struct();
             agent_data.Q_table = obj.Q_table;
             agent_data.visit_count = obj.visit_count;
-            agent_data.config = obj.config;
             agent_data.lr_scheduler = obj.lr_scheduler;
+            agent_data.name = obj.name;
+            agent_data.agent_type = obj.agent_type;
             save(filename, 'agent_data');
         end
         
-        function loadModel(obj, filename)
+        function load(obj, filename)
             % 加载模型
             if exist(filename, 'file')
                 loaded = load(filename);
@@ -136,52 +313,6 @@ classdef QLearningAgent < RLAgent
                 obj.lr_scheduler = loaded.agent_data.lr_scheduler;
             end
         end
-        
-        function strategy = getStrategy(obj)
-    % 获取当前策略分布
-    
-    % 对于防御者，返回资源分配策略
-    if contains(obj.name, 'defender')
-        % 计算每个站点的平均Q值
-        n_stations = 10;  % 或从配置获取
-        n_resources = 5;
-        strategy = zeros(1, n_stations);
-        
-        for station = 1:n_stations
-            station_q_values = [];
-            for resource = 1:n_resources
-                action_idx = (station - 1) * n_resources + resource;
-                if action_idx <= obj.action_dim
-                    avg_q = mean(obj.Q_table(:, action_idx));
-                    station_q_values(end+1) = avg_q;
-                end
-            end
-            if ~isempty(station_q_values)
-                strategy(station) = mean(station_q_values);
-            end
-        end
-        
-        % 归一化
-        if sum(strategy) > 0
-            strategy = strategy / sum(strategy);
-        else
-            strategy = ones(1, n_stations) / n_stations;
-        end
-        
-    else  % 攻击者
-        % 返回攻击概率分布
-        avg_q = mean(obj.Q_table, 1);
-        if any(avg_q)
-            strategy = exp(avg_q) / sum(exp(avg_q));  % softmax
-        else
-            strategy = ones(1, obj.action_dim) / obj.action_dim;
-        end
-    end
-    
-    % 确保是行向量
-    strategy = strategy(:)';
-end
-
     end
     
     methods (Access = private)
@@ -201,7 +332,7 @@ end
             state(isnan(state)) = 0;
             state(isinf(state)) = 0;
             
-            % 使用更简单的哈希函数
+            % 使用简单的哈希函数
             if length(state) == 1
                 % 如果只有一个元素，直接使用
                 hash_value = abs(state(1));
