@@ -51,7 +51,7 @@ function config = createMultiAgentConfiguration()
     config.random_seed = 42;
     
     % === 站点价值设置 ===
-    config.station_values = [0.8, 0.6, 0.9, 0.5, 0.7, 1.0, 0.6, 0.8, 0.7, 0.95];
+    config.station_values = [0.094, 0.070, 0.222, 0.058, 0.082, 0.117, 0.070, 0.094, 0.082, 0.111];
     [~, config.highest_value_station] = max(config.station_values);  % 找出最高价值站点
     
     % === 初始策略设置 ===
