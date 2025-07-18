@@ -43,96 +43,96 @@ classdef ConfigManager
             ConfigManager.validateConfig(config);
         end
         
-        % 在 ConfigManager.m 类中添加这个静态方法
-        % 将此方法添加到 ConfigManager 类的 methods (Static) 块中
-        
-        function config = ensureStationConsistency(config)
-            % 确保所有基于n_stations的配置都是一致的
-            
-            n_stations = config.n_stations;
-            
-            % 调整组件数量向量
-            if length(config.n_components_per_station) ~= n_stations
-                if length(config.n_components_per_station) < n_stations
-                    % 扩展：重复最后一个值
-                    last_val = config.n_components_per_station(end);
-                    config.n_components_per_station = [config.n_components_per_station, ...
-                                                      repmat(last_val, 1, n_stations - length(config.n_components_per_station))];
-                else
-                    % 截断
-                    config.n_components_per_station = config.n_components_per_station(1:n_stations);
-                end
-                config.total_components = sum(config.n_components_per_station);
-            end
-            
-            % 调整攻击检测难度
-            if isfield(config, 'attack_detection_difficulty') && isfield(config, 'attack_types')
-                if length(config.attack_detection_difficulty) ~= length(config.attack_types)
-                    config.attack_detection_difficulty = ConfigManager.adjustArrayLength(...
-                        config.attack_detection_difficulty, length(config.attack_types), 0.5);
-                end
-            end
-            
-            % 调整攻击严重程度
-            if isfield(config, 'attack_severity') && isfield(config, 'attack_types')
-                if length(config.attack_severity) ~= length(config.attack_types)
-                    config.attack_severity = ConfigManager.adjustArrayLength(...
-                        config.attack_severity, length(config.attack_types), 0.5);
-                end
-            end
-            
-            % 调整站点价值向量
-            if isfield(config, 'station_values')
-                if length(config.station_values) ~= n_stations
-                    % 如果长度不匹配，重新生成均匀分布的站点价值
-                    config.station_values = ones(1, n_stations) / n_stations;
-                end
-            else
-                % 如果不存在，创建均匀分布的站点价值
-                config.station_values = ones(1, n_stations) / n_stations;
-            end
-            
-            % 调整资源配置
-            if isfield(config, 'station_resources')
-                if length(config.station_resources) ~= n_stations
-                    % 重新分配资源
-                    avg_resources = config.total_resources / n_stations;
-                    config.station_resources = repmat(avg_resources, 1, n_stations);
-                end
-            else
-                % 如果不存在，创建均匀分布的资源配置
-                avg_resources = config.total_resources / n_stations;
-                config.station_resources = repmat(avg_resources, 1, n_stations);
-            end
-            
-            % 确保总资源一致性
-            if isfield(config, 'station_resources')
-                config.total_resources = sum(config.station_resources);
-            end
-            
-            fprintf('✓ 站点配置一致性检查完成\n');
+% 在 ConfigManager.m 类中添加这个静态方法
+% 将此方法添加到 ConfigManager 类的 methods (Static) 块中
+
+function config = ensureStationConsistency(config)
+    % 确保所有基于n_stations的配置都是一致的
+    
+    n_stations = config.n_stations;
+    
+    % 调整组件数量向量
+    if length(config.n_components_per_station) ~= n_stations
+        if length(config.n_components_per_station) < n_stations
+            % 扩展：重复最后一个值
+            last_val = config.n_components_per_station(end);
+            config.n_components_per_station = [config.n_components_per_station, ...
+                                              repmat(last_val, 1, n_stations - length(config.n_components_per_station))];
+        else
+            % 截断
+            config.n_components_per_station = config.n_components_per_station(1:n_stations);
         end
-        
-        % 辅助函数：调整数组长度
-        function adjusted_array = adjustArrayLength(original_array, target_length, default_value)
-            % 调整数组长度到目标长度
-            
-            if length(original_array) == target_length
-                adjusted_array = original_array;
-            elseif length(original_array) < target_length
-                % 扩展数组
-                if isempty(original_array)
-                    adjusted_array = repmat(default_value, 1, target_length);
-                else
-                    last_val = original_array(end);
-                    adjusted_array = [original_array, ...
-                                     repmat(last_val, 1, target_length - length(original_array))];
-                end
-            else
-                % 截断数组
-                adjusted_array = original_array(1:target_length);
-            end
+        config.total_components = sum(config.n_components_per_station);
+    end
+    
+    % 调整攻击检测难度
+    if isfield(config, 'attack_detection_difficulty') && isfield(config, 'attack_types')
+        if length(config.attack_detection_difficulty) ~= length(config.attack_types)
+            config.attack_detection_difficulty = ConfigManager.adjustArrayLength(...
+                config.attack_detection_difficulty, length(config.attack_types), 0.5);
         end
+    end
+    
+    % 调整攻击严重程度
+    if isfield(config, 'attack_severity') && isfield(config, 'attack_types')
+        if length(config.attack_severity) ~= length(config.attack_types)
+            config.attack_severity = ConfigManager.adjustArrayLength(...
+                config.attack_severity, length(config.attack_types), 0.5);
+        end
+    end
+    
+    % 调整站点价值向量
+    if isfield(config, 'station_values')
+        if length(config.station_values) ~= n_stations
+            % 如果长度不匹配，重新生成均匀分布的站点价值
+            config.station_values = ones(1, n_stations) / n_stations;
+        end
+    else
+        % 如果不存在，创建均匀分布的站点价值
+        config.station_values = ones(1, n_stations) / n_stations;
+    end
+    
+    % 调整资源配置
+    if isfield(config, 'station_resources')
+        if length(config.station_resources) ~= n_stations
+            % 重新分配资源
+            avg_resources = config.total_resources / n_stations;
+            config.station_resources = repmat(avg_resources, 1, n_stations);
+        end
+    else
+        % 如果不存在，创建均匀分布的资源配置
+        avg_resources = config.total_resources / n_stations;
+        config.station_resources = repmat(avg_resources, 1, n_stations);
+    end
+    
+    % 确保总资源一致性
+    if isfield(config, 'station_resources')
+        config.total_resources = sum(config.station_resources);
+    end
+    
+    fprintf('✓ 站点配置一致性检查完成\n');
+end
+
+% 辅助函数：调整数组长度
+function adjusted_array = adjustArrayLength(original_array, target_length, default_value)
+    % 调整数组长度到目标长度
+    
+    if length(original_array) == target_length
+        adjusted_array = original_array;
+    elseif length(original_array) < target_length
+        % 扩展数组
+        if isempty(original_array)
+            adjusted_array = repmat(default_value, 1, target_length);
+        else
+            last_val = original_array(end);
+            adjusted_array = [original_array, ...
+                             repmat(last_val, 1, target_length - length(original_array))];
+        end
+    else
+        % 截断数组
+        adjusted_array = original_array(1:target_length);
+    end
+end
 
         function config = getDefaultConfig()
             % 获取完整的默认配置 - 确保所有智能体参数都被正确设置
@@ -144,7 +144,7 @@ classdef ConfigManager
             config.total_resources = 100;
             
             % === 2. FSP仿真参数 ===
-            config.n_iterations = 100;
+            config.n_iterations = 1000;
             config.n_episodes_per_iter = 100;
             config.pool_size_limit = 50;
             config.pool_update_interval = 10;
@@ -221,8 +221,6 @@ classdef ConfigManager
             config.output.checkpoint_interval = 500;
             config.output.results_dir = 'results';
             config.output.report_dir = 'reports';
-            config.output.models_dir = 'models';           
-            config.output.checkpoints_dir = 'checkpoints'; 
             
             % 时间戳
             timestamp = datestr(now, 'yyyymmdd_HHMMSS');
@@ -262,9 +260,88 @@ classdef ConfigManager
             config.agents.attacker.n_stations = config.n_stations;
             
             % === 13. 确保所有基于n_stations的配置都正确 ===
-            config = ConfigManager.ensureStationConsistency(config);
+            config = ensureStationConsistency(config);
         end
+        
+        % === 添加新的辅助函数：确保站点相关配置的一致性 ===
+        function config = ensureStationConsistency(config)
+            % 确保所有基于n_stations的配置都是一致的
+            
+            n_stations = config.n_stations;
+            
+            % 调整组件数量向量
+            if length(config.n_components_per_station) ~= n_stations
+                if length(config.n_components_per_station) < n_stations
+                    % 扩展：重复最后一个值
+                    last_val = config.n_components_per_station(end);
+                    config.n_components_per_station = [config.n_components_per_station, ...
+                                                      repmat(last_val, 1, n_stations - length(config.n_components_per_station))];
+                else
+                    % 截断
+                    config.n_components_per_station = config.n_components_per_station(1:n_stations);
+                end
+                config.total_components = sum(config.n_components_per_station);
+            end
+            
+            % 调整攻击检测难度
+            if length(config.attack_detection_difficulty) ~= length(config.attack_types)
+                config.attack_detection_difficulty = ConfigManager.adjustArrayLength(config.attack_detection_difficulty, length(config.attack_types), 0.5);
+            end
+            
+            % 调整攻击严重程度
+            if length(config.attack_severity) ~= length(config.attack_types)
+                config.attack_severity = ConfigManager.adjustArrayLength(config.attack_severity, length(config.attack_types), 0.5);
+            end
+            
+            % 调整资源效果
+            if length(config.resource_effectiveness) ~= length(config.resource_types)
+                config.resource_effectiveness = ConfigManager.adjustArrayLength(config.resource_effectiveness, length(config.resource_types), 0.7);
+            end
+            
 
+            function adjusted_array = adjustArrayLength(array, target_length, default_value)
+                % 调整数组长度到目标长度
+                if length(array) < target_length
+                    % 扩展数组
+                    adjusted_array = [array, repmat(default_value, 1, target_length - length(array))];
+                elseif length(array) > target_length
+                    % 截断数组
+                    adjusted_array = array(1:target_length);
+                else
+                    adjusted_array = array;
+                end
+            end    
+
+            % 调整RADI最优分配
+            config.radi.optimal_allocation = ones(1, n_stations) / n_stations;
+            
+            % 更新所有智能体配置中的n_stations
+            if isfield(config, 'agents')
+                if isfield(config.agents, 'defenders')
+                    for i = 1:length(config.agents.defenders)
+                        config.agents.defenders{i}.n_stations = n_stations;
+                    end
+                end
+                if isfield(config.agents, 'attacker')
+                    config.agents.attacker.n_stations = n_stations;
+                end
+            end
+            
+            fprintf('[ConfigManager] 已调整配置以匹配 %d 个站点\n', n_stations);
+        end
+        
+        function adjusted_array = adjustArrayLength(array, target_length, default_value)
+            % 调整数组长度到目标长度
+            if length(array) < target_length
+                % 扩展数组
+                adjusted_array = [array, repmat(default_value, 1, target_length - length(array))];
+            elseif length(array) > target_length
+                % 截断数组
+                adjusted_array = array(1:target_length);
+            else
+                adjusted_array = array;
+            end
+        end    
         
         function config = getOptimizedConfig()
             % 获取性能优化的配置

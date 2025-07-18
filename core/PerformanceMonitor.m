@@ -43,31 +43,134 @@ classdef PerformanceMonitor < handle
             obj.config = config;
         end
         
-        function updateMetrics(obj, episode, metrics)
+                function updateMetrics(obj, episode, metrics)
+            % 更新性能指标，确保维度兼容性
+            
             obj.current_episode = episode;
-            radi = obj.calculateRADI(metrics.resource_allocation);
-            obj.radi_scores(end+1) = radi;
+            
+            % 确保 resource_allocation 是行向量
+            if isfield(metrics, 'resource_allocation')
+                resource_allocation = metrics.resource_allocation;
+                if size(resource_allocation, 1) > 1
+                    % 如果是列向量，转置为行向量
+                    resource_allocation = resource_allocation';
+                end
+                % 确保是行向量
+                resource_allocation = resource_allocation(:)';
+            else
+                % 默认资源分配
+                resource_allocation = [0.2, 0.2, 0.2, 0.2, 0.2]; % 5个资源类型的均匀分配
+            end
+            
+            % 计算RADI，确保返回标量
+            radi = obj.calculateRADI(resource_allocation);
+            
+            % 确保radi是标量
+            if ~isscalar(radi)
+                radi = mean(radi(:));
+                fprintf('警告: calculateRADI返回非标量值，已转换为标量\n');
+            end
+            
+            % 安全地添加到数组
+            try
+                if isempty(obj.radi_scores)
+                    obj.radi_scores = radi;
+                else
+                    obj.radi_scores(end+1) = radi;
+                end
+            catch ME
+                fprintf('RADI添加失败: %s, radi维度: %s\n', ME.message, mat2str(size(radi)));
+                % 重新初始化并添加
+                obj.radi_scores = [obj.radi_scores(:)', radi];
+            end
+            
+            % 处理资源效率
             if isfield(metrics, 'resource_efficiency')
-                obj.resource_efficiency(end+1) = metrics.resource_efficiency;
+                efficiency = metrics.resource_efficiency;
+                if ~isscalar(efficiency)
+                    efficiency = mean(efficiency(:));
+                end
+                if isempty(obj.resource_efficiency)
+                    obj.resource_efficiency = efficiency;
+                else
+                    obj.resource_efficiency(end+1) = efficiency;
+                end
             else
-                obj.resource_efficiency(end+1) = NaN;
+                if isempty(obj.resource_efficiency)
+                    obj.resource_efficiency = NaN;
+                else
+                    obj.resource_efficiency(end+1) = NaN;
+                end
             end
+            
+            % 处理分配平衡
             if isfield(metrics, 'allocation_balance')
-                obj.allocation_balance(end+1) = metrics.allocation_balance;
+                balance = metrics.allocation_balance;
+                if ~isscalar(balance)
+                    balance = mean(balance(:));
+                end
+                if isempty(obj.allocation_balance)
+                    obj.allocation_balance = balance;
+                else
+                    obj.allocation_balance(end+1) = balance;
+                end
             else
-                obj.allocation_balance(end+1) = NaN;
+                if isempty(obj.allocation_balance)
+                    obj.allocation_balance = NaN;
+                else
+                    obj.allocation_balance(end+1) = NaN;
+                end
             end
-            obj.resource_allocations.computation(end+1) = metrics.resource_allocation(1);
-            obj.resource_allocations.bandwidth(end+1) = metrics.resource_allocation(2);
-            obj.resource_allocations.sensors(end+1) = metrics.resource_allocation(3);
-            obj.resource_allocations.scanning_freq(end+1) = metrics.resource_allocation(4);
-            obj.resource_allocations.inspection_depth(end+1) = metrics.resource_allocation(5);
+            
+            % 安全地处理资源分配组件
+            try
+                % 确保资源分配有5个分量
+                if length(resource_allocation) >= 5
+                    if isempty(obj.resource_allocations.computation)
+                        obj.resource_allocations.computation = resource_allocation(1);
+                        obj.resource_allocations.bandwidth = resource_allocation(2);
+                        obj.resource_allocations.sensors = resource_allocation(3);
+                        obj.resource_allocations.scanning_freq = resource_allocation(4);
+                        obj.resource_allocations.inspection_depth = resource_allocation(5);
+                    else
+                        obj.resource_allocations.computation(end+1) = resource_allocation(1);
+                        obj.resource_allocations.bandwidth(end+1) = resource_allocation(2);
+                        obj.resource_allocations.sensors(end+1) = resource_allocation(3);
+                        obj.resource_allocations.scanning_freq(end+1) = resource_allocation(4);
+                        obj.resource_allocations.inspection_depth(end+1) = resource_allocation(5);
+                    end
+                else
+                    fprintf('警告: resource_allocation维度不足，期望5个分量，实际%d个\n', length(resource_allocation));
+                    % 使用默认值填充
+                    default_allocation = [0.2, 0.2, 0.2, 0.2, 0.2];
+                    if isempty(obj.resource_allocations.computation)
+                        obj.resource_allocations.computation = default_allocation(1);
+                        obj.resource_allocations.bandwidth = default_allocation(2);
+                        obj.resource_allocations.sensors = default_allocation(3);
+                        obj.resource_allocations.scanning_freq = default_allocation(4);
+                        obj.resource_allocations.inspection_depth = default_allocation(5);
+                    else
+                        obj.resource_allocations.computation(end+1) = default_allocation(1);
+                        obj.resource_allocations.bandwidth(end+1) = default_allocation(2);
+                        obj.resource_allocations.sensors(end+1) = default_allocation(3);
+                        obj.resource_allocations.scanning_freq(end+1) = default_allocation(4);
+                        obj.resource_allocations.inspection_depth(end+1) = default_allocation(5);
+                    end
+                end
+            catch ME
+                fprintf('资源分配更新失败: %s\n', ME.message);
+            end
+            
+            % 更新最佳性能
             if radi < obj.best_performance.best_radi
                 obj.best_performance.best_radi = radi;
                 obj.best_performance.best_radi_episode = episode;
             end
+            
+            % 评估当前性能
             obj.evaluateCurrentPerformance(metrics, radi);
         end
+
         
         function update(obj, episode, metrics, varargin)
             % 兼容旧接口，直接调用 updateMetrics
@@ -75,40 +178,78 @@ classdef PerformanceMonitor < handle
         end
         
         function radi = calculateRADI(obj, resource_allocation)
-    % 计算RADI指标
-    % 输入:
-    %   resource_allocation - 资源分配向量
-    % 输出:
-    %   radi - RADI指标值
-    
-    optimal = obj.config.radi.optimal_allocation;
-    weights = [
-        obj.config.radi.weight_computation, 
-        obj.config.radi.weight_bandwidth, 
-        obj.config.radi.weight_sensors, 
-        obj.config.radi.weight_scanning, 
-        obj.config.radi.weight_inspection
-    ];
-    
-    % 自动对齐向量长度
-    len = min([length(resource_allocation), length(optimal), length(weights)]);
-    resource_allocation = resource_allocation(1:len);
-    optimal = optimal(1:len);
-    weights = weights(1:len);
-    
-    % 标准化权重
-    if sum(weights) > 0
-        weights = weights / sum(weights);
-    else
-        weights = ones(1, len) / len;
-    end
-    
-    % 计算偏差
-    deviation = abs(resource_allocation - optimal);
-    
-    % 计算RADI
-    radi = sum(weights .* deviation);
-end
+            % 计算RADI指标，确保返回标量
+            
+            try
+                % 获取最优分配
+                if isfield(obj.config, 'radi') && isfield(obj.config.radi, 'optimal_allocation')
+                    optimal = obj.config.radi.optimal_allocation;
+                else
+                    optimal = ones(1, 5) / 5; % 默认均匀分配
+                end
+                
+                % 获取权重
+                if isfield(obj.config, 'radi')
+                    weights = [
+                        obj.config.radi.weight_computation,
+                        obj.config.radi.weight_bandwidth,
+                        obj.config.radi.weight_sensors,
+                        obj.config.radi.weight_scanning,
+                        obj.config.radi.weight_inspection
+                    ];
+                else
+                    weights = ones(1, 5) / 5; % 默认均匀权重
+                end
+                
+                % 确保所有向量都是行向量且长度一致
+                resource_allocation = resource_allocation(:)';
+                optimal = optimal(:)';
+                weights = weights(:)';
+                
+                % 调整长度到最小公共长度
+                min_len = min([length(resource_allocation), length(optimal), length(weights)]);
+                resource_allocation = resource_allocation(1:min_len);
+                optimal = optimal(1:min_len);
+                weights = weights(1:min_len);
+                
+                % 归一化权重
+                if sum(weights) > 0
+                    weights = weights / sum(weights);
+                else
+                    weights = ones(1, min_len) / min_len;
+                end
+                
+                % 计算归一化的资源分配
+                if sum(resource_allocation) > 0
+                    norm_allocation = resource_allocation / sum(resource_allocation);
+                else
+                    norm_allocation = ones(1, min_len) / min_len;
+                end
+                
+                if sum(optimal) > 0
+                    norm_optimal = optimal / sum(optimal);
+                else
+                    norm_optimal = ones(1, min_len) / min_len;
+                end
+                
+                % 计算加权偏差
+                deviation = abs(norm_allocation - norm_optimal);
+                radi = sum(weights .* deviation);
+                
+                % 确保返回标量且在合理范围内
+                radi = max(0, min(radi, 2));
+                
+                % 强制转换为标量
+                if ~isscalar(radi)
+                    radi = radi(1);
+                end
+                
+            catch ME
+                fprintf('calculateRADI计算失败: %s\n', ME.message);
+                radi = 0.5; % 返回默认值
+            end
+        end
+
         
         function performance_level = evaluateCurrentPerformance(obj, metrics, radi)
             if radi <= obj.config.radi.threshold_excellent

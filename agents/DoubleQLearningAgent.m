@@ -161,8 +161,139 @@ end
             obj.update_count = obj.update_count + 1;
         end
         
+% 在 agents/QLearningAgent.m 文件中，在现有的 update() 方法之后添加以下方法：
+% 
+% 现有代码结构应该是：
+%     methods
+%         function obj = QLearningAgent(...)  % 构造函数
+%         function action = selectAction(...)  % 选择动作
+%         function update(...)                % 更新方法
+%         
+%         % === 在这里添加以下四个新方法 ===
+        
+        function stats = getStatistics(obj)
+            % 获取智能体统计信息
+            stats = struct();
+            
+            % 基本统计
+            stats.name = obj.name;
+            stats.agent_type = obj.agent_type;
+            
+            % 检查属性是否存在
+            if isprop(obj, 'update_count') || isfield(obj, 'update_count')
+                stats.update_count = obj.update_count;
+            else
+                stats.update_count = 0;
+            end
+            
+            if isprop(obj, 'total_reward') || isfield(obj, 'total_reward')
+                stats.total_reward = obj.total_reward;
+            else
+                stats.total_reward = 0;
+            end
+            
+            % Q表统计
+            if ~isempty(obj.Q_table)
+                stats.avg_q_value = mean(obj.Q_table(:));
+                stats.max_q_value = max(obj.Q_table(:));
+                stats.min_q_value = min(obj.Q_table(:));
+                stats.q_value_std = std(obj.Q_table(:));
+            else
+                stats.avg_q_value = 0;
+                stats.max_q_value = 0;
+                stats.min_q_value = 0;
+                stats.q_value_std = 0;
+            end
+            
+            % 学习参数
+            if isfield(obj.lr_scheduler, 'current_lr')
+                stats.current_learning_rate = obj.lr_scheduler.current_lr;
+            elseif isprop(obj, 'learning_rate') || isfield(obj, 'learning_rate')
+                stats.current_learning_rate = obj.learning_rate;
+            else
+                stats.current_learning_rate = 0.1;
+            end
+            
+            if isprop(obj, 'epsilon') || isfield(obj, 'epsilon')
+                stats.current_epsilon = obj.epsilon;
+            else
+                stats.current_epsilon = 0.1;
+            end
+            
+            % 探索统计
+            if ~isempty(obj.visit_count)
+                total_visits = sum(obj.visit_count(:));
+                stats.total_state_visits = total_visits;
+                stats.explored_states = sum(sum(obj.visit_count > 0));
+                stats.exploration_ratio = stats.explored_states / numel(obj.visit_count);
+            else
+                stats.total_state_visits = 0;
+                stats.explored_states = 0;
+                stats.exploration_ratio = 0;
+            end
+            
+            % 性能统计
+            if isprop(obj, 'episode_rewards') || isfield(obj, 'episode_rewards')
+                if ~isempty(obj.episode_rewards)
+                    stats.avg_episode_reward = mean(obj.episode_rewards);
+                    stats.best_episode_reward = max(obj.episode_rewards);
+                    stats.worst_episode_reward = min(obj.episode_rewards);
+                    stats.total_episodes = length(obj.episode_rewards);
+                else
+                    stats.avg_episode_reward = 0;
+                    stats.best_episode_reward = 0;
+                    stats.worst_episode_reward = 0;
+                    stats.total_episodes = 0;
+                end
+            else
+                stats.avg_episode_reward = 0;
+                stats.best_episode_reward = 0;
+                stats.worst_episode_reward = 0;
+                stats.total_episodes = 0;
+            end
+        end
+        
         function policy = getPolicy(obj)
-            policy = (obj.Q1_table + obj.Q2_table) / 2;
+            % 获取当前策略
+            
+            if isempty(obj.Q_table) || size(obj.Q_table, 1) == 0
+                % 如果Q表为空，返回均匀策略
+                policy = ones(1, obj.action_dim) / obj.action_dim;
+                return;
+            end
+            
+            % 基于平均Q值的策略
+            avg_q_values = mean(obj.Q_table, 1);
+            
+            if all(avg_q_values == 0) || all(isnan(avg_q_values))
+                % 如果所有Q值都是0或NaN，返回均匀策略
+                policy = ones(1, obj.action_dim) / obj.action_dim;
+            else
+                % 使用softmax转换为概率分布
+                temperature = 1.0;
+                if isprop(obj, 'temperature') || isfield(obj, 'temperature')
+                    temperature = obj.temperature;
+                end
+                
+                if temperature > 0
+                    scaled_q = avg_q_values / temperature;
+                    % 数值稳定的softmax
+                    exp_q = exp(scaled_q - max(scaled_q));
+                    policy = exp_q / sum(exp_q);
+                else
+                    % 贪婪策略
+                    policy = zeros(1, obj.action_dim);
+                    [~, best_action] = max(avg_q_values);
+                    policy(best_action) = 1;
+                end
+            end
+            
+            % 确保policy是有效的概率分布
+            if any(isnan(policy)) || any(isinf(policy)) || sum(policy) == 0
+                policy = ones(1, obj.action_dim) / obj.action_dim;
+            else
+                policy = policy / sum(policy); % 归一化
+            end
         end
         
         function save(obj, filename)
