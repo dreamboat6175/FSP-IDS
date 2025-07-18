@@ -12,6 +12,9 @@ classdef QLearningAgent < RLAgent
         lr_scheduler     % 学习率调度器
         use_softmax      % 是否使用softmax策略选择
         update_count     % 更新次数计数器
+        strategy_history     % 策略历史记录
+        performance_history  % 性能历史记录
+        parameter_history    % 参数历史记录
     end
     
     methods
@@ -83,6 +86,12 @@ classdef QLearningAgent < RLAgent
             if isempty(obj.learning_rate_decay)
                 obj.learning_rate_decay = 0.9995;
             end
+            obj.strategy_history = [];
+            obj.performance_history = struct();
+            obj.parameter_history = struct();
+            obj.parameter_history.learning_rate = [];
+            obj.parameter_history.epsilon = [];
+            obj.parameter_history.q_values = [];
         end
         
         function state_idx = getStateIndex(obj, state)
@@ -237,6 +246,14 @@ classdef QLearningAgent < RLAgent
                             obj.name, length(action), n_stations, sum(action));
                 end
             end
+            if strcmp(obj.agent_type, 'defender') && length(action) > 1
+                obj.strategy_history(end+1, :) = action;
+            end
+            
+            % 记录参数历史
+            obj.parameter_history.learning_rate(end+1) = obj.learning_rate;
+            obj.parameter_history.epsilon(end+1) = obj.epsilon;
+            obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
         end
 
         
@@ -281,16 +298,8 @@ classdef QLearningAgent < RLAgent
             
             % 更新计数器
             obj.update_count = obj.update_count + 1;
+            obj.recordPerformance(reward, td_error);
         end
-        % 在 agents/QLearningAgent.m 文件中，在现有的 update() 方法之后添加以下方法：
-% 
-% 现有代码结构应该是：
-%     methods
-%         function obj = QLearningAgent(...)  % 构造函数
-%         function action = selectAction(...)  % 选择动作
-%         function update(...)                % 更新方法
-%         
-%         % === 在这里添加以下四个新方法 ===
         
         function stats = getStatistics(obj)
             % 获取智能体统计信息
@@ -473,6 +482,72 @@ classdef QLearningAgent < RLAgent
                 obj.Q_table = loaded.agent_data.Q_table;
                 obj.visit_count = loaded.agent_data.visit_count;
                 obj.lr_scheduler = loaded.agent_data.lr_scheduler;
+            end
+        end
+        function recordPerformance(obj, reward, td_error)
+            % 记录性能历史
+            if ~isfield(obj.performance_history, 'rewards')
+                obj.performance_history.rewards = [];
+                obj.performance_history.td_errors = [];
+                obj.performance_history.radi = [];
+                obj.performance_history.damage = [];
+                obj.performance_history.success_rate = [];
+                obj.performance_history.detection_rate = [];
+            end
+            
+            obj.performance_history.rewards(end+1) = reward;
+            obj.performance_history.td_errors(end+1) = abs(td_error);
+            
+            % 计算并记录其他性能指标
+            obj.performance_history.radi(end+1) = obj.calculateRADI();
+            obj.performance_history.damage(end+1) = obj.calculateDamage();
+            obj.performance_history.success_rate(end+1) = obj.calculateSuccessRate();
+            obj.performance_history.detection_rate(end+1) = obj.calculateDetectionRate();
+        end
+        
+        function radi = calculateRADI(obj)
+            % 计算RADI指标
+            if isempty(obj.strategy_history)
+                radi = 0.5;
+            else
+                current_strategy = obj.strategy_history(end, :);
+                entropy = -sum(current_strategy .* log(current_strategy + eps));
+                radi = entropy / log(length(current_strategy));
+            end
+        end
+        
+        function damage = calculateDamage(obj)
+            % 计算损害程度
+            if isempty(obj.performance_history.rewards)
+                damage = 0.5;
+            else
+                recent_rewards = obj.performance_history.rewards(max(1, end-9):end);
+                damage = 1 - mean(recent_rewards);
+                damage = max(0, min(1, damage));
+            end
+        end
+        
+        function success_rate = calculateSuccessRate(obj)
+            % 计算成功率
+            if isempty(obj.performance_history.rewards)
+                success_rate = 0.5;
+            else
+                recent_rewards = obj.performance_history.rewards(max(1, end-19):end);
+                success_rate = mean(recent_rewards > 0);
+            end
+        end
+        
+        function detection_rate = calculateDetectionRate(obj)
+            % 计算检测率
+            if strcmp(obj.agent_type, 'defender')
+                if isempty(obj.performance_history.rewards)
+                    detection_rate = 0.8;
+                else
+                    recent_rewards = obj.performance_history.rewards(max(1, end-19):end);
+                    detection_rate = mean(recent_rewards > 0.5);
+                end
+            else
+                detection_rate = NaN; % 攻击者不适用
             end
         end
     end

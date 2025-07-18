@@ -9,6 +9,9 @@ classdef DoubleQLearningAgent < RLAgent
         visit_count   % 访问计数
         use_softmax   % 是否使用softmax
         update_count  % 更新计数
+        strategy_history
+        performance_history
+        parameter_history
     end
     
     methods
@@ -27,6 +30,12 @@ classdef DoubleQLearningAgent < RLAgent
             obj.visit_count = zeros(state_dim, action_dim);
             obj.use_softmax = false;
             obj.update_count = 0;
+            obj.strategy_history = [];
+            obj.performance_history = struct();
+            obj.parameter_history = struct();
+            obj.parameter_history.learning_rate = [];
+            obj.parameter_history.epsilon = [];
+            obj.parameter_history.q_values = [];
         end
         
         function action_vec = selectAction(obj, state_vec)
@@ -84,6 +93,13 @@ classdef DoubleQLearningAgent < RLAgent
                 warning('DoubleQLearningAgent.selectAction 出错: %s', ME.message);
                 action_vec = ones(1, obj.action_dim) / obj.action_dim;
             end
+            if strcmp(obj.agent_type, 'defender') && length(action) > 1
+                obj.strategy_history(end+1, :) = action;
+            end
+            
+            obj.parameter_history.learning_rate(end+1) = obj.learning_rate;
+            obj.parameter_history.epsilon(end+1) = obj.epsilon;
+            obj.parameter_history.q_values(end+1) = mean((obj.Q1_table(:) + obj.Q2_table(:))/2);
         end
         
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
@@ -139,6 +155,7 @@ classdef DoubleQLearningAgent < RLAgent
             catch ME
                 warning('DoubleQLearningAgent.update 出错: %s', ME.message);
             end
+            obj.recordPerformance(reward, td_error);
         end
         
         function updateQTableProperty(obj)
