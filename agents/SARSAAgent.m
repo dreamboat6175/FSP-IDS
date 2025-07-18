@@ -1,10 +1,8 @@
-%% SARSAAgent.m - SARSA智能体实现
+%% SARSAAgent.m - SARSA智能体实现 (修复版)
 classdef SARSAAgent < RLAgent
     properties
         Q_table
         visit_count
-        use_softmax
-        update_count
         lr_scheduler
         strategy_history
         performance_history
@@ -23,7 +21,7 @@ classdef SARSAAgent < RLAgent
             obj.visit_count = zeros(state_dim, action_dim);
             
             % 默认使用epsilon-greedy策略，更稳定
-            obj.use_softmax = false;
+            % obj.use_softmax = false; % 删除重复定义
             % 初始化学习率调度器
             obj.lr_scheduler = struct();
             if isfield(config, 'learning_rate')
@@ -38,10 +36,11 @@ classdef SARSAAgent < RLAgent
             obj.lr_scheduler.step_count = 0;
             obj.lr_scheduler.decay_rate = 0.99;
             
-            % 初始化更新计数器（如果还没有）
-            if ~isprop(obj, 'update_count') && ~isfield(obj, 'update_count')
-                obj.update_count = 0;
-            end
+            % 初始化更新计数器
+            % 初始化新添加的属性
+            % obj.use_softmax = false;     % 默认使用epsilon-greedy % 删除重复定义
+            
+            % 确保基类属性有默认值
             obj.strategy_history = [];
             obj.performance_history = struct();
             obj.parameter_history = struct();
@@ -110,20 +109,26 @@ classdef SARSAAgent < RLAgent
                 action_vec = ones(1, obj.action_dim) / obj.action_dim;
             end
             
-            % 记录动作
+            % 记录动作 - 修复：使用action_vec而不是未定义的action
             [~, dominant_action] = max(action_vec);
-            % obj.recordAction(state_idx, dominant_action);
-            if strcmp(obj.agent_type, 'defender') && length(action) > 1
-                obj.strategy_history(end+1, :) = action;
+            if strcmp(obj.agent_type, 'defender') && length(action_vec) > 1
+                if isempty(obj.strategy_history)
+                    obj.strategy_history = action_vec;
+                else
+                    obj.strategy_history(end+1, :) = action_vec;
+                end
             end
+            
+            % 记录参数历史
             obj.parameter_history.learning_rate(end+1) = obj.learning_rate;
             obj.parameter_history.epsilon(end+1) = obj.epsilon;
             obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
         end
 
-
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
-            % Robust shape check
+            % SARSA更新规则
+            
+            % 健壮性检查
             if isempty(action_vec)
                 warning('SARSAAgent.update: action_vec is empty, auto-fixing...');
                 action_vec = ones(1, 5);
@@ -146,13 +151,10 @@ classdef SARSAAgent < RLAgent
             next_state_idx = obj.encodeState(mean(next_state_vec));
             
             % 将站点级动作转换为Q表索引
-            % action_vec包含每个站点的资源类型选择 (1-5)
-            % 需要转换为Q表中的对应索引
             n_stations = length(action_vec);
             n_resource_types = obj.action_dim / n_stations;
             
             % 计算Q表动作索引 - 使用第一个站点的动作作为主要索引
-            % 这是一个简化的方法，假设主要关注第一个站点的动作
             primary_station = 1;
             resource_type = action_vec(primary_station);
             resource_type = max(1, min(n_resource_types, round(resource_type)));
@@ -183,19 +185,10 @@ classdef SARSAAgent < RLAgent
             obj.Q_table(state_idx, q_action_idx) = current_q + obj.learning_rate * td_error;
             obj.visit_count(state_idx, q_action_idx) = obj.visit_count(state_idx, q_action_idx) + 1;
             
-            % obj.recordReward(reward);
+            % 更新计数器
             obj.update_count = obj.update_count + 1;
             obj.recordPerformance(reward, td_error);
         end
-        % 在 agents/QLearningAgent.m 文件中，在现有的 update() 方法之后添加以下方法：
-% 
-% 现有代码结构应该是：
-%     methods
-%         function obj = QLearningAgent(...)  % 构造函数
-%         function action = selectAction(...)  % 选择动作
-%         function update(...)                % 更新方法
-%         
-%         % === 在这里添加以下四个新方法 ===
         
         function stats = getStatistics(obj)
             % 获取智能体统计信息
@@ -204,13 +197,7 @@ classdef SARSAAgent < RLAgent
             % 基本统计
             stats.name = obj.name;
             stats.agent_type = obj.agent_type;
-            
-            % 检查属性是否存在
-            if isprop(obj, 'update_count') || isfield(obj, 'update_count')
-                stats.update_count = obj.update_count;
-            else
-                stats.update_count = 0;
-            end
+            stats.update_count = obj.update_count;
             
             if isprop(obj, 'total_reward') || isfield(obj, 'total_reward')
                 stats.total_reward = obj.total_reward;
@@ -234,17 +221,11 @@ classdef SARSAAgent < RLAgent
             % 学习参数
             if isfield(obj.lr_scheduler, 'current_lr')
                 stats.current_learning_rate = obj.lr_scheduler.current_lr;
-            elseif isprop(obj, 'learning_rate') || isfield(obj, 'learning_rate')
-                stats.current_learning_rate = obj.learning_rate;
             else
-                stats.current_learning_rate = 0.1;
+                stats.current_learning_rate = obj.learning_rate;
             end
             
-            if isprop(obj, 'epsilon') || isfield(obj, 'epsilon')
-                stats.current_epsilon = obj.epsilon;
-            else
-                stats.current_epsilon = 0.1;
-            end
+            stats.current_epsilon = obj.epsilon;
             
             % 探索统计
             if ~isempty(obj.visit_count)
@@ -256,26 +237,6 @@ classdef SARSAAgent < RLAgent
                 stats.total_state_visits = 0;
                 stats.explored_states = 0;
                 stats.exploration_ratio = 0;
-            end
-            
-            % 性能统计
-            if isprop(obj, 'episode_rewards') || isfield(obj, 'episode_rewards')
-                if ~isempty(obj.episode_rewards)
-                    stats.avg_episode_reward = mean(obj.episode_rewards);
-                    stats.best_episode_reward = max(obj.episode_rewards);
-                    stats.worst_episode_reward = min(obj.episode_rewards);
-                    stats.total_episodes = length(obj.episode_rewards);
-                else
-                    stats.avg_episode_reward = 0;
-                    stats.best_episode_reward = 0;
-                    stats.worst_episode_reward = 0;
-                    stats.total_episodes = 0;
-                end
-            else
-                stats.avg_episode_reward = 0;
-                stats.best_episode_reward = 0;
-                stats.worst_episode_reward = 0;
-                stats.total_episodes = 0;
             end
         end
         
@@ -331,53 +292,65 @@ classdef SARSAAgent < RLAgent
             % 重置episode相关的状态
             
             % 更新探索率
-            if isprop(obj, 'epsilon') || isfield(obj, 'epsilon')
-                if isprop(obj, 'epsilon_min') || isfield(obj, 'epsilon_min')
-                    epsilon_min = obj.epsilon_min;
-                else
-                    epsilon_min = 0.01;
-                end
-                
-                if isprop(obj, 'epsilon_decay') || isfield(obj, 'epsilon_decay')
-                    epsilon_decay = obj.epsilon_decay;
-                else
-                    epsilon_decay = 0.995;
-                end
-                
-                if obj.epsilon > epsilon_min
-                    obj.epsilon = obj.epsilon * epsilon_decay;
-                end
+            if obj.epsilon > obj.epsilon_min
+                obj.epsilon = obj.epsilon * obj.epsilon_decay;
             end
             
             % 更新温度参数（如果存在）
             if isprop(obj, 'temperature') || isfield(obj, 'temperature')
                 if isprop(obj, 'temperature_decay') || isfield(obj, 'temperature_decay')
-                    temperature_decay = obj.temperature_decay;
                     if obj.temperature > 0.1
-                        obj.temperature = obj.temperature * temperature_decay;
+                        obj.temperature = obj.temperature * obj.temperature_decay;
                     end
                 end
             end
         end
         
+        function action_vec = convertToStationActions(obj, q_values, n_stations)
+            % 将Q值转换为站点级动作向量
+            
+            if isempty(q_values)
+                action_vec = ones(1, n_stations);
+                return;
+            end
+            
+            n_resource_types = length(q_values) / n_stations;
+            action_vec = zeros(1, n_stations);
+            
+            for station = 1:n_stations
+                start_idx = (station - 1) * n_resource_types + 1;
+                end_idx = station * n_resource_types;
+                station_q_values = q_values(start_idx:end_idx);
+                [~, best_resource] = max(station_q_values);
+                action_vec(station) = best_resource;
+            end
+        end
+        
+        function recordPerformance(obj, reward, td_error)
+            % 记录性能指标
+            
+            if ~isfield(obj.performance_history, 'rewards')
+                obj.performance_history.rewards = [];
+                obj.performance_history.td_errors = [];
+            end
+            
+            obj.performance_history.rewards(end+1) = reward;
+            obj.performance_history.td_errors(end+1) = td_error;
+        end
+        
         function save(obj, filename)
-            if nargin < 2
-                filename = sprintf('models/sarsa_%s_%s.mat', ...
-                                 obj.agent_type, datestr(now, 'yyyymmdd_HHMMSS'));
-            end
-            [filepath, ~, ~] = fileparts(filename);
-            if ~exist(filepath, 'dir')
-                mkdir(filepath);
-            end
+            % 保存智能体模型
+            save_data = struct();
             save_data.Q_table = obj.Q_table;
             save_data.visit_count = obj.visit_count;
             save_data.name = obj.name;
-            save_data.agent_type = obj.agent_type;
             save_data.update_count = obj.update_count;
+            save_data.lr_scheduler = obj.lr_scheduler;
             save(filename, 'save_data');
         end
         
         function load(obj, filename)
+            % 加载智能体模型
             if exist(filename, 'file')
                 load_data = load(filename);
                 save_data = load_data.save_data;
@@ -385,40 +358,12 @@ classdef SARSAAgent < RLAgent
                 obj.visit_count = save_data.visit_count;
                 obj.name = save_data.name;
                 obj.update_count = save_data.update_count;
+                if isfield(save_data, 'lr_scheduler')
+                    obj.lr_scheduler = save_data.lr_scheduler;
+                end
             else
                 error('模型文件不存在: %s', filename);
             end
-        end
-         function prob = softmax(x)
-            % 计算softmax概率分布
-            exp_x = exp(x - max(x));  % 数值稳定性
-            prob = exp_x / sum(exp_x);
-         end
-
-        function action_vec = convertToStationActions(obj, q_values, n_stations)
-            % 将Q值向量转换为每个站点的资源类型动作
-            n_resource_types = obj.action_dim / n_stations;
-            action_vec = zeros(1, n_stations);
-            for s = 1:n_stations
-                idx_start = (s-1)*n_resource_types + 1;
-                idx_end = s*n_resource_types;
-                [~, best_resource] = max(q_values(idx_start:idx_end));
-                action_vec(s) = best_resource;
-            end
-        end
-
-        function state_idx = encodeState(obj, state)
-            % 将状态向量编码为索引（与QLearningAgent一致）
-            if isempty(state) || ~isnumeric(state)
-                state_idx = 1;
-                return;
-            end
-            state = double(state(:));
-            state(isnan(state)) = 0;
-            state(isinf(state)) = 0;
-            % 简单哈希
-            state_idx = mod(sum(state .* (1:numel(state))), obj.state_dim) + 1;
-            state_idx = max(1, min(obj.state_dim, round(state_idx))); % 保证索引有效
         end
     end
 end

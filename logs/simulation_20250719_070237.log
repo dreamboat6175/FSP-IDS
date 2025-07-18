@@ -1,0 +1,5 @@
+[2025-07-19 07:02:37] [INFO] 日志系统初始化完成
+[2025-07-19 07:02:37] [INFO] FSP-TCS仿真开始
+[2025-07-19 07:02:37] [ERROR] 仿真出错: 不能在类 'QLearningAgent' 中定义属性 'update_count'，因为已在超类 'RLAgent' 中定义该属性。
+[2025-07-19 07:02:37] [ERROR] 错误位置: D:\CODE\FSP-IDS\utils\AgentFactory.m, 行号: 9
+[2025-07-19 07:02:37] [INFO] 日志系统关闭

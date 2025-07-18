@@ -10,8 +10,6 @@ classdef QLearningAgent < RLAgent
         Q_table          % Q值表
         visit_count      % 状态-动作访问计数
         lr_scheduler     % 学习率调度器
-        use_softmax      % 是否使用softmax策略选择
-        update_count     % 更新次数计数器
         strategy_history     % 策略历史记录
         performance_history  % 性能历史记录
         parameter_history    % 参数历史记录
@@ -64,8 +62,7 @@ classdef QLearningAgent < RLAgent
             obj.lr_scheduler.decay_rate = 0.99;
             
             % 初始化新添加的属性
-            obj.use_softmax = false;     % 默认使用epsilon-greedy
-            obj.update_count = 0;        % 初始化更新计数器
+            % obj.use_softmax = false;     % 默认使用epsilon-greedy
             
             % 确保基类属性有默认值
             if isempty(obj.epsilon_min)
@@ -552,7 +549,7 @@ classdef QLearningAgent < RLAgent
         end
     end
     
-    methods (Access = private)
+    methods
         function state_idx = encodeState(obj, state)
             % 将状态向量编码为索引
             
@@ -594,6 +591,9 @@ classdef QLearningAgent < RLAgent
                 state_idx = 1;
             end
         end
+    end
+    
+    methods (Access = private)
         
         function lr = getCurrentLearningRate(obj, state_idx, action_idx)
             % 获取当前学习率（可以基于访问次数自适应）

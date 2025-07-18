@@ -3,15 +3,14 @@
 classdef DoubleQLearningAgent < RLAgent
     
     properties
-        Q1_table      % 第一个Q表
-        Q2_table      % 第二个Q表
-        Q_table       % 兼容性Q表（两个Q表的平均）
-        visit_count   % 访问计数
-        use_softmax   % 是否使用softmax
-        update_count  % 更新计数
-        strategy_history
-        performance_history
-        parameter_history
+        Q_table_A        % 第一个Q值表
+        Q_table_B        % 第二个Q值表
+        Q_table          % 兼容性Q表（两个Q表的平均）
+        visit_count      % 状态-动作访问计数
+        lr_scheduler     % 学习率调度器
+        strategy_history     % 策略历史记录
+        performance_history  % 性能历史记录
+        parameter_history    % 参数历史记录
     end
     
     methods
@@ -20,16 +19,16 @@ classdef DoubleQLearningAgent < RLAgent
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
             % 初始化两个Q表
-            obj.Q1_table = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
-            obj.Q2_table = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
+            obj.Q_table_A = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
+            obj.Q_table_B = zeros(state_dim, action_dim) + randn(state_dim, action_dim) * 0.01;
             
             % 初始化兼容性Q表
-            obj.Q_table = (obj.Q1_table + obj.Q2_table) / 2;
+            obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
             
-            % 其他属性
-            obj.visit_count = zeros(state_dim, action_dim);
-            obj.use_softmax = false;
-            obj.update_count = 0;
+            % 初始化新添加的属性
+            % obj.use_softmax = false;     % 默认使用epsilon-greedy
+            
+            % 确保基类属性有默认值
             obj.strategy_history = [];
             obj.performance_history = struct();
             obj.parameter_history = struct();
@@ -90,16 +89,16 @@ classdef DoubleQLearningAgent < RLAgent
                 end
                 
             catch ME
-                warning('DoubleQLearningAgent.selectAction 出错: %s', ME.message);
+                warning(ME.identifier, 'DoubleQLearningAgent.selectAction 出错: %s', ME.message);
                 action_vec = ones(1, obj.action_dim) / obj.action_dim;
             end
-            if strcmp(obj.agent_type, 'defender') && length(action) > 1
-                obj.strategy_history(end+1, :) = action;
+            if strcmp(obj.agent_type, 'defender') && length(action_vec) > 1
+                obj.strategy_history(end+1, :) = action_vec;
             end
             
             obj.parameter_history.learning_rate(end+1) = obj.learning_rate;
             obj.parameter_history.epsilon(end+1) = obj.epsilon;
-            obj.parameter_history.q_values(end+1) = mean((obj.Q1_table(:) + obj.Q2_table(:))/2);
+            obj.parameter_history.q_values(end+1) = mean((obj.Q_table_A(:) + obj.Q_table_B(:))/2);
         end
         
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
@@ -133,16 +132,16 @@ classdef DoubleQLearningAgent < RLAgent
                 % Double Q-Learning更新
                 if rand() < 0.5
                     % 更新Q1，使用Q2来选择动作
-                    [~, best_action] = max(obj.Q1_table(next_state_idx, :));
-                    target = reward + obj.discount_factor * obj.Q2_table(next_state_idx, best_action);
-                    td_error = target - obj.Q1_table(state_idx, action_idx);
-                    obj.Q1_table(state_idx, action_idx) = obj.Q1_table(state_idx, action_idx) + obj.learning_rate * td_error;
+                    [~, best_action] = max(obj.Q_table_A(next_state_idx, :));
+                    target = reward + obj.discount_factor * obj.Q_table_B(next_state_idx, best_action);
+                    td_error = target - obj.Q_table_A(state_idx, action_idx);
+                    obj.Q_table_A(state_idx, action_idx) = obj.Q_table_A(state_idx, action_idx) + obj.learning_rate * td_error;
                 else
                     % 更新Q2，使用Q1来选择动作
-                    [~, best_action] = max(obj.Q2_table(next_state_idx, :));
-                    target = reward + obj.discount_factor * obj.Q1_table(next_state_idx, best_action);
-                    td_error = target - obj.Q2_table(state_idx, action_idx);
-                    obj.Q2_table(state_idx, action_idx) = obj.Q2_table(state_idx, action_idx) + obj.learning_rate * td_error;
+                    [~, best_action] = max(obj.Q_table_B(next_state_idx, :));
+                    target = reward + obj.discount_factor * obj.Q_table_A(next_state_idx, best_action);
+                    td_error = target - obj.Q_table_B(state_idx, action_idx);
+                    obj.Q_table_B(state_idx, action_idx) = obj.Q_table_B(state_idx, action_idx) + obj.learning_rate * td_error;
                 end
                 
                 % 更新访问计数
@@ -153,7 +152,7 @@ classdef DoubleQLearningAgent < RLAgent
                 obj.updateQTableProperty();
                 
             catch ME
-                warning('DoubleQLearningAgent.update 出错: %s', ME.message);
+                warning(ME.identifier, 'DoubleQLearningAgent.update 出错: %s', ME.message);
             end
             obj.recordPerformance(reward, td_error);
         end
@@ -161,12 +160,12 @@ classdef DoubleQLearningAgent < RLAgent
         function updateQTableProperty(obj)
             % 更新兼容性Q_table属性
             try
-                if ~isempty(obj.Q1_table) && ~isempty(obj.Q2_table)
-                    obj.Q_table = (obj.Q1_table + obj.Q2_table) / 2;
-                elseif ~isempty(obj.Q1_table)
-                    obj.Q_table = obj.Q1_table;
-                elseif ~isempty(obj.Q2_table)
-                    obj.Q_table = obj.Q2_table;
+                if ~isempty(obj.Q_table_A) && ~isempty(obj.Q_table_B)
+                    obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
+                elseif ~isempty(obj.Q_table_A)
+                    obj.Q_table = obj.Q_table_A;
+                elseif ~isempty(obj.Q_table_B)
+                    obj.Q_table = obj.Q_table_B;
                 else
                     obj.Q_table = zeros(obj.state_dim, obj.action_dim);
                 end
@@ -213,7 +212,7 @@ classdef DoubleQLearningAgent < RLAgent
                 end
                 
             catch ME
-                warning('DoubleQLearningAgent.getPolicy 出错: %s', ME.message);
+                warning(ME.identifier, 'DoubleQLearningAgent.getPolicy 出错: %s', ME.message);
                 policy = ones(1, obj.action_dim) / obj.action_dim;
             end
         end
@@ -243,10 +242,10 @@ classdef DoubleQLearningAgent < RLAgent
                 end
                 
                 % Double Q特有统计
-                if ~isempty(obj.Q1_table) && ~isempty(obj.Q2_table)
-                    stats.q1_avg = mean(obj.Q1_table(:));
-                    stats.q2_avg = mean(obj.Q2_table(:));
-                    stats.q_difference = mean(abs(obj.Q1_table(:) - obj.Q2_table(:)));
+                if ~isempty(obj.Q_table_A) && ~isempty(obj.Q_table_B)
+                    stats.q1_avg = mean(obj.Q_table_A(:));
+                    stats.q2_avg = mean(obj.Q_table_B(:));
+                    stats.q_difference = mean(abs(obj.Q_table_A(:) - obj.Q_table_B(:)));
                 end
                 
                 % 学习参数
@@ -265,7 +264,7 @@ classdef DoubleQLearningAgent < RLAgent
                 end
                 
             catch ME
-                warning('DoubleQLearningAgent.getStatistics 出错: %s', ME.message);
+                warning(ME.identifier, 'DoubleQLearningAgent.getStatistics 出错: %s', ME.message);
                 stats = struct('name', obj.name, 'agent_type', obj.agent_type, 'update_count', 0);
             end
         end
@@ -299,8 +298,8 @@ classdef DoubleQLearningAgent < RLAgent
                     mkdir(filepath);
                 end
                 
-                save_data.Q1_table = obj.Q1_table;
-                save_data.Q2_table = obj.Q2_table;
+                save_data.Q_table_A = obj.Q_table_A;
+                save_data.Q_table_B = obj.Q_table_B;
                 save_data.Q_table = obj.Q_table;
                 save_data.visit_count = obj.visit_count;
                 save_data.name = obj.name;
@@ -320,8 +319,8 @@ classdef DoubleQLearningAgent < RLAgent
                     load_data = load(filename);
                     save_data = load_data.save_data;
                     
-                    obj.Q1_table = save_data.Q1_table;
-                    obj.Q2_table = save_data.Q2_table;
+                    obj.Q_table_A = save_data.Q_table_A;
+                    obj.Q_table_B = save_data.Q_table_B;
                     if isfield(save_data, 'Q_table')
                         obj.Q_table = save_data.Q_table;
                     else

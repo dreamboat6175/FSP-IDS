@@ -1,0 +1,5 @@
+[2025-07-19 07:08:30] [INFO] 日志系统初始化完成
+[2025-07-19 07:08:30] [INFO] FSP-TCS仿真开始
+[2025-07-19 07:08:30] [ERROR] 仿真出错: 类 'QLearningAgent' 中的方法 'encodeState' 和其超类 'RLAgent'中的方法使用不同的访问权限。请将 'encodeState' 访问权限设置为 'public' 以匹配超类。
+[2025-07-19 07:08:30] [ERROR] 错误位置: D:\CODE\FSP-IDS\utils\AgentFactory.m, 行号: 9
+[2025-07-19 07:08:30] [INFO] 日志系统关闭
