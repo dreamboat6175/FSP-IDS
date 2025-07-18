@@ -182,49 +182,49 @@ function episode_data = runSingleEpisode(environment, attacker, defender, initia
     episode_data.states = [];
     episode_data.actions = struct('attacker', [], 'defender', []);
     episode_data.rewards = struct('attacker', [], 'defender', []);
-    episode_data.episode_reward = struct('attacker', 0, 'defender', 0);
     episode_data.attack_success = [];
-    episode_data.detection_success = [];
+    episode_data.detection_success = [];  % 修复：初始化检测成功数组
     episode_data.damages = [];
+    episode_data.episode_reward = struct('attacker', 0, 'defender', 0);
     
     for step = 1:config.max_steps_per_episode
-        % 智能体选择动作
-        attacker_action = attacker.selectAction(state);
-        defender_action_raw = defender.selectAction(state);
+        % 选择动作
+        def_action_raw = defender.selectAction(state);
+        def_action = environment.parseDefenderAction(def_action_raw); % 保证长度为 n_stations
+        att_action = attacker.selectAction(state);
         
-        % 保证传给环境的是向量
-        defender_action = defender_action_raw;
-        if isscalar(defender_action_raw)
-            defender_action = environment.parseDefenderAction(defender_action_raw);
+        % 执行步骤
+        [next_state, reward_def, reward_att, info] = environment.step(def_action, att_action);
+
+        episode_data.states(end+1, :) = state;
+        episode_data.actions.defender(end+1, :) = def_action;
+        episode_data.actions.attacker(end+1) = att_action;
+        episode_data.rewards.defender(end+1) = reward_def;
+        episode_data.rewards.attacker(end+1) = reward_att;
+        episode_data.attack_success(end+1) = info.attack_success;
+        episode_data.damages(end+1) = info.damage;
+        
+        % 修复：正确记录检测结果
+        if isfield(info, 'detection_result') && isfield(info.detection_result, 'detected')
+            episode_data.detection_success(end+1) = info.detection_result.detected;
+        else
+            episode_data.detection_success(end+1) = 0;
         end
         
-        % 环境执行动作
-        [next_state, reward_def, reward_att, info] = environment.step(defender_action, attacker_action);
+        % 更新智能体
+        attacker.update(state, att_action, reward_att, next_state, []);
+        defender.update(state, def_action_raw, reward_def, next_state, []);
         
-        % 记录数据
-        episode_data.states = [episode_data.states; state];
-        episode_data.actions.attacker = [episode_data.actions.attacker; attacker_action];
-        episode_data.actions.defender = [episode_data.actions.defender; defender_action];
-        episode_data.rewards.attacker = [episode_data.rewards.attacker; reward_att];
-        episode_data.rewards.defender = [episode_data.rewards.defender; reward_def];
-        
-        % 记录攻击和检测结果
-        episode_data.attack_success = [episode_data.attack_success; info.attack_success];
-        % episode_data.detection_success = [episode_data.detection_success; info.detection_success];
-        episode_data.damages = [episode_data.damages; info.damage];
-        
-        % 累计奖励
-        episode_data.episode_reward.attacker = episode_data.episode_reward.attacker + reward_att;
-        episode_data.episode_reward.defender = episode_data.episode_reward.defender + reward_def;
-        
-        % 智能体学习
-        attacker.update(state, attacker_action, reward_att, next_state, []);
-        defender.update(state, defender_action_raw, reward_def, next_state, []);
-        
-        % 状态转移
         state = next_state;
+        
+        % 终止条件：如有需要可根据最大步数或info自定义字段判断
     end
+    
+    % 计算episode总奖励
+    episode_data.episode_reward.attacker = sum(episode_data.rewards.attacker);
+    episode_data.episode_reward.defender = sum(episode_data.rewards.defender);
 end
+
 
 function monitor = updateMonitor(monitor, episode_data, environment)
     % 更新监控器数据
@@ -232,7 +232,24 @@ function monitor = updateMonitor(monitor, episode_data, environment)
     monitor.radi_history(end+1) = environment.radi_score;
     monitor.damage_history(end+1) = mean(episode_data.damages);
     monitor.success_rate_history(end+1) = mean(episode_data.attack_success);
-    monitor.detection_rate_history(end+1) = mean(episode_data.detection_success);
+    
+    % 修复：正确计算检测率
+    if isfield(episode_data, 'detection_success') && ~isempty(episode_data.detection_success)
+        % 只在有成功攻击时计算检测率
+        attack_indices = find(episode_data.attack_success);
+        if ~isempty(attack_indices)
+            % 计算成功攻击中被检测到的比例
+            detected_attacks = episode_data.detection_success(attack_indices);
+            detection_rate = mean(detected_attacks);
+        else
+            % 没有成功攻击时，检测率设为0
+            detection_rate = 0;
+        end
+    else
+        detection_rate = 0;
+    end
+    
+    monitor.detection_rate_history(end+1) = detection_rate;
     monitor.episode_rewards(end+1, :) = [episode_data.episode_reward.attacker, ...
                                          episode_data.episode_reward.defender];
 end
@@ -258,11 +275,18 @@ function displayDetailedProgress(episode, agents, monitors, config, logger)
             logger.info(sprintf('防御策略: [%s]', num2str(def_strategy, '%.3f ')));
         end
         
-        % 性能指标
+        % 性能指标（修复：正确显示检测率）
         logger.info(sprintf('RADI: %.3f', monitors{i}.radi_history(end)));
         logger.info(sprintf('Damage: %.3f', monitors{i}.damage_history(end)));
         logger.info(sprintf('Success Rate: %.3f', monitors{i}.success_rate_history(end)));
-        logger.info(sprintf('Detection Rate: %.3f', monitors{i}.detection_rate_history(end)));
+        
+        % 修复：检查检测率是否为NaN并处理
+        detection_rate = monitors{i}.detection_rate_history(end);
+        if isnan(detection_rate)
+            logger.info('Detection Rate: 0.000 (无攻击)');
+        else
+            logger.info(sprintf('Detection Rate: %.3f', detection_rate));
+        end
     end
     
     logger.info('================================\n');
