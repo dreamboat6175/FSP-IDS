@@ -335,64 +335,7 @@ classdef TCSEnvironment < handle
             detection_result = struct('detected', false, 'detection_prob', 0, 'is_false_positive', false);
             [reward_def, reward_att] = obj.computeRewards(attack_success, damage, attacker_target, ...
                                                          defender_deployment, detection_result);
-        end
-        
-        %% === 环境内部的Q-Learning方法（用于baseline比较） ===
-        
-        function action = selectAttackerActionBaseline(obj, defender_deployment)
-            %SELECTATTACKERACTIONBASELINE 环境内置的攻击者动作选择（仅用于baseline）
-            % 注意：这是环境内部方法，不应该在正常训练中使用
-            
-            if rand() < obj.attacker_epsilon
-                % 探索：基于价值的随机选择
-                weights = obj.station_values / sum(obj.station_values);
-                action = obj.weightedRandomChoice(weights);
-            else
-                % 利用：基于Q值选择
-                state_idx = obj.encodeDefenderState(defender_deployment);
-                q_values = obj.attacker_Q_table(state_idx, :);
-                [~, action] = max(q_values);
-            end
-        end
-        
-        function deployment = computeDefenderBestResponseBaseline(obj)
-            %COMPUTEDEFENDERBESTRESPONSEBASELINE 环境内置的防御者最佳响应（仅用于baseline）
-            % 注意：这是环境内部方法，不应该在正常训练中使用
-            
-            % 基于威胁感知的简单最佳响应
-            threat_weights = obj.attacker_avg_strategy .* obj.station_values;
-            if sum(threat_weights) > 0
-                weights = threat_weights / sum(threat_weights);
-            else
-                weights = ones(1, obj.n_stations) / obj.n_stations;
-            end
-            
-            deployment = weights * obj.total_resources;
-        end
-        
-        function updateAttackerQBaseline(obj, defender_deployment, action, reward)
-            %UPDATEATTACKERQBASELINE 更新环境内置的Q表（仅用于baseline）
-            % 注意：这是环境内部方法，不应该在正常训练中使用
-            
-            state_idx = obj.encodeDefenderState(defender_deployment);
-            state_idx = min(max(state_idx, 1), obj.max_defense_states);
-            action = min(max(action, 1), obj.n_stations);
-            
-            % Q-learning更新
-            current_q = obj.attacker_Q_table(state_idx, action);
-            max_next_q = max(obj.attacker_Q_table(state_idx, :));
-            
-            td_target = reward + obj.attacker_gamma * max_next_q;
-            td_error = td_target - current_q;
-            
-            obj.attacker_Q_table(state_idx, action) = current_q + obj.attacker_lr * td_error;
-            
-            % 探索率衰减
-            if obj.time_step > 100
-                obj.attacker_epsilon = max(obj.attacker_epsilon_min, ...
-                                          obj.attacker_epsilon * obj.attacker_epsilon_decay);
-            end
-        end
+        end 
     end
     
     methods (Access = private)

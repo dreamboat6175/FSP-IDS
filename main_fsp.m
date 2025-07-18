@@ -1,721 +1,440 @@
-function enhanced_main_fsp()
-    % FSP-TCS框架主函数 - 多智能体版本
-    
-    clc; clear; close all;
-    
-    % 添加路径
-    addpath(genpath(pwd));
-    
-    % 初始化日志系统
-    log_file = fullfile(pwd, 'logs', ['simulation_' datestr(now, 'yyyymmdd_HHMMSS') '.log']);
-    logger = FSPLogger(log_file, 'INFO');
+%% main_fsp_simulation_optimized.m - 优化后的主仿真程序
+% =========================================================================
+% 描述: 使用集中化配置管理的FSP-TCS主仿真程序
+% 版本: v2.0 - 优化版，展示参数集中管理
+% =========================================================================
+
+function main_fsp_simulation_optimized()
+    % FSP-TCS主仿真程序
     
     try
-        logger.info('FSP-TCS多智能体仿真开始');
+        %% === 1. 系统初始化 ===
+        fprintf('\n=== FSP-TCS 智能防御系统仿真 v2.0 ===\n');
+        fprintf('正在初始化系统...\n\n');
         
-        % 创建配置
-        config = createMultiAgentConfiguration();
+        % 加载配置 - 所有参数都在ConfigManager中管理
+        config = ConfigManager.loadConfig();  % 使用默认配置
+        % config = ConfigManager.getOptimizedConfig();  % 或使用优化配置
+        % config = ConfigManager.getTestConfig();       % 或使用测试配置
         
-        % 创建环境
-        environment = TCSEnvironment(config);
+        % 显示配置摘要
+        ConfigManager.displayConfigSummary(config);
         
-        % 创建多个防御智能体
-        agents = createMultipleAgents(environment, config);
+        % 初始化日志系统
+        Logger.initialize(config.output.log_file);
+        Logger.info('FSP-TCS仿真开始');
         
-        % 创建性能监控器（每个防御者一个）
-        monitors = createMultipleMonitors(config);
+        % 设置随机种子以确保可重现性
+        if isfield(config, 'random_seed')
+            rng(config.random_seed);
+            Logger.info(sprintf('随机种子设置为: %d', config.random_seed));
+        end
         
-        % 运行仿真
-        results = runMultiAgentSimulation(environment, agents, monitors, config, logger);
+        %% === 2. 环境和智能体初始化 ===
+        fprintf('正在创建环境和智能体...\n');
         
-        % 生成增强版报告
-        generateEnhancedReport(results, config, logger);
+        % 创建环境 - 使用配置中的参数
+        env = TCSEnvironment(config);
+        Logger.info('TCS环境创建完成');
         
-        logger.info('FSP-TCS多智能体仿真成功完成');
+        % 创建智能体 - AgentFactory使用配置参数
+        defender_agents = AgentFactory.createDefenderAgents(config, env);
+        attacker_agent = AgentFactory.createAttackerAgent(config, env);
+        Logger.info(sprintf('智能体创建完成: %d个防御者, 1个攻击者', length(defender_agents)));
+        
+        % 创建性能监控器 - 使用配置中的监控参数
+        monitor = PerformanceMonitor(config.n_iterations, length(defender_agents), config);
+        Logger.info('性能监控器初始化完成');
+        
+        %% === 3. FSP仿真主循环 ===
+        fprintf('开始FSP仿真训练...\n');
+        
+        % 初始化结果存储
+        results = initializeResults(config, length(defender_agents));
+        
+        % 仿真主循环
+        for iteration = 1:config.n_iterations
+            tic;
+            
+            % 运行一轮episodes
+            episode_results = FSPSimulator.runEpisodes(env, defender_agents, attacker_agent, config);
+            
+            % 记录结果
+            results = recordIterationResults(results, episode_results, iteration);
+            
+            % 更新性能监控
+            updatePerformanceMonitor(monitor, iteration, episode_results, config);
+            
+            % 动态更新学习参数
+            if mod(iteration, config.performance.param_update_interval) == 0
+                config = ConfigManager.updateLearningParameters(config, iteration);
+                updateAgentParameters(defender_agents, attacker_agent, config);
+            end
+            
+            % 显示进度和保存检查点
+            iteration_time = toc;
+            handleIterationOutput(iteration, config, iteration_time, episode_results);
+            
+            if mod(iteration, config.output.checkpoint_interval) == 0 && config.output.save_checkpoints
+                saveCheckpoint(defender_agents, attacker_agent, results, iteration, config);
+            end
+        end
+        
+        %% === 4. 结果分析和可视化 ===
+        fprintf('\n仿真完成，正在生成分析报告...\n');
+        
+        % 保存最终结果
+        DataManager.saveResults(results, config);
+        Logger.info('仿真结果已保存');
+        
+        % 生成可视化报告 - 使用EnhancedVisualization的集中配置
+        if config.output.visualization
+            visualization = EnhancedVisualization(results, config, env);
+            visualization.generateCompleteReport();
+            Logger.info('可视化报告生成完成');
+        end
+        
+        % 生成文本报告
+        if config.output.generate_report
+            ReportGenerator.generateTextReport(results, config, monitor);
+            Logger.info('文本报告生成完成');
+        end
+        
+        %% === 5. 系统清理 ===
+        fprintf('\n=== 仿真完成 ===\n');
+        printFinalSummary(results, config);
+        
+        Logger.info('FSP-TCS仿真成功完成');
+        Logger.close();
         
     catch ME
-        logger.error(sprintf('仿真出错: %s', ME.message));
-        logger.error(sprintf('错误位置: %s', ME.stack(1).file));
+        % 错误处理
+        fprintf('\n❌ 仿真过程中发生错误:\n');
+        fprintf('错误信息: %s\n', ME.message);
+        fprintf('错误位置: %s, 行号: %d\n', ME.stack(1).file, ME.stack(1).line);
+        
+        if exist('Logger', 'class')
+            Logger.error(sprintf('仿真出错: %s', ME.message));
+            Logger.error(sprintf('错误位置: %s, 行号: %d', ME.stack(1).file, ME.stack(1).line));
+            Logger.close();
+        end
+        
         rethrow(ME);
     end
 end
 
-function config = createMultiAgentConfiguration()
-    % 创建多智能体配置
-    config = struct();
-    
-    % === 基础环境参数 ===
-    config.n_stations = 10;
-    config.n_components_per_station = repmat(5, 1, 10);
-    config.total_resources = 100;
-    config.random_seed = 42;
-    
-    % === 站点价值设置 ===
-    config.station_values = [0.094, 0.070, 0.222, 0.058, 0.082, 0.117, 0.070, 0.094, 0.082, 0.111];
-    [~, config.highest_value_station] = max(config.station_values);  % 找出最高价值站点
-    
-    % === 初始策略设置 ===
-    config.initial_defense_strategy = 'random';  % 防守资源随机分配
-    config.initial_attack_strategy = 'focused';   % 攻击集中在最高价值站点
-    config.attack_focus_ratio = 0.8;              % 80%攻击资源集中在最高价值站点
-    
-    % === 仿真参数 ===
-    config.n_episodes = 1000;  % 增加到1000轮
-    config.max_steps_per_episode = 100;
-    config.convergence_threshold = 0.01;
-    config.performance_check_interval = 50;
-    
-    % === 多防御智能体配置 ===
-    config.defender_types = {'QLearning', 'SARSA', 'DoubleQLearning'};
-    config.n_defenders = length(config.defender_types);
-    
-    % === 智能体配置 ===
-    config.agents = struct();
-    
-    % 攻击者智能体（共享）
-    config.agents.attacker = struct();
-    config.agents.attacker.type = 'QLearning';
-    config.agents.attacker.learning_rate = 0.1;
-    config.agents.attacker.discount_factor = 0.95;
-    config.agents.attacker.epsilon = 0.3;
-    config.agents.attacker.epsilon_decay = 0.995;
-    config.agents.attacker.epsilon_min = 0.01;
-    
-    % 防御者智能体（多个）
-    config.agents.defenders = {};
-    for i = 1:config.n_defenders
-        config.agents.defenders{i} = struct();
-        config.agents.defenders{i}.type = config.defender_types{i};
-        config.agents.defenders{i}.learning_rate = 0.05;
-        config.agents.defenders{i}.discount_factor = 0.95;
-        config.agents.defenders{i}.epsilon = 0.3;
-        config.agents.defenders{i}.epsilon_decay = 0.995;
-        config.agents.defenders{i}.epsilon_min = 0.01;
-    end
-    
-    % === 其他配置 ===
-    config.resource_types = {'cpu', 'memory', 'network', 'storage', 'security'};
-    config.attack_types = {'dos', 'intrusion', 'malware', 'social', 'physical', 'cyber'};
-    config.n_resource_types = length(config.resource_types);
-    config.n_attack_types = length(config.attack_types);
-    
-    % === 输出配置 ===
-    config.output = struct();
-    config.output.save_models = true;
-    config.output.generate_plots = true;
-    config.output.save_data = true;
-    config.output.results_dir = fullfile(pwd, 'results');
-    config.output.verbose = true; % 详细输出
-    
-    if ~exist(config.output.results_dir, 'dir')
-        mkdir(config.output.results_dir);
-    end
-end
+%% === 辅助函数 ===
 
-function agents = createMultipleAgents(environment, config)
-    % 创建多个智能体
-    
-    % 创建攻击者智能体（共享）
-    agents.attacker = AgentFactory.createAttackerAgent(config, environment);
-    
-    % 创建多个防御者智能体
-    agents.defenders = AgentFactory.createDefenderAgents(config, environment);
-end
-
-function monitors = createMultipleMonitors(config)
-    % 为每个防御者创建监控器
-    
-    monitors = {};
-    for i = 1:config.n_defenders
-        monitors{i} = struct();
-        monitors{i}.name = config.defender_types{i};
-        monitors{i}.radi_history = [];
-        monitors{i}.damage_history = [];
-        monitors{i}.success_rate_history = [];
-        monitors{i}.detection_rate_history = [];
-        monitors{i}.episode_rewards = [];
-    end
-end
-
-function results = runMultiAgentSimulation(environment, agents, monitors, config, logger)
-    % 运行多智能体仿真
-    
-    results = initializeMultiAgentResults(config);
-    
-    for episode = 1:config.n_episodes
-        % 为每个防御者运行episode
-        episode_results = {};
-        
-        for def_idx = 1:config.n_defenders
-            % 重置环境
-            state = environment.reset();
-            
-            % 运行单个episode
-            episode_data = runSingleEpisode(environment, agents.attacker, ...
-                                           agents.defenders{def_idx}, state, config);
-            
-            % 更新监控器
-            monitors{def_idx} = updateMonitor(monitors{def_idx}, episode_data, environment);
-            
-            % 存储episode结果
-            episode_results{def_idx} = episode_data;
-        end
-        
-        % 更新结果
-        results = updateMultiAgentResults(results, episode_results, monitors, episode);
-        
-        % 定期输出详细信息
-        if mod(episode, config.performance_check_interval) == 0
-            displayDetailedProgress(episode, agents, monitors, config, logger);
-        end
-    end
-    
-    % 最终处理
-    results = finalizeResults(results, monitors, agents, config);
-end
-
-function episode_data = runSingleEpisode(environment, attacker, defender, initial_state, config)
-    % 运行单个episode
-    
-    state = initial_state;
-    episode_data = struct();
-    episode_data.states = [];
-    episode_data.actions = struct('attacker', [], 'defender', []);
-    episode_data.rewards = struct('attacker', [], 'defender', []);
-    episode_data.attack_success = [];
-    episode_data.detection_success = [];  % 修复：初始化检测成功数组
-    episode_data.damages = [];
-    episode_data.episode_reward = struct('attacker', 0, 'defender', 0);
-    
-    for step = 1:config.max_steps_per_episode
-        % 选择动作
-        def_action_raw = defender.selectAction(state);
-        def_action = environment.parseDefenderAction(def_action_raw); % 保证长度为 n_stations
-        att_action = attacker.selectAction(state);
-        
-        % 执行步骤
-        [next_state, reward_def, reward_att, info] = environment.step(def_action, att_action);
-
-        episode_data.states(end+1, :) = state;
-        episode_data.actions.defender(end+1, :) = def_action;
-        episode_data.actions.attacker(end+1) = att_action;
-        episode_data.rewards.defender(end+1) = reward_def;
-        episode_data.rewards.attacker(end+1) = reward_att;
-        episode_data.attack_success(end+1) = info.attack_success;
-        episode_data.damages(end+1) = info.damage;
-        
-        % 修复：正确记录检测结果
-        if isfield(info, 'detection_result') && isfield(info.detection_result, 'detected')
-            episode_data.detection_success(end+1) = info.detection_result.detected;
-        else
-            episode_data.detection_success(end+1) = 0;
-        end
-        
-        % 更新智能体
-        attacker.update(state, att_action, reward_att, next_state, []);
-        defender.update(state, def_action_raw, reward_def, next_state, []);
-        
-        state = next_state;
-        
-        % 终止条件：如有需要可根据最大步数或info自定义字段判断
-    end
-    
-    % 计算episode总奖励
-    episode_data.episode_reward.attacker = sum(episode_data.rewards.attacker);
-    episode_data.episode_reward.defender = sum(episode_data.rewards.defender);
-end
-
-
-function monitor = updateMonitor(monitor, episode_data, environment)
-    % 更新监控器数据
-    
-    monitor.radi_history(end+1) = environment.radi_score;
-    monitor.damage_history(end+1) = mean(episode_data.damages);
-    monitor.success_rate_history(end+1) = mean(episode_data.attack_success);
-    
-    % 修复：正确计算检测率
-    if isfield(episode_data, 'detection_success') && ~isempty(episode_data.detection_success)
-        % 只在有成功攻击时计算检测率
-        attack_indices = find(episode_data.attack_success);
-        if ~isempty(attack_indices)
-            % 计算成功攻击中被检测到的比例
-            detected_attacks = episode_data.detection_success(attack_indices);
-            detection_rate = mean(detected_attacks);
-        else
-            % 没有成功攻击时，检测率设为0
-            detection_rate = 0;
-        end
-    else
-        detection_rate = 0;
-    end
-    
-    monitor.detection_rate_history(end+1) = detection_rate;
-    monitor.episode_rewards(end+1, :) = [episode_data.episode_reward.attacker, ...
-                                         episode_data.episode_reward.defender];
-end
-
-function displayDetailedProgress(episode, agents, monitors, config, logger)
-    % 显示详细的进度信息
-    
-    logger.info(sprintf('\n========== Episode %d ==========', episode));
-    
-    % 显示攻击者策略
-    if ismethod(agents.attacker, 'getStrategy')
-        att_strategy = agents.attacker.getStrategy();
-        logger.info(sprintf('攻击者策略: [%s]', num2str(att_strategy, '%.3f ')));
-    end
-    
-    % 显示每个防御者的信息
-    for i = 1:config.n_defenders
-        logger.info(sprintf('\n--- %s 防御者 ---', config.defender_types{i}));
-        
-        % 防御策略
-        if ismethod(agents.defenders{i}, 'getStrategy')
-            def_strategy = agents.defenders{i}.getStrategy();
-            logger.info(sprintf('防御策略: [%s]', num2str(def_strategy, '%.3f ')));
-        end
-        
-        % 性能指标（修复：正确显示检测率）
-        logger.info(sprintf('RADI: %.3f', monitors{i}.radi_history(end)));
-        logger.info(sprintf('Damage: %.3f', monitors{i}.damage_history(end)));
-        logger.info(sprintf('Success Rate: %.3f', monitors{i}.success_rate_history(end)));
-        
-        % 修复：检查检测率是否为NaN并处理
-        detection_rate = monitors{i}.detection_rate_history(end);
-        if isnan(detection_rate)
-            logger.info('Detection Rate: 0.000 (无攻击)');
-        else
-            logger.info(sprintf('Detection Rate: %.3f', detection_rate));
-        end
-    end
-    
-    logger.info('================================\n');
-end
-
-function results = initializeMultiAgentResults(config)
-    % 初始化多智能体结果结构
+function results = initializeResults(config, n_agents)
+    % 初始化结果存储结构
     
     results = struct();
     results.config = config;
-    results.episodes = [];
+    results.n_iterations = config.n_iterations;
+    results.n_agents = n_agents;
+    results.timestamp = datestr(now);
     
-    % 为每个防御者初始化结果
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        results.(name) = struct();
-        results.(name).radi_history = [];
-        results.(name).damage_history = [];
-        results.(name).success_rate_history = [];
-        results.(name).detection_rate_history = [];
-        results.(name).rewards = struct('attacker', [], 'defender', []);
-        results.(name).strategy_history = [];
+    % 性能指标历史
+    results.radi_history = zeros(config.n_iterations, n_agents);
+    results.success_rate_history = zeros(config.n_iterations, 1);
+    results.detection_rate_history = zeros(config.n_iterations, 1);
+    results.resource_efficiency = zeros(config.n_iterations, n_agents);
+    results.allocation_balance = zeros(config.n_iterations, n_agents);
+    
+    % 策略历史
+    results.attacker_strategy_history = zeros(config.n_iterations, config.n_stations);
+    results.defender_strategy_history = cell(n_agents, 1);
+    for i = 1:n_agents
+        results.defender_strategy_history{i} = zeros(config.n_iterations, config.n_stations);
     end
     
-    % 攻击者结果
-    results.attacker = struct();
-    results.attacker.strategy_history = [];
+    % 奖励历史
+    results.defender_rewards = zeros(config.n_iterations, n_agents);
+    results.attacker_rewards = zeros(config.n_iterations, 1);
+    
+    % 学习参数历史
+    results.epsilon_history = zeros(config.n_iterations, 1);
+    results.learning_rate_history = zeros(config.n_iterations, 1);
+    results.temperature_history = zeros(config.n_iterations, 1);
 end
 
-function results = updateMultiAgentResults(results, episode_results, monitors, episode)
-    % 更新多智能体结果
+function results = recordIterationResults(results, episode_results, iteration)
+    % 记录单次迭代的结果
     
-    results.episodes(end+1) = episode;
+    % 性能指标
+    results.radi_history(iteration, :) = episode_results.avg_radi;
+    results.success_rate_history(iteration) = mean([episode_results.attack_info{:}]);
+    results.resource_efficiency(iteration, :) = episode_results.avg_efficiency;
+    results.allocation_balance(iteration, :) = episode_results.avg_balance;
     
-    % 更新每个防御者的结果
-    for i = 1:length(monitors)
-        name = monitors{i}.name;
-        results.(name).radi_history = monitors{i}.radi_history;
-        results.(name).damage_history = monitors{i}.damage_history;
-        results.(name).success_rate_history = monitors{i}.success_rate_history;
-        results.(name).detection_rate_history = monitors{i}.detection_rate_history;
-        results.(name).rewards.attacker = [results.(name).rewards.attacker; ...
-                                           monitors{i}.episode_rewards(end, 1)];
-        results.(name).rewards.defender = [results.(name).rewards.defender; ...
-                                          monitors{i}.episode_rewards(end, 2)];
-    end
-end
-
-function results = finalizeResults(results, monitors, agents, config)
-    % 最终处理结果
+    % 奖励信息
+    results.defender_rewards(iteration, :) = episode_results.avg_defender_reward;
+    results.attacker_rewards(iteration) = episode_results.avg_attacker_reward;
     
-    % 计算最终指标
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        results.(name).final_radi = monitors{i}.radi_history(end);
-        results.(name).final_success_rate = mean(monitors{i}.success_rate_history(end-min(49,end-1):end));
-        results.(name).final_detection_rate = mean(monitors{i}.detection_rate_history(end-min(49,end-1):end));
-        results.(name).avg_damage = mean(monitors{i}.damage_history);
-    end
-end
-
-%% 增强版可视化报告生成
-function generateEnhancedReport(results, config, logger)
-    % 生成增强版报告
-    
-    logger.info('生成多智能体对比报告...');
-    
-    % 创建报告目录
-    report_dir = fullfile(pwd, 'reports', datestr(now, 'yyyymmdd_HHMMSS'));
-    if ~exist(report_dir, 'dir')
-        mkdir(report_dir);
+    % 策略信息
+    if isfield(episode_results, 'attacker_strategy')
+        results.attacker_strategy_history(iteration, :) = episode_results.attacker_strategy;
     end
     
-    % 1. 生成对比可视化
-    generateComparativeVisualization(results, config, report_dir);
-    
-    % 2. 生成性能对比表
-    generatePerformanceTable(results, config, report_dir);
-    
-    % 3. 生成详细文本报告
-    generateDetailedTextReport(results, config, report_dir);
-    
-    % 4. 保存完整数据
-    save(fullfile(report_dir, 'multi_agent_results.mat'), 'results');
-    
-    logger.info(sprintf('报告已保存到: %s', report_dir));
-end
-
-function generateComparativeVisualization(results, config, report_dir)
-    % 生成对比可视化
-    
-    figure('Position', [50 50 1800 1200], 'Name', '多智能体性能对比');
-    
-    episodes = results.episodes;
-    colors = {'b', 'r', 'g'};
-    markers = {'o', 's', '^'};
-    
-    % 1. RADI对比
-    subplot(3, 3, 1);
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        plot(episodes, results.(name).radi_history, ...
-             'Color', colors{i}, 'LineWidth', 2, ...
-             'DisplayName', name);
-    end
-    xlabel('Episode');
-    ylabel('RADI Score');
-    title('RADI演化对比');
-    legend('Location', 'best');
-    grid on;
-    
-    % 2. 损害对比
-    subplot(3, 3, 2);
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        plot(episodes, results.(name).damage_history, ...
-             'Color', colors{i}, 'LineWidth', 2, ...
-             'DisplayName', name);
-    end
-    xlabel('Episode');
-    ylabel('Average Damage');
-    title('平均损害对比');
-    legend('Location', 'best');
-    grid on;
-    
-    % 3. 攻击成功率对比
-    subplot(3, 3, 3);
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        plot(episodes, results.(name).success_rate_history * 100, ...
-             'Color', colors{i}, 'LineWidth', 2, ...
-             'DisplayName', name);
-    end
-    xlabel('Episode');
-    ylabel('Success Rate (%)');
-    title('攻击成功率对比');
-    legend('Location', 'best');
-    grid on;
-    ylim([0 100]);
-    
-    % 4. 检测率对比
-    subplot(3, 3, 4);
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        plot(episodes, results.(name).detection_rate_history * 100, ...
-             'Color', colors{i}, 'LineWidth', 2, ...
-             'DisplayName', name);
-    end
-    xlabel('Episode');
-    ylabel('Detection Rate (%)');
-    title('检测率对比');
-    legend('Location', 'best');
-    grid on;
-    ylim([0 100]);
-    
-    % 5. 收敛性分析（RADI标准差）
-    subplot(3, 3, 5);
-    window = 50;
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        if length(results.(name).radi_history) >= window
-            radi_std = movstd(results.(name).radi_history, window);
-            plot(window:length(radi_std), radi_std(window:end), ...
-                 'Color', colors{i}, 'LineWidth', 2, ...
-                 'DisplayName', name);
+    if isfield(episode_results, 'defender_strategies')
+        for i = 1:length(episode_results.defender_strategies)
+            results.defender_strategy_history{i}(iteration, :) = episode_results.defender_strategies{i};
         end
     end
-    xlabel('Episode');
-    ylabel('RADI Std Dev');
-    title('收敛性分析（滑动标准差）');
-    legend('Location', 'best');
-    grid on;
+end
+
+function updatePerformanceMonitor(monitor, iteration, episode_results, config)
+    % 更新性能监控器
     
-    % 6. 累积奖励对比
-    subplot(3, 3, 6);
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        cum_reward = cumsum(results.(name).rewards.defender);
-        plot(episodes, cum_reward, ...
-             'Color', colors{i}, 'LineWidth', 2, ...
-             'DisplayName', name);
+    % 构造监控指标
+    metrics = struct();
+    metrics.resource_allocation = mean(episode_results.avg_resource_allocation, 1);
+    metrics.resource_efficiency = mean(episode_results.avg_efficiency);
+    metrics.allocation_balance = mean(episode_results.avg_balance);
+    metrics.detection_rate = mean([episode_results.attack_info{:}]);
+    
+    % 更新监控器
+    monitor.updateMetrics(iteration, metrics);
+    
+    % 实时状态显示
+    if mod(iteration, config.performance.display_interval) == 0
+        monitor.displayRealTimeStatus(iteration);
     end
-    xlabel('Episode');
-    ylabel('Cumulative Reward');
-    title('累积奖励对比');
-    legend('Location', 'best');
-    grid on;
+end
+
+function updateAgentParameters(defender_agents, attacker_agent, config)
+    % 更新智能体学习参数
     
-    % 7. 最终性能雷达图
-    subplot(3, 3, 7);
-    metrics = {'RADI', 'Detection Rate', '1-Success Rate', '1-Damage'};
-    values = zeros(config.n_defenders, length(metrics));
-    
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        values(i, 1) = 1 - results.(name).final_radi;  % 越低越好，所以用1减
-        values(i, 2) = results.(name).final_detection_rate;
-        values(i, 3) = 1 - results.(name).final_success_rate;
-        values(i, 4) = 1 - mean(results.(name).damage_history) / max([results.(config.defender_types{1}).damage_history, ...
-                                                                       results.(config.defender_types{2}).damage_history, ...
-                                                                       results.(config.defender_types{3}).damage_history]);
-    end
-    
-    % 绘制雷达图
-    angles = linspace(0, 2*pi, length(metrics)+1);
-    
-    for i = 1:config.n_defenders
-        vals = [values(i, :), values(i, 1)];
-        polarplot(angles, vals, [colors{i} '-o'], 'LineWidth', 2, ...
-                 'MarkerFaceColor', colors{i}, 'DisplayName', config.defender_types{i});
-        hold on;
-    end
-    
-    % 设置雷达图属性
-    ax = gca;
-    ax.ThetaTick = angles(1:end-1) * 180/pi;
-    ax.ThetaTickLabel = metrics;
-    title('综合性能雷达图');
-    legend('Location', 'best');
-    
-    % 8. 学习曲线对比（移动平均）
-    subplot(3, 3, 8);
-    ma_window = 20;
-    hold on;
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        if length(results.(name).radi_history) >= ma_window
-            ma_radi = movmean(results.(name).radi_history, ma_window);
-            plot(ma_window:length(ma_radi), ma_radi(ma_window:end), ...
-                 'Color', colors{i}, 'LineWidth', 2, ...
-                 'DisplayName', [name ' (MA)']);
+    % 更新防御者智能体参数
+    for i = 1:length(defender_agents)
+        if isprop(defender_agents{i}, 'learning_rate')
+            defender_agents{i}.learning_rate = config.learning_rate;
+        end
+        if isprop(defender_agents{i}, 'epsilon')
+            defender_agents{i}.epsilon = config.epsilon;
+        end
+        if isprop(defender_agents{i}, 'temperature')
+            defender_agents{i}.temperature = config.temperature;
         end
     end
-    xlabel('Episode');
-    ylabel('RADI (Moving Average)');
-    title(sprintf('学习曲线对比（%d-Episode MA）', ma_window));
-    legend('Location', 'best');
-    grid on;
     
-    % 9. 性能改善率
-    subplot(3, 3, 9);
-    improvement_data = zeros(config.n_defenders, 3);
-    categories = {'RADI改善率', '成功率降低率', '检测率提升率'};
-    
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        % RADI改善率
-        initial_radi = mean(results.(name).radi_history(1:min(10, end)));
-        final_radi = results.(name).final_radi;
-        improvement_data(i, 1) = (initial_radi - final_radi) / initial_radi * 100;
-        
-        % 成功率降低率
-        initial_sr = mean(results.(name).success_rate_history(1:min(10, end)));
-        final_sr = results.(name).final_success_rate;
-        improvement_data(i, 2) = (initial_sr - final_sr) / initial_sr * 100;
-        
-        % 检测率提升率
-        initial_dr = mean(results.(name).detection_rate_history(1:min(10, end)));
-        final_dr = results.(name).final_detection_rate;
-        improvement_data(i, 3) = (final_dr - initial_dr) / initial_dr * 100;
+    % 更新攻击者智能体参数
+    if isprop(attacker_agent, 'learning_rate')
+        attacker_agent.learning_rate = config.learning_rate;
     end
-    
-    bar(improvement_data');
-    set(gca, 'XTickLabel', categories);
-    ylabel('改善率 (%)');
-    title('性能改善率对比');
-    legend(config.defender_types, 'Location', 'best');
-    grid on;
-    
-    % 保存图形
-    saveas(gcf, fullfile(report_dir, 'multi_agent_comparison.png'));
+    if isprop(attacker_agent, 'epsilon')
+        attacker_agent.epsilon = config.epsilon;
+    end
+    if isprop(attacker_agent, 'temperature')
+        attacker_agent.temperature = config.temperature;
+    end
 end
 
-function generatePerformanceTable(results, config, report_dir)
-    % 生成性能对比表
+function handleIterationOutput(iteration, config, iteration_time, episode_results)
+    % 处理迭代输出和进度显示
     
-    % 创建表格数据
-    metrics = {'最终RADI', '平均RADI', 'RADI标准差', ...
-               '最终成功率(%)', '平均成功率(%)', ...
-               '最终检测率(%)', '平均检测率(%)', ...
-               '平均损害', '累积防御奖励', ...
-               '收敛速度(Episodes)'};
-    
-    data = zeros(config.n_defenders, length(metrics));
-    
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        
-        data(i, 1) = results.(name).final_radi;
-        data(i, 2) = mean(results.(name).radi_history);
-        data(i, 3) = std(results.(name).radi_history);
-        data(i, 4) = results.(name).final_success_rate * 100;
-        data(i, 5) = mean(results.(name).success_rate_history) * 100;
-        data(i, 6) = results.(name).final_detection_rate * 100;
-        data(i, 7) = mean(results.(name).detection_rate_history) * 100;
-        data(i, 8) = results.(name).avg_damage;
-        data(i, 9) = sum(results.(name).rewards.defender);
-        
-        % 计算收敛速度（RADI变化小于阈值的首个episode）
-        radi_diff = abs(diff(results.(name).radi_history));
-        conv_idx = find(radi_diff < 0.001, 1);
-        data(i, 10) = ifelse(isempty(conv_idx), config.n_episodes, conv_idx);
+    % 记录学习参数
+    if exist('results', 'var')
+        results.epsilon_history(iteration) = config.epsilon;
+        results.learning_rate_history(iteration) = config.learning_rate;
+        if isfield(config, 'temperature')
+            results.temperature_history(iteration) = config.temperature;
+        end
     end
     
-    % 创建并保存表格
-    T = table(config.defender_types', data(:,1), data(:,2), data(:,3), ...
-              data(:,4), data(:,5), data(:,6), data(:,7), ...
-              data(:,8), data(:,9), data(:,10), ...
-              'VariableNames', ['Algorithm', metrics]);
+    % 显示进度信息
+    if mod(iteration, config.performance.display_interval) == 0
+        avg_radi = mean(episode_results.avg_radi);
+        avg_success_rate = mean([episode_results.attack_info{:}]);
+        avg_efficiency = mean(episode_results.avg_efficiency);
+        
+        fprintf('Iteration %d/%d: RADI=%.3f, Success=%.3f, Efficiency=%.3f, Time=%.2fs\n', ...
+                iteration, config.n_iterations, avg_radi, avg_success_rate, avg_efficiency, iteration_time);
+        
+        Logger.info(sprintf('迭代 %d 完成，用时 %.2f秒', iteration, iteration_time));
+    end
     
-    writetable(T, fullfile(report_dir, 'performance_comparison.csv'));
-    
-    % 在命令窗口显示
-    disp('性能对比表:');
-    disp(T);
+    % 保存中间结果
+    if mod(iteration, config.performance.save_interval) == 0
+        fprintf('保存中间结果...\n');
+        % 这里可以保存中间结果
+    end
 end
 
-function generateDetailedTextReport(results, config, report_dir)
-    % 生成详细文本报告
+function saveCheckpoint(defender_agents, attacker_agent, results, iteration, config)
+    % 保存训练检查点
     
-    report_file = fullfile(report_dir, 'detailed_report.txt');
-    fid = fopen(report_file, 'w');
+    checkpoint_dir = config.output.checkpoints_dir;
+    if ~exist(checkpoint_dir, 'dir')
+        mkdir(checkpoint_dir);
+    end
     
-    fprintf(fid, '========================================\n');
-    fprintf(fid, 'FSP-TCS 多智能体对比分析报告\n');
-    fprintf(fid, '========================================\n');
-    fprintf(fid, '生成时间: %s\n\n', datestr(now));
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('checkpoint_iter_%d.mat', iteration));
     
-    % 1. 配置摘要
-    fprintf(fid, '一、仿真配置\n');
-    fprintf(fid, '----------------------------------------\n');
-    fprintf(fid, '站点数量: %d\n', config.n_stations);
-    fprintf(fid, '总Episodes: %d\n', config.n_episodes);
-    fprintf(fid, '防御智能体: %s\n', strjoin(config.defender_types, ', '));
-    fprintf(fid, '攻击智能体: %s\n\n', config.agents.attacker.type);
-    
-    % 2. 各智能体详细分析
-    fprintf(fid, '二、各智能体性能分析\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        fprintf(fid, '\n【%s】\n', name);
-        fprintf(fid, '  最终RADI: %.4f\n', results.(name).final_radi);
-        fprintf(fid, '  平均RADI: %.4f ± %.4f\n', ...
-                mean(results.(name).radi_history), ...
-                std(results.(name).radi_history));
-        fprintf(fid, '  攻击成功率: %.2f%% (最终) / %.2f%% (平均)\n', ...
-                results.(name).final_success_rate * 100, ...
-                mean(results.(name).success_rate_history) * 100);
-        fprintf(fid, '  检测率: %.2f%% (最终) / %.2f%% (平均)\n', ...
-                results.(name).final_detection_rate * 100, ...
-                mean(results.(name).detection_rate_history) * 100);
-        fprintf(fid, '  平均损害: %.4f\n', results.(name).avg_damage);
+    try
+        % 保存智能体状态
+        agents_state = struct();
+        agents_state.defender_agents = defender_agents;
+        agents_state.attacker_agent = attacker_agent;
+        agents_state.iteration = iteration;
+        agents_state.config = config;
+        agents_state.results = results;
         
-        % 计算改善率
-        initial_radi = mean(results.(name).radi_history(1:min(10, end)));
-        improvement = (initial_radi - results.(name).final_radi) / initial_radi * 100;
-        fprintf(fid, '  RADI改善率: %.2f%%\n', improvement);
+        save(checkpoint_file, 'agents_state');
+        Logger.info(sprintf('检查点已保存: %s', checkpoint_file));
+        
+    catch ME
+        warning('保存检查点失败: %s', ME.message);
+        Logger.warning(sprintf('检查点保存失败: %s', ME.message));
     end
-    
-    % 3. 对比分析
-    fprintf(fid, '\n三、对比分析\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 找出最佳算法
-    final_radis = zeros(config.n_defenders, 1);
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        final_radis(i) = results.(name).final_radi;
-    end
-    
-    [best_radi, best_idx] = min(final_radis);
-    fprintf(fid, '最佳RADI性能: %s (%.4f)\n', ...
-            config.defender_types{best_idx}, best_radi);
-    
-    % 检测率对比
-    detection_rates = zeros(config.n_defenders, 1);
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        detection_rates(i) = results.(name).final_detection_rate;
-    end
-    
-    [best_dr, best_dr_idx] = max(detection_rates);
-    fprintf(fid, '最佳检测率: %s (%.2f%%)\n', ...
-            config.defender_types{best_dr_idx}, best_dr * 100);
-    
-    % 收敛速度分析
-    fprintf(fid, '\n收敛性分析:\n');
-    for i = 1:config.n_defenders
-        name = config.defender_types{i};
-        last_50_std = std(results.(name).radi_history(end-min(49,end-1):end));
-        fprintf(fid, '  %s - 最后50轮标准差: %.4f\n', name, last_50_std);
-    end
-    
-    % 4. 建议
-    fprintf(fid, '\n四、优化建议\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 基于性能自动生成建议
-    if best_radi > 0.2
-        fprintf(fid, '1. RADI指标仍有改善空间，建议增加训练Episodes\n');
-    else
-        fprintf(fid, '1. RADI指标表现良好，系统防御有效\n');
-    end
-    
-    if min(detection_rates) < 0.8
-        fprintf(fid, '2. 部分算法检测率偏低，建议优化检测策略参数\n');
-    else
-        fprintf(fid, '2. 检测率整体表现优秀\n');
-    end
-    
-    % 算法推荐
-    fprintf(fid, '\n基于综合性能，推荐使用: %s\n', config.defender_types{best_idx});
-    
-    fclose(fid);
 end
 
-%% 辅助函数
-function value = ifelse(condition, true_value, false_value)
-    if condition
-        value = true_value;
-    else
-        value = false_value;
+function printFinalSummary(results, config)
+    % 打印最终结果摘要
+    
+    fprintf('\n=== 仿真结果摘要 ===\n');
+    
+    % 性能指标
+    final_radi = mean(results.radi_history(end-min(99,end-1):end, :), 'all');
+    initial_radi = mean(results.radi_history(1:min(100,end), :), 'all');
+    radi_improvement = initial_radi - final_radi;
+    
+    final_success_rate = mean(results.success_rate_history(end-min(99,end-1):end));
+    initial_success_rate = mean(results.success_rate_history(1:min(100,end)));
+    success_improvement = final_success_rate - initial_success_rate;
+    
+    final_efficiency = mean(results.resource_efficiency(end-min(99,end-1):end, :), 'all');
+    
+    fprintf('性能改善:\n');
+    fprintf('  RADI: %.3f → %.3f (改善: %.3f)\n', initial_radi, final_radi, radi_improvement);
+    fprintf('  攻击成功率: %.3f → %.3f (变化: %+.3f)\n', initial_success_rate, final_success_rate, success_improvement);
+    fprintf('  资源效率: %.3f\n', final_efficiency);
+    
+    % 训练统计
+    fprintf('\n训练统计:\n');
+    fprintf('  总迭代数: %d\n', config.n_iterations);
+    fprintf('  每轮Episodes: %d\n', config.n_episodes_per_iter);
+    fprintf('  智能体数量: %d\n', size(results.radi_history, 2));
+    fprintf('  最终探索率: %.3f\n', config.epsilon);
+    fprintf('  最终学习率: %.3f\n', config.learning_rate);
+    
+    % 算法比较
+    if size(results.radi_history, 2) > 1
+        fprintf('\n算法性能对比 (最终RADI):\n');
+        for i = 1:length(config.algorithms)
+            final_radi_agent = mean(results.radi_history(end-min(99,end-1):end, i));
+            fprintf('  %s: %.3f\n', config.algorithms{i}, final_radi_agent);
+        end
     end
+    
+    % 收敛性分析
+    if length(results.radi_history) > 100
+        recent_var = var(results.radi_history(end-99:end, :), 0, 1);
+        fprintf('\n收敛性分析:\n');
+        fprintf('  近期RADI方差: %.6f\n', mean(recent_var));
+        
+        % 判断收敛状态
+        if mean(recent_var) < config.performance.convergence_threshold
+            fprintf('  收敛状态: ✓ 已收敛\n');
+        else
+            fprintf('  收敛状态: ⚠ 仍在学习\n');
+        end
+    end
+    
+    fprintf('==================\n');
 end
+
+%% === 使用示例和配置选择 ===
+
+function demo_different_configs()
+    % 演示不同配置的使用方法
+    
+    fprintf('=== 配置选择演示 ===\n');
+    
+    % 1. 使用默认配置
+    fprintf('\n1. 默认配置仿真:\n');
+    config1 = ConfigManager.getDefaultConfig();
+    % main_fsp_simulation_with_config(config1);
+    
+    % 2. 使用优化配置
+    fprintf('\n2. 优化配置仿真:\n');
+    config2 = ConfigManager.getOptimizedConfig();
+    % main_fsp_simulation_with_config(config2);
+    
+    % 3. 使用测试配置
+    fprintf('\n3. 快速测试配置:\n');
+    config3 = ConfigManager.getTestConfig();
+    % main_fsp_simulation_with_config(config3);
+    
+    % 4. 自定义配置
+    fprintf('\n4. 自定义配置示例:\n');
+    config4 = ConfigManager.getDefaultConfig();
+    
+    % 修改特定参数
+    config4.n_iterations = 2000;           % 增加迭代次数
+    config4.learning_rate = 0.2;           % 提高学习率
+    config4.epsilon = 0.6;                 % 增加探索
+    config4.algorithms = {'Q-Learning'};   % 只使用Q-Learning
+    
+    % 修改可视化设置
+    config4.output.visualization = true;
+    config4.output.generate_report = true;
+    
+    % 保存自定义配置
+    ConfigManager.saveConfig(config4, 'custom_config.json');
+    
+    fprintf('配置演示完成。\n');
+end
+
+function main_fsp_simulation_with_config(config)
+    % 使用指定配置运行仿真的简化版本
+    
+    fprintf('使用配置运行仿真: %d次迭代, 学习率%.3f\n', ...
+            config.n_iterations, config.learning_rate);
+    
+    % 这里可以调用完整的仿真流程
+    % 为演示目的，只显示配置信息
+    ConfigManager.displayConfigSummary(config);
+end
+
+%% === 配置验证和测试 ===
+
+function validateAllConfigs()
+    % 验证所有预定义配置的有效性
+    
+    fprintf('=== 配置验证测试 ===\n');
+    
+    configs = {
+        ConfigManager.getDefaultConfig(), '默认配置';
+        ConfigManager.getOptimizedConfig(), '优化配置';
+        ConfigManager.getTestConfig(), '测试配置'
+    };
+    
+    for i = 1:size(configs, 1)
+        config = configs{i, 1};
+        name = configs{i, 2};
+        
+        fprintf('\n验证 %s...\n', name);
+        try
+            ConfigManager.validateConfig(config);
+            fprintf('✓ %s 验证通过\n', name);
+        catch ME
+            fprintf('❌ %s 验证失败: %s\n', name, ME.message);
+        end
+    end
+    
+    fprintf('\n配置验证完成。\n');
+end
+
+%% === 主程序入口点选择 ===
+
+% 取消注释以下其中一行来运行不同的功能：
+
+% 运行标准仿真
+main_fsp_simulation_optimized();
+
+% 演示不同配置
+% demo_different_configs();
+
+% 验证所有配置
+% validateAllConfigs();
