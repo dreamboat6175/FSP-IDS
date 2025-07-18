@@ -701,9 +701,13 @@ classdef EnhancedVisualization < handle
             
             % 改善指标
             improvement = final_success - initial_success;
-            arrow = improvement > 0 ? '↑' : '↓';
-            color = improvement > 0 ? obj.colorScheme.success : obj.colorScheme.danger;
-            
+            if improvement > 0
+                arrow = '↑';
+                color = obj.colorScheme.success;
+            else
+                arrow = '↓';
+                color = obj.colorScheme.danger;
+            end
             text(0, -0.3, sprintf('%s %.1f%%', arrow, abs(improvement)*100), ...
                  'HorizontalAlignment', 'center', 'FontSize', obj.fontConfig.size.text_medium, ...
                  'Color', color);
