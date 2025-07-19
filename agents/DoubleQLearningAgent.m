@@ -36,7 +36,6 @@ classdef DoubleQLearningAgent < RLAgent
         
         function action_vec = selectAction(obj, state_vec)
    % 动作选择
-   try
        % 读取ConfigManager中的站点数量
        config = ConfigManager.getDefaultConfig();
        n_stations = config.n_stations;
@@ -95,15 +94,9 @@ classdef DoubleQLearningAgent < RLAgent
            obj.recordAction(state_idx, action_idx);
        end
        
-   catch ME
-       warning('DoubleQLearningAgent.selectAction 出错: %s', ME.message);
-       % 默认输出：长度为5的均匀分配
-       action_vec = ones(1, 5) / 5;
-   end
         end
 
 function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
-    try
         % 获取状态索引 - 添加边界检查
         state_idx = obj.encodeState(mean(state_vec));
         state_idx = max(1, min(state_idx, size(obj.Q_table_A, 1)));  % 确保在边界内
@@ -129,9 +122,6 @@ function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_
             td_error = target - obj.Q_table_B(state_idx, action_idx);
             obj.Q_table_B(state_idx, action_idx) = obj.Q_table_B(state_idx, action_idx) + obj.learning_rate * td_error;
         end
-    catch ME
-        warning('DoubleQLearningAgent.update 出错: %s', ME.message);
-    end
 end
         
         function updateQTableProperty(obj)
@@ -265,7 +255,6 @@ end
         
         function save(obj, filename)
             % 保存模型
-            try
                 if nargin < 2
                     filename = sprintf('models/doubleq_%s_%s.mat', ...
                                      obj.agent_type, datestr(now, 'yyyymmdd_HHMMSS'));
@@ -284,14 +273,10 @@ end
                 
                 save(filename, 'save_data');
                 fprintf('Double Q-Learning模型已保存: %s\n', filename);
-            catch ME
-                warning('保存Double Q-Learning模型失败: %s', ME.message);
-            end
         end
         
         function load(obj, filename)
             % 加载模型
-            try
                 if exist(filename, 'file')
                     load_data = load(filename);
                     save_data = load_data.save_data;
@@ -313,9 +298,6 @@ end
                 else
                     error('模型文件不存在: %s', filename);
                 end
-            catch ME
-                warning('加载Double Q-Learning模型失败: %s', ME.message);
-            end
         end
     end
 end

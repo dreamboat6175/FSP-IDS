@@ -26,13 +26,19 @@ classdef FSPSimulator < handle
                n_iterations = config.n_iterations;
                n_agents = length(defender_agents);
                
-               % 初始化结果结构
-               results = struct();
-               results.defender_rewards = zeros(n_iterations, n_agents);
-               results.attacker_rewards = zeros(n_iterations, 1);
-               results.detection_rates = zeros(n_iterations, n_agents);
-               results.resource_efficiency = zeros(n_iterations, n_agents);
-               results.convergence_info = struct();
+                % 初始化结果结构
+                results = struct();
+                results.defender_rewards = zeros(n_iterations, n_agents);
+                results.attacker_rewards = zeros(n_iterations, 1);
+                results.detection_rates = zeros(n_iterations, n_agents);
+                results.resource_efficiency = zeros(n_iterations, n_agents);
+                results.convergence_info = struct();
+                
+                % === 添加缺失的字段 ===
+                results.n_agents = n_agents;
+                results.n_iterations = n_iterations;
+                results.config = config;
+                results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
                
                % FSP迭代循环
                for iter = 1:n_iterations
@@ -47,7 +53,17 @@ classdef FSPSimulator < handle
                    FSPSimulator.updateAgents(defender_agents, attacker_agent, episode_results, config);
                    
                    % 记录结果
-                   results.defender_rewards(iter, :) = episode_results.avg_defender_reward;
+                   % 安全的数据赋值，处理维度不匹配问题
+                   if isfield(episode_results, 'avg_defender_reward')
+                       reward_data = episode_results.avg_defender_reward;
+                       if length(reward_data) == size(results.defender_rewards, 2)
+                           results.defender_rewards(iter, :) = reward_data;
+                       else
+                           % 维度不匹配时的处理
+                           min_len = min(length(reward_data), size(results.defender_rewards, 2));
+                           results.defender_rewards(iter, 1:min_len) = reward_data(1:min_len);
+                       end
+                   end
                    results.attacker_rewards(iter) = episode_results.avg_attacker_reward;
                    results.detection_rates(iter, :) = episode_results.avg_detection_rate;
                    results.resource_efficiency(iter, :) = episode_results.avg_efficiency;

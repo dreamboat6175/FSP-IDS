@@ -356,8 +356,7 @@ classdef ConfigManager
             end
             
             config_path = fullfile('config', filename);
-            
-            try
+
                 % 确保目录存在
                 if ~exist('config', 'dir')
                     mkdir('config');
@@ -370,9 +369,6 @@ classdef ConfigManager
                 fclose(fid);
                 
                 fprintf('✓ 配置已保存: %s\n', config_path);
-            catch ME
-                warning('配置保存失败: %s', ME.message);
-            end
         end
         
         function createDirectories(config)

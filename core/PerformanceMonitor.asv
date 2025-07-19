@@ -6,22 +6,14 @@
 classdef PerformanceMonitor < handle
     
     properties
-        % === 基本参数 ===
+        % 基本参数
         n_iterations          % 总迭代数
         n_agents             % 智能体数量
-        config               % 配置参数
         
-        % === 核心数据存储数组 (这些是缺失的!) ===
-        defender_rewards     % 防御者奖励历史 [n_iterations x n_agents]
-        attacker_rewards     % 攻击者奖励历史 [n_iterations x 1]
-        detection_rates      % 检测率历史 [n_iterations x n_agents]
-        
-        % === RADI体系指标 ===
-        radi_scores          % RADI得分历史
-        resource_efficiency  % 资源效率
-        allocation_balance   % 分配均衡
-        
-        % === 其他指标 ===
+        % RADI体系指标
+        radi_scores
+        resource_efficiency
+        allocation_balance
         episode_rewards
         training_loss
         exploration_rates
@@ -30,6 +22,7 @@ classdef PerformanceMonitor < handle
         current_episode
         real_time_metrics
         display_interval
+        config
     end
     
     methods
@@ -363,30 +356,39 @@ classdef PerformanceMonitor < handle
                 suggestions{1} = '当前资源分配策略表现良好，继续保持';
             end
         end
-        function updateIteration(obj, iteration, episode_data)
-
-                    if isfield(episode_data, 'avg_defender_reward')
-                        obj.defender_rewards(iteration, :) = episode_data.avg_defender_reward;
-                    end
-                    if isfield(episode_data, 'avg_attacker_reward')
-                        obj.attacker_rewards(iteration) = episode_data.avg_attacker_reward;
-                    end
-                    if isfield(episode_data, 'avg_detection_rate')
-                        obj.detection_rates(iteration, :) = episode_data.avg_detection_rate;
-                    end
-
+function updateIteration(obj, iteration, episode_data)
+        % 更新迭代数据
+        try
+            if isfield(episode_data, 'avg_defender_reward')
+                obj.defender_rewards(iteration, :) = episode_data.avg_defender_reward;
+            end
+            if isfield(episode_data, 'avg_attacker_reward')
+                obj.attacker_rewards(iteration) = episode_data.avg_attacker_reward;
+            end
+            if isfield(episode_data, 'avg_detection_rate')
+                obj.detection_rates(iteration, :) = episode_data.avg_detection_rate;
+            end
+        catch ME
+            warning('更新监控数据失败: %s', ME.message);
         end
+end
         function results = getResults(obj)
-    % 获取结果数据
-    results = struct();
-    results.defender_rewards = obj.defender_rewards;
-    results.attacker_rewards = obj.attacker_rewards;
-    results.detection_rates = obj.detection_rates;
-    results.radi_scores = obj.radi_scores;
-    results.resource_efficiency = obj.resource_efficiency;
-    results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
-    results.n_iterations = obj.n_iterations;
-    results.n_agents = obj.n_agents;
+            % 返回所有关键监控指标
+            results = struct();
+            results.defender_rewards = obj.defender_rewards;
+            results.attacker_rewards = obj.attacker_rewards;
+            results.detection_rates = obj.detection_rates;
+            results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            results.radi_scores = obj.radi_scores;
+            results.resource_efficiency = obj.resource_efficiency;
+            results.allocation_balance = obj.allocation_balance;
+            results.episode_rewards = obj.episode_rewards;
+            results.training_loss = obj.training_loss;
+            results.exploration_rates = obj.exploration_rates;
+            results.resource_allocations = obj.resource_allocations;
+            results.best_performance = obj.best_performance;
+            results.n_iterations = obj.n_iterations;
+            results.n_agents = obj.n_agents;
         end
     end
 end
