@@ -1,8 +1,14 @@
 %% DataManager.m - 数据管理器类
 classdef DataManager
     methods (Static)
-        function saveResults(results, config, agents)
+       function saveResults(results, config, agents)
             % 保存仿真结果
+            
+            % 如果没有提供agents参数，设为空结构
+            if nargin < 3
+                agents = struct();
+            end
+            
             timestamp = datestr(now, 'yyyymmdd_HHMMSS');
             if ~exist('results', 'dir')
                 mkdir('results');
@@ -14,6 +20,7 @@ classdef DataManager
             save_data.matlab_version = version;
             save_data.policies = {};
             save_data.agent_names = {};
+            
             if isfield(agents, 'defenders')
                 for i = 1:length(agents.defenders)
                     save_data.policies{i} = agents.defenders{i}.getPolicy();
@@ -92,12 +99,36 @@ classdef DataManager
             fprintf('✓ CSV文件已导出到results目录\n');
         end
         function summary = calculateSummaryStats(results)
-            last_iters = max(1, results.n_iterations-99):results.n_iterations;
+            % 获取迭代次数 - 从现有数据推断
+            if isfield(results, 'n_iterations')
+                n_iterations = results.n_iterations;
+            elseif isfield(results, 'defender_rewards')
+                n_iterations = size(results.defender_rewards, 1);
+            elseif isfield(results, 'attacker_rewards')
+                n_iterations = length(results.attacker_rewards);
+            else
+                n_iterations = 100; % 默认值
+            end
+            
+            last_iters = max(1, n_iterations-99):n_iterations;
+            
+            % 检查是否有数据
+            if ~isfield(results, 'defender_rewards') || isempty(results.defender_rewards)
+                % 没有数据，返回空结构
+                summary = struct();
+                summary.total_iterations = n_iterations;
+                summary.overall_best_radi = NaN;
+                summary.overall_best_efficiency = NaN;
+                summary.overall_best_balance = NaN;
+                return;
+            end
+            
             % shape检查
-            [n_agents, n_iters] = size(results.radi);
+            [n_iterations_actual, n_agents] = size(results.defender_rewards);
+            
             for i = 1:n_agents
                 % 越界保护
-                valid_iters = last_iters(last_iters <= n_iters);
+                valid_iters = last_iters(last_iters <= n_iterations_actual);
                 if isempty(valid_iters)
                     summary.agent(i).final_radi = NaN;
                     summary.agent(i).final_resource_efficiency = NaN;
@@ -107,21 +138,37 @@ classdef DataManager
                     summary.agent(i).min_radi = NaN;
                     continue;
                 end
-                summary.agent(i).final_radi = mean(results.radi(i, valid_iters));
-                summary.agent(i).final_resource_efficiency = mean(results.resource_efficiency(i, valid_iters));
-                summary.agent(i).final_allocation_balance = mean(results.allocation_balance(i, valid_iters));
+                
+                % 使用defender_rewards作为默认指标
+                summary.agent(i).final_radi = mean(results.defender_rewards(valid_iters, i));
+                summary.agent(i).max_radi = max(results.defender_rewards(:, i));
+                summary.agent(i).min_radi = min(results.defender_rewards(:, i));
+                
+                % 如果有其他字段，使用它们
+                if isfield(results, 'resource_efficiency')
+                    summary.agent(i).final_resource_efficiency = mean(results.resource_efficiency(valid_iters, i));
+                else
+                    summary.agent(i).final_resource_efficiency = NaN;
+                end
+                
+                if isfield(results, 'allocation_balance')
+                    summary.agent(i).final_allocation_balance = mean(results.allocation_balance(valid_iters, i));
+                else
+                    summary.agent(i).final_allocation_balance = NaN;
+                end
+                
                 if isfield(results, 'convergence_metrics')
-                    summary.agent(i).final_convergence = mean(results.convergence_metrics(i, valid_iters));
+                    summary.agent(i).final_convergence = mean(results.convergence_metrics(valid_iters, i));
                 else
                     summary.agent(i).final_convergence = NaN;
                 end
-                summary.agent(i).max_radi = max(results.radi(i, :));
-                summary.agent(i).min_radi = min(results.radi(i, :));
             end
+            
+            % 计算总体最优值
             summary.overall_best_radi = min([summary.agent.final_radi]);
             summary.overall_best_efficiency = max([summary.agent.final_resource_efficiency]);
             summary.overall_best_balance = max([summary.agent.final_allocation_balance]);
-            summary.total_iterations = results.n_iterations;
+            summary.total_iterations = n_iterations_actual;
         end
         function mergeResults(filenames)
             if isempty(filenames)

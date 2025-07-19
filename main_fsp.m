@@ -41,7 +41,7 @@ function main_fsp()
         generateVisualizationReport(all_agents, config);
         
         %% === 5. 保存结果 ===
-        DataManager.saveResults(results, config, struct('defenders', defender_agents, 'attacker', attacker_agent));
+        DataManager.saveResults(results, config);
         
         Logger.info('FSP-TCS仿真成功完成');
         Logger.close();

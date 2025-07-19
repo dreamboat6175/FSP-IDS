@@ -267,33 +267,33 @@ classdef FSPSimulator < handle
        end
        
        function updateAgents(defender_agents, attacker_agent, episode_results, config)
-            %% 更新智能体参数
-            
-            n_agents = length(defender_agents);
-            
-            % 更新防御者智能体
-            for i = 1:n_agents
-                if hasMethod(defender_agents{i}, 'updateParameters')
-                    % 不传递参数，直接调用
-                    defender_agents{i}.updateParameters();
-                end
-                
-                % 更新学习率等参数
-                if hasMethod(defender_agents{i}, 'decay')
-                    defender_agents{i}.decay();
-                end
-            end
-            
-            % 更新攻击者智能体
-            if hasMethod(attacker_agent, 'updateParameters')
-                % 不传递参数，直接调用
-                attacker_agent.updateParameters();
-            end
-            
-            if hasMethod(attacker_agent, 'decay')
-                attacker_agent.decay();
-            end
+    %% 更新智能体参数
+    
+    n_agents = length(defender_agents);
+    
+    % 更新防御者智能体
+    for i = 1:n_agents
+        if hasMethod(defender_agents{i}, 'updateParameters')
+            % 不传递参数，直接调用
+            defender_agents{i}.updateParameters();
         end
+        
+        % 更新学习率等参数
+        if hasMethod(defender_agents{i}, 'decay')
+            defender_agents{i}.decay();
+        end
+    end
+    
+    % 更新攻击者智能体
+    if hasMethod(attacker_agent, 'updateParameters')
+        % 不传递参数，直接调用
+        attacker_agent.updateParameters();
+    end
+    
+    if hasMethod(attacker_agent, 'decay')
+        attacker_agent.decay();
+    end
+end
        
        function convergence_info = analyzeConvergence(results)
            %% 分析收敛性

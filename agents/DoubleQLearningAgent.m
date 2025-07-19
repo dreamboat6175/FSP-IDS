@@ -6,7 +6,7 @@ classdef DoubleQLearningAgent < RLAgent
         Q_table_A        % 第一个Q值表
         Q_table_B        % 第二个Q值表
         Q_table          % 兼容性Q表（两个Q表的平均）
-        visit_count      % 状态-动作访问计数
+        visit_count      % 状态-动作访问计数 
         lr_scheduler     % 学习率调度器
         strategy_history     % 策略历史记录
         performance_history  % 性能历史记录
@@ -24,10 +24,7 @@ classdef DoubleQLearningAgent < RLAgent
             
             % 初始化兼容性Q表
             obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
-            
-            % 初始化新添加的属性
-            % obj.use_softmax = false;     % 默认使用epsilon-greedy
-            
+
             % 确保基类属性有默认值
             obj.strategy_history = [];
             obj.performance_history = struct();
@@ -38,124 +35,104 @@ classdef DoubleQLearningAgent < RLAgent
         end
         
         function action_vec = selectAction(obj, state_vec)
-            % 动作选择
-            try
-                % 更新兼容性Q表
-                obj.updateQTableProperty();
-                
-                % 健壮性检查
-                if isempty(state_vec)
-                    state_vec = ones(1, obj.state_dim);
-                end
-                state_vec = reshape(state_vec, 1, []);
-                
-                % 获取状态索引
-                state_idx = obj.encodeState(mean(state_vec));
-                
-                % 获取组合Q值
-                Q_combined = obj.Q_table;
-                q_values = Q_combined(state_idx, :);
-                
-                % 确保Q值有效
-                if any(isnan(q_values)) || any(isinf(q_values))
-                    q_values = ones(size(q_values)) * 1.0;
-                end
-                
-                % 动作选择策略
-                if obj.use_softmax
-                    % Softmax策略
-                    temperature = max(0.1, obj.temperature);
-                    exp_q = exp(q_values / temperature);
-                    action_vec = exp_q / sum(exp_q);
-                else
-                    % Epsilon-greedy策略
-                    if rand() < obj.epsilon
-                        % 探索
-                        action_vec = rand(1, obj.action_dim);
-                    else
-                        % 利用
-                        action_vec = zeros(1, obj.action_dim);
-                        [~, best_action] = max(q_values);
-                        action_vec(best_action) = 1;
-                    end
-                end
-                
-                % 确保非负并归一化
-                action_vec = max(0, action_vec);
-                if sum(action_vec) > 0
-                    action_vec = action_vec / sum(action_vec);
-                else
-                    action_vec = ones(1, obj.action_dim) / obj.action_dim;
-                end
-                
-            catch ME
-                warning(ME.identifier, 'DoubleQLearningAgent.selectAction 出错: %s', ME.message);
-                action_vec = ones(1, obj.action_dim) / obj.action_dim;
-            end
-            if strcmp(obj.agent_type, 'defender') && length(action_vec) > 1
-                obj.strategy_history(end+1, :) = action_vec;
-            end
-            
-            obj.parameter_history.learning_rate(end+1) = obj.learning_rate;
-            obj.parameter_history.epsilon(end+1) = obj.epsilon;
-            obj.parameter_history.q_values(end+1) = mean((obj.Q_table_A(:) + obj.Q_table_B(:))/2);
+   % 动作选择
+   try
+       % 读取ConfigManager中的站点数量
+       config = ConfigManager.getDefaultConfig();
+       n_stations = config.n_stations;
+       
+       % 更新兼容性Q表
+       obj.updateQTableProperty();
+       
+       % 健壮性检查
+       if isempty(state_vec)
+           state_vec = ones(1, obj.state_dim);
+       end
+       state_vec = reshape(state_vec, 1, []);
+       
+       % 获取状态索引
+       state_idx = obj.encodeState(mean(state_vec));
+       state_idx = max(1, min(state_idx, size(obj.Q_table, 1)));
+       
+       % 获取组合Q值
+       Q_combined = obj.Q_table;
+       q_values = Q_combined(state_idx, :);
+       
+       % 确保Q值有效
+       if any(isnan(q_values)) || any(isinf(q_values))
+           q_values = ones(size(q_values)) * 1.0;
+       end
+       
+       % 动作选择策略
+       if rand() < obj.epsilon
+           % 探索：随机选择
+           action_idx = randi(min(obj.action_dim, n_stations));
+       else
+           % 利用：选择最佳动作
+           [~, action_idx] = max(q_values(1:min(obj.action_dim, n_stations)));
+       end
+       
+       % 生成动作向量 - 长度等于配置中的站点数量
+       action_vec = zeros(1, n_stations);
+       if action_idx <= n_stations
+           action_vec(action_idx) = 1;
+       else
+           action_vec(1) = 1;  % 默认选择第一个站点
+       end
+       
+       % 归一化确保总和为1（资源分配）
+       if sum(action_vec) > 0
+           action_vec = action_vec / sum(action_vec);
+       else
+           action_vec = ones(1, n_stations) / n_stations;  % 均匀分配
+       end
+       
+       % 确保是行向量
+       action_vec = reshape(action_vec, 1, []);
+       
+       % 记录动作（如果基类有这个方法）
+       if ismethod(obj, 'recordAction')
+           obj.recordAction(state_idx, action_idx);
+       end
+       
+   catch ME
+       warning('DoubleQLearningAgent.selectAction 出错: %s', ME.message);
+       % 默认输出：长度为5的均匀分配
+       action_vec = ones(1, 5) / 5;
+   end
         end
+
+function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
+    try
+        % 获取状态索引 - 添加边界检查
+        state_idx = obj.encodeState(mean(state_vec));
+        state_idx = max(1, min(state_idx, size(obj.Q_table_A, 1)));  % 确保在边界内
         
-        function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
-            % Double Q-Learning更新
-            try
-                % 输入验证
-                if isempty(action_vec)
-                    action_vec = ones(1, 5);
-                end
-                action_vec = reshape(action_vec, 1, []);
-                
-                if isempty(state_vec)
-                    state_vec = ones(1, obj.state_dim);
-                end
-                state_vec = reshape(state_vec, 1, []);
-                
-                if ~isempty(next_state_vec)
-                    next_state_vec = reshape(next_state_vec, 1, []);
-                else
-                    next_state_vec = state_vec;  % 使用当前状态作为默认
-                end
-                
-                % 获取状态索引
-                state_idx = obj.encodeState(mean(state_vec));
-                next_state_idx = obj.encodeState(mean(next_state_vec));
-                
-                % 获取动作索引
-                [~, action_idx] = max(action_vec);
-                action_idx = max(1, min(obj.action_dim, action_idx));
-                
-                % Double Q-Learning更新
-                if rand() < 0.5
-                    % 更新Q1，使用Q2来选择动作
-                    [~, best_action] = max(obj.Q_table_A(next_state_idx, :));
-                    target = reward + obj.discount_factor * obj.Q_table_B(next_state_idx, best_action);
-                    td_error = target - obj.Q_table_A(state_idx, action_idx);
-                    obj.Q_table_A(state_idx, action_idx) = obj.Q_table_A(state_idx, action_idx) + obj.learning_rate * td_error;
-                else
-                    % 更新Q2，使用Q1来选择动作
-                    [~, best_action] = max(obj.Q_table_B(next_state_idx, :));
-                    target = reward + obj.discount_factor * obj.Q_table_A(next_state_idx, best_action);
-                    td_error = target - obj.Q_table_B(state_idx, action_idx);
-                    obj.Q_table_B(state_idx, action_idx) = obj.Q_table_B(state_idx, action_idx) + obj.learning_rate * td_error;
-                end
-                
-                % 更新访问计数
-                obj.visit_count(state_idx, action_idx) = obj.visit_count(state_idx, action_idx) + 1;
-                obj.update_count = obj.update_count + 1;
-                
-                % 更新兼容性Q表
-                obj.updateQTableProperty();
-                
-            catch ME
-                warning(ME.identifier, 'DoubleQLearningAgent.update 出错: %s', ME.message);
-            end
-            obj.recordPerformance(reward, td_error);
+        next_state_idx = obj.encodeState(mean(next_state_vec));
+        next_state_idx = max(1, min(next_state_idx, size(obj.Q_table_A, 1)));
+        
+        % 获取动作索引 - 添加边界检查  
+        [~, action_idx] = max(action_vec);
+        action_idx = max(1, min(action_idx, size(obj.Q_table_A, 2)));  % 确保在边界内
+        
+        % 后续的 Q 表访问就安全了
+        if rand() < 0.5
+            [~, best_action] = max(obj.Q_table_A(next_state_idx, :));
+            best_action = max(1, min(best_action, size(obj.Q_table_A, 2)));  % 边界检查
+            target = reward + obj.discount_factor * obj.Q_table_B(next_state_idx, best_action);
+            td_error = target - obj.Q_table_A(state_idx, action_idx);
+            obj.Q_table_A(state_idx, action_idx) = obj.Q_table_A(state_idx, action_idx) + obj.learning_rate * td_error;
+        else
+            [~, best_action] = max(obj.Q_table_B(next_state_idx, :));
+            best_action = max(1, min(best_action, size(obj.Q_table_B, 2)));  % 边界检查
+            target = reward + obj.discount_factor * obj.Q_table_A(next_state_idx, best_action);
+            td_error = target - obj.Q_table_B(state_idx, action_idx);
+            obj.Q_table_B(state_idx, action_idx) = obj.Q_table_B(state_idx, action_idx) + obj.learning_rate * td_error;
         end
+    catch ME
+        warning('DoubleQLearningAgent.update 出错: %s', ME.message);
+    end
+end
         
         function updateQTableProperty(obj)
             % 更新兼容性Q_table属性
