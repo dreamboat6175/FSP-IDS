@@ -1,3 +1,4 @@
+%% SARSAAgent.m - SARSA智能体实现 (修复版)
 classdef SARSAAgent < RLAgent
     properties
         Q_table
@@ -9,6 +10,8 @@ classdef SARSAAgent < RLAgent
     end
     
     methods
+        % TODO: 验证此函数是否被使用
+        % TODO: 验证此函数是否被使用
         function obj = SARSAAgent(name, agent_type, config, state_dim, action_dim)
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
@@ -47,7 +50,7 @@ classdef SARSAAgent < RLAgent
             obj.parameter_history.epsilon = [];
             obj.parameter_history.q_values = [];
         end
-        
+
         function action_vec = selectAction(obj, state_vec)
             % SARSA智能体的动作选择
             
@@ -123,7 +126,7 @@ classdef SARSAAgent < RLAgent
             obj.parameter_history.epsilon(end+1) = obj.epsilon;
             obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
         end
-        
+
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
             % SARSA更新规则
             
@@ -364,6 +367,5 @@ classdef SARSAAgent < RLAgent
                 error('模型文件不存在: %s', filename);
             end
         end
-        
     end
 end

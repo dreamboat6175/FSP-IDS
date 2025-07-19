@@ -6,22 +6,14 @@
 classdef PerformanceMonitor < handle
     
     properties
-        % === 基本参数 ===
+        % 基本参数
         n_iterations          % 总迭代数
         n_agents             % 智能体数量
-        config               % 配置参数
         
-        % === 核心数据存储数组 (这些是缺失的!) ===
-        defender_rewards     % 防御者奖励历史 [n_iterations x n_agents]
-        attacker_rewards     % 攻击者奖励历史 [n_iterations x 1]
-        detection_rates      % 检测率历史 [n_iterations x n_agents]
-        
-        % === RADI体系指标 ===
-        radi_scores          % RADI得分历史
-        resource_efficiency  % 资源效率
-        allocation_balance   % 分配均衡
-        
-        % === 其他指标 ===
+        % RADI体系指标
+        radi_scores
+        resource_efficiency
+        allocation_balance
         episode_rewards
         training_loss
         exploration_rates
@@ -30,6 +22,7 @@ classdef PerformanceMonitor < handle
         current_episode
         real_time_metrics
         display_interval
+        config
     end
     
     methods
@@ -70,7 +63,7 @@ classdef PerformanceMonitor < handle
             end
             
             % 计算RADI，确保返回标量
-            radi = calculateRADI(resource_allocation);
+            radi = obj.calculateRADI(resource_allocation);
             
             % 确保radi是标量
             if ~isscalar(radi)
@@ -184,7 +177,75 @@ classdef PerformanceMonitor < handle
             obj.updateMetrics(episode, metrics);
         end
         
-        计算失败: %s\n', ME.message);
+        function radi = calculateRADI(obj, resource_allocation)
+            % 计算RADI指标，确保返回标量
+            
+            try
+                % 获取最优分配
+                if isfield(obj.config, 'radi') && isfield(obj.config.radi, 'optimal_allocation')
+                    optimal = obj.config.radi.optimal_allocation;
+                else
+                    optimal = ones(1, 5) / 5; % 默认均匀分配
+                end
+                
+                % 获取权重
+                if isfield(obj.config, 'radi')
+                    weights = [
+                        obj.config.radi.weight_computation,
+                        obj.config.radi.weight_bandwidth,
+                        obj.config.radi.weight_sensors,
+                        obj.config.radi.weight_scanning,
+                        obj.config.radi.weight_inspection
+                    ];
+                else
+                    weights = ones(1, 5) / 5; % 默认均匀权重
+                end
+                
+                % 确保所有向量都是行向量且长度一致
+                resource_allocation = resource_allocation(:)';
+                optimal = optimal(:)';
+                weights = weights(:)';
+                
+                % 调整长度到最小公共长度
+                min_len = min([length(resource_allocation), length(optimal), length(weights)]);
+                resource_allocation = resource_allocation(1:min_len);
+                optimal = optimal(1:min_len);
+                weights = weights(1:min_len);
+                
+                % 归一化权重
+                if sum(weights) > 0
+                    weights = weights / sum(weights);
+                else
+                    weights = ones(1, min_len) / min_len;
+                end
+                
+                % 计算归一化的资源分配
+                if sum(resource_allocation) > 0
+                    norm_allocation = resource_allocation / sum(resource_allocation);
+                else
+                    norm_allocation = ones(1, min_len) / min_len;
+                end
+                
+                if sum(optimal) > 0
+                    norm_optimal = optimal / sum(optimal);
+                else
+                    norm_optimal = ones(1, min_len) / min_len;
+                end
+                
+                % 计算加权偏差
+                deviation = abs(norm_allocation - norm_optimal);
+                radi = sum(weights .* deviation);
+                
+                % 确保返回标量且在合理范围内
+                radi = max(0, min(radi, 2));
+                
+                % 强制转换为标量
+                if ~isscalar(radi)
+                    radi = radi(1);
+                end
+                
+            catch ME
+                fprintf('calculateRADI计算失败: %s\n', ME.message);
                 radi = 0.5; % 返回默认值
             end
         end
@@ -295,30 +356,39 @@ classdef PerformanceMonitor < handle
                 suggestions{1} = '当前资源分配策略表现良好，继续保持';
             end
         end
-        function updateIteration(obj, iteration, episode_data)
-
-                    if isfield(episode_data, 'avg_defender_reward')
-                        obj.defender_rewards(iteration, :) = episode_data.avg_defender_reward;
-                    end
-                    if isfield(episode_data, 'avg_attacker_reward')
-                        obj.attacker_rewards(iteration) = episode_data.avg_attacker_reward;
-                    end
-                    if isfield(episode_data, 'avg_detection_rate')
-                        obj.detection_rates(iteration, :) = episode_data.avg_detection_rate;
-                    end
-
+function updateIteration(obj, iteration, episode_data)
+        % 更新迭代数据
+        try
+            if isfield(episode_data, 'avg_defender_reward')
+                obj.defender_rewards(iteration, :) = episode_data.avg_defender_reward;
+            end
+            if isfield(episode_data, 'avg_attacker_reward')
+                obj.attacker_rewards(iteration) = episode_data.avg_attacker_reward;
+            end
+            if isfield(episode_data, 'avg_detection_rate')
+                obj.detection_rates(iteration, :) = episode_data.avg_detection_rate;
+            end
+        catch ME
+            warning('更新监控数据失败: %s', ME.message);
         end
+end
         function results = getResults(obj)
-    % 获取结果数据
-    results = struct();
-    results.defender_rewards = obj.defender_rewards;
-    results.attacker_rewards = obj.attacker_rewards;
-    results.detection_rates = obj.detection_rates;
-    results.radi_scores = obj.radi_scores;
-    results.resource_efficiency = obj.resource_efficiency;
-    results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
-    results.n_iterations = obj.n_iterations;
-    results.n_agents = obj.n_agents;
+            % 返回所有关键监控指标
+            results = struct();
+            results.defender_rewards = obj.defender_rewards;
+            results.attacker_rewards = obj.attacker_rewards;
+            results.detection_rates = obj.detection_rates;
+            results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            results.radi_scores = obj.radi_scores;
+            results.resource_efficiency = obj.resource_efficiency;
+            results.allocation_balance = obj.allocation_balance;
+            results.episode_rewards = obj.episode_rewards;
+            results.training_loss = obj.training_loss;
+            results.exploration_rates = obj.exploration_rates;
+            results.resource_allocations = obj.resource_allocations;
+            results.best_performance = obj.best_performance;
+            results.n_iterations = obj.n_iterations;
+            results.n_agents = obj.n_agents;
         end
     end
 end

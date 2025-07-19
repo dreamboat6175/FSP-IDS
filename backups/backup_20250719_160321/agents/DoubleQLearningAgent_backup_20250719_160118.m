@@ -1,4 +1,7 @@
+%% DoubleQLearningAgent.m - Double Q-Learning智能体实现（修复版）
+% 修复了Q_table属性缺失的问题
 classdef DoubleQLearningAgent < RLAgent
+    
     properties
         Q_table_A        % 第一个Q值表
         Q_table_B        % 第二个Q值表
@@ -11,6 +14,8 @@ classdef DoubleQLearningAgent < RLAgent
     end
     
     methods
+        % TODO: 验证此函数是否被使用
+        % TODO: 验证此函数是否被使用
         function obj = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim)
             % 构造函数
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
@@ -21,6 +26,7 @@ classdef DoubleQLearningAgent < RLAgent
             
             % 初始化兼容性Q表
             obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
+
             % 确保基类属性有默认值
             obj.strategy_history = [];
             obj.performance_history = struct();
@@ -91,7 +97,7 @@ classdef DoubleQLearningAgent < RLAgent
        end
        
         end
-        
+
 function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
         % 获取状态索引 - 添加边界检查
         state_idx = obj.encodeState(mean(state_vec));
@@ -295,6 +301,5 @@ end
                     error('模型文件不存在: %s', filename);
                 end
         end
-        
     end
 end

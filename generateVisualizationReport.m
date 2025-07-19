@@ -4,109 +4,7 @@
 % 使用方法: 在主函数最后添加一行代码即可
 % =========================================================================
 
-function generateVisualizationReport(agents, config, varargin)
-% 一键生成可视化报告的主函数
-% 输入:
-%   agents - 智能体cell数组 {attacker, defender1, defender2, defender3}
-%   config - 配置结构体
-%   varargin - 可选参数
-%
-% 使用示例:
-%   generateVisualizationReport({attacker_agent, defender_agents{:}}, config);
-
-    % 解析可选参数
-    p = inputParser;
-    addParameter(p, 'SaveDir', '', @ischar);
-    addParameter(p, 'GenerateHTML', true, @islogical);
-    addParameter(p, 'Verbose', true, @islogical);
-    parse(p, varargin{:});
-    
-    save_dir = p.Results.SaveDir;
-    generate_html = p.Results.GenerateHTML;
-    verbose = p.Results.Verbose;
-    
-    if verbose
-        fprintf('\n=== 开始生成可视化报告 ===\n');
-    end
-    
-    try
-        % 1. 数据收集和预处理
-        if verbose
-            fprintf('正在收集智能体数据...\n');
-        end
-        
-        results = collectAgentData(agents, config, verbose);
-        
-        % 2. 生成可视化图表
-        if verbose
-            fprintf('正在生成可视化图表...\n');
-        end
-        
-        generateAllCharts(results, config, save_dir, verbose);
-        
-        % 3. 输出结果到控制台（模拟日志格式）
-        if verbose
-            printFormattedResults(results, config);
-        end
-        
-        % 4. 生成HTML报告
-        if generate_html && ~isempty(save_dir)
-            generateHTMLReport(save_dir, results, config);
-        end
-        
-        if verbose
-            fprintf('✓ 可视化报告生成完成\n');
-            if ~isempty(save_dir)
-                fprintf('报告保存位置: %s\n', save_dir);
-            end
-        end
-        
-    catch ME
-        fprintf('❌ 可视化生成失败: %s\n', ME.message);
-        if ~isempty(ME.stack) && verbose
-            fprintf('错误位置: %s, 行号: %d\n', ME.stack(1).file, ME.stack(1).line);
-        end
-    end
-end
-
-%% 数据收集函数
-function results = collectAgentData(agents, config, verbose)
-    % 从智能体收集数据并整理
-    
-    results = struct();
-    
-    % 初始化结果结构
-    results.attacker_strategy_history = [];
-    results.attacker_final_strategy = [];
-    
-    algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-    for i = 1:length(algorithms)
-        alg = algorithms{i};
-        results.([alg '_strategy_history']) = [];
-        results.([alg '_final_strategy']) = [];
-        results.([alg '_radi_history']) = [];
-        results.([alg '_damage_history']) = [];
-        results.([alg '_success_rate_history']) = [];
-        results.([alg '_detection_rate_history']) = [];
-        results.([alg '_learning_rate_history']) = [];
-        results.([alg '_epsilon_history']) = [];
-        results.([alg '_q_values_history']) = [];
-        results.([alg '_final_radi']) = 0;
-        results.([alg '_final_damage']) = 0;
-        results.([alg '_final_success_rate']) = 0;
-        results.([alg '_final_detection_rate']) = 0;
-        results.([alg '_final_resource_efficiency']) = 0;
-        results.([alg '_learning_curve']) = [];
-    end
-    
-    % 从智能体收集实际数据
-    for i = 1:length(agents)
-        agent = agents{i};
-        
-        if strcmp(agent.agent_type, 'attacker')
-            collectAttackerData(agent, results, config);
-        else
-            collectDefenderData(agent, results, config);
+erData(agent, results, config);
         end
     end
     
@@ -115,13 +13,7 @@ function results = collectAgentData(agents, config, verbose)
 end
 
 %% 收集攻击者数据
-function collectAttackerData(agent, results, config)
-    % 收集攻击者数据
-    
-    try
-        if isfield(agent, 'strategy_history') && ~isempty(agent.strategy_history)
-            results.attacker_strategy_history = agent.strategy_history;
-            results.attacker_final_strategy = agent.strategy_history(end, :);
+, :);
         end
     catch
         % 如果收集失败，将在后续生成示例数据
@@ -129,17 +21,7 @@ function collectAttackerData(agent, results, config)
 end
 
 %% 收集防御者数据
-function collectDefenderData(agent, results, config)
-    % 收集防御者数据
-    
-    try
-        % 确定算法类型
-        algorithm_name = getAlgorithmName(agent);
-        if isempty(algorithm_name)
-            return;
-        end
-        
-        % 策略数据
+% 策略数据
         if isfield(agent, 'strategy_history') && ~isempty(agent.strategy_history)
             results.([algorithm_name '_strategy_history']) = agent.strategy_history;
             results.([algorithm_name '_final_strategy']) = agent.strategy_history(end, :);
@@ -199,35 +81,7 @@ function collectDefenderData(agent, results, config)
 end
 
 %% 确定算法名称
-function algorithm_name = getAlgorithmName(agent)
-    % 根据智能体类名确定算法名称
-    
-    class_name = lower(class(agent));
-    
-    if contains(class_name, 'qlearning') && ~contains(class_name, 'double')
-        algorithm_name = 'qlearning';
-    elseif contains(class_name, 'sarsa')
-        algorithm_name = 'sarsa';
-    elseif contains(class_name, 'double') && contains(class_name, 'qlearning')
-        algorithm_name = 'doubleqlearning';
-    else
-        algorithm_name = '';
-    end
-end
-
-%% 生成缺失数据
-function generateMissingData(results, config, verbose)
-    % 为缺失的数据生成合理的示例
-    
-    algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-    n_episodes = 100;
-    n_stations = config.n_stations;
-    
-    if verbose
-        fprintf('正在补充缺失数据...\n');
-    end
-    
-    % 生成攻击者数据
+% 生成攻击者数据
     if isempty(results.attacker_strategy_history)
         strategy_history = generateExampleStrategy(n_episodes, n_stations, 'attacker');
         results.attacker_strategy_history = strategy_history;
@@ -878,14 +732,14 @@ function generateHTMLReport(save_dir, results, config)
         % 标题和概述
         fprintf(fid, '<h1>FSP-TCS 智能防御系统仿真报告</h1>\n');
         fprintf(fid, '<div class="summary">\n');
-        fprintf(fid, '<h3>📊 仿真概览</h3>\n');
+        fprintf(fid, '<h3> 仿真概览</h3>\n');
         fprintf(fid, '<p><strong>生成时间:</strong> %s</p>\n', datestr(now));
         fprintf(fid, '<p><strong>仿真配置:</strong> %d个站点</p>\n', config.n_stations);
         fprintf(fid, '<p><strong>算法对比:</strong> Q-Learning、SARSA、Double Q-Learning</p>\n');
         fprintf(fid, '</div>\n');
         
         % 性能摘要表
-        fprintf(fid, '<h2>📈 算法性能摘要</h2>\n');
+        fprintf(fid, '<h2> 算法性能摘要</h2>\n');
         algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
         algorithm_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
         
@@ -909,16 +763,16 @@ function generateHTMLReport(save_dir, results, config)
         fprintf(fid, '</table>\n');
         
         % 图片画廊
-        fprintf(fid, '<h2>📊 可视化分析</h2>\n');
+        fprintf(fid, '<h2> 可视化分析</h2>\n');
         fprintf(fid, '<div class="image-gallery">\n');
         
         % 预定义图片列表
         image_list = {
-            'attacker_strategy.png', '🎯 攻击者策略分析';
-            'defender_strategies.png', '🛡️ 防御者策略对比';
-            'performance_metrics.png', '📈 性能指标趋势';
+            'attacker_strategy.png', ' 攻击者策略分析';
+            'defender_strategies.png', '️ 防御者策略对比';
+            'performance_metrics.png', ' 性能指标趋势';
             'parameter_changes.png', '⚙️ 算法参数演化';
-            'performance_comparison.png', '🏆 综合性能对比'
+            'performance_comparison.png', ' 综合性能对比'
         };
         
         for i = 1:size(image_list, 1)
@@ -938,7 +792,7 @@ function generateHTMLReport(save_dir, results, config)
         % 结尾
         fprintf(fid, '<hr style="margin: 40px 0;">\n');
         fprintf(fid, '<p style="text-align: center; color: #666; font-style: italic;">');
-        fprintf(fid, '🤖 FSP-TCS 智能防御系统 - 自动生成报告 | 生成时间: %s</p>\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+        fprintf(fid, ' FSP-TCS 智能防御系统 - 自动生成报告 | 生成时间: %s</p>\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
         fprintf(fid, '</div>\n');
         fprintf(fid, '</body>\n</html>\n');
         

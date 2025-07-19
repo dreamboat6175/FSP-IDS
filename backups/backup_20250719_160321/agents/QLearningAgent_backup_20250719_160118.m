@@ -1,4 +1,11 @@
+%% QLearningAgent.m - Q-Learning智能体实现（完整修复版）
+% =========================================================================
+% 描述: 实现标准Q-Learning算法的智能体
+% 修复了所有缺失的方法和属性
+% =========================================================================
+
 classdef QLearningAgent < RLAgent
+    
     properties
         Q_table          % Q值表
         visit_count      % 状态-动作访问计数
@@ -9,6 +16,8 @@ classdef QLearningAgent < RLAgent
     end
     
     methods
+        % TODO: 验证此函数是否被使用
+        % TODO: 验证此函数是否被使用
         function obj = QLearningAgent(name, agent_type, config, state_dim, action_dim)
             % 构造函数
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
@@ -245,6 +254,7 @@ classdef QLearningAgent < RLAgent
             obj.parameter_history.epsilon(end+1) = obj.epsilon;
             obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
         end
+
         
         function update(obj, state_vec, action_vec, reward, next_state_vec, next_action_vec)
             % 更新Q表
@@ -473,7 +483,6 @@ classdef QLearningAgent < RLAgent
                 obj.lr_scheduler = loaded.agent_data.lr_scheduler;
             end
         end
-        
         function recordPerformance(obj, reward, td_error)
             % 记录性能历史
             if ~isfield(obj.performance_history, 'rewards')
@@ -540,7 +549,9 @@ classdef QLearningAgent < RLAgent
                 detection_rate = NaN; % 攻击者不适用
             end
         end
-        
+    end
+    
+    methods
         function state_idx = encodeState(obj, state)
             % 将状态向量编码为索引
             
@@ -582,6 +593,9 @@ classdef QLearningAgent < RLAgent
                 state_idx = 1;
             end
         end
+    end
+    
+    methods (Access = private)
         
         function lr = getCurrentLearningRate(obj, state_idx, action_idx)
             % 获取当前学习率（可以基于访问次数自适应）
@@ -613,6 +627,5 @@ classdef QLearningAgent < RLAgent
             % 更新探索率
             obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
         end
-        
     end
 end
