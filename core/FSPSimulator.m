@@ -139,8 +139,8 @@ classdef FSPSimulator < handle
                        action = defender_agents{i}.selectAction(state);
                        
                        % 读取配置中的站点数量
-                       config = ConfigManager.getDefaultConfig();
-                       n_stations = config.n_stations;
+                      % 使用传入的配置中的站点数量
+                        n_stations = config.n_stations;
                        
                        % 确保动作向量长度等于站点数量
                        if length(action) ~= n_stations

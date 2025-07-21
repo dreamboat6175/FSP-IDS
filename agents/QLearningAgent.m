@@ -127,11 +127,13 @@ classdef QLearningAgent < RLAgent
             if contains(obj.agent_type, 'attacker') || contains(obj.name, 'attacker')
                 % ===== 攻击者：返回单个站点索引 =====
                 
-                % 确定站点数量
-                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
+                % 确定站点数量 - 优先使用传入的config
+                if isfield(obj.config, 'n_stations')
                     n_stations = obj.config.n_stations;
+                elseif obj.action_dim > 0
+                    n_stations = obj.action_dim;
                 else
-                    n_stations = min(obj.action_dim, 10);  % 假设动作维度不会超过10个站点
+                    error('无法确定站点数量：config.n_stations和action_dim都不可用');
                 end
                 
                 % ===== 修复：使用 exploration_strategy 判断 =====

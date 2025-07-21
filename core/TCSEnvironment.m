@@ -1048,7 +1048,7 @@ end
             fprintf('2. 环境重置演示\n');
             initial_state = env.reset();
             fprintf('   初始状态维度: %d\n', length(initial_state));
-            fprintf('   站点价值: [%.3f, %.3f, %.3f, %.3f, %.3f]\n', env.station_values);
+            fprintf('   站点价值: %s\n', mat2str(env.station_values, 3));
             
             % === 3. 单步交互演示 ===
             fprintf('3. 单步交互演示\n');
@@ -1057,7 +1057,7 @@ end
             strategies = {
                 '均匀分配', ones(1, env.n_stations) * (env.total_resources / env.n_stations);
                 '基于价值', env.station_values / sum(env.station_values) * env.total_resources;
-                '集中防御', [env.total_resources*0.6, env.total_resources*0.1, env.total_resources*0.1, env.total_resources*0.1, env.total_resources*0.1]
+                '集中防御', [env.total_resources*0.6, repmat(env.total_resources*0.4/(env.n_stations-1), 1, env.n_stations-1)]
             };
             
             for i = 1:size(strategies, 1)
@@ -1158,22 +1158,28 @@ end
                 
                 % 测试异常输入处理
                 try
-                    env.step([1, 2], 1); % 错误的部署向量长度
+                    env.step(ones(1, min(2, env.n_stations)), 1); % 错误的部署向量长度
                     assert(false, '应该抛出长度错误');
                 catch ME
                     assert(contains(ME.message, '长度'), '错误信息不正确');
                 end
                 
                 try
-                    env.step([10, 20, 20], 0); % 错误的目标范围
+                    test_deployment = ones(1, env.n_stations) * (50/env.n_stations);
+                    env.step(test_deployment, 0); % 错误的目标范围
                     assert(false, '应该抛出范围错误');
                 catch ME
                     assert(contains(ME.message, '之间'), '错误信息不正确');
                 end
                 
                 % 测试正常边界值
-                [~, ~, ~, ~] = env.step([0, 0, 50], 3); % 极端部署
-                [~, ~, ~, ~] = env.step([50, 0, 0], 1); % 集中部署
+               extreme_deployment = zeros(1, env.n_stations);
+               extreme_deployment(min(3, env.n_stations)) = 50;
+               [~, ~, ~, ~] = env.step(extreme_deployment, min(3, env.n_stations)); % 极端部署
+                
+               concentrated_deployment = zeros(1, env.n_stations);
+               concentrated_deployment(1) = 50;
+               [~, ~, ~, ~] = env.step(concentrated_deployment, 1); % 集中部署
                 
                 fprintf('   ✓ 边界条件处理测试通过\n');
                 
@@ -1185,7 +1191,8 @@ end
                 % 执行多步，验证统计一致性
                 success_count = 0;
                 for step = 1:20
-                    [~, ~, ~, info] = env.step([15, 15, 20], randi(3));
+                    test_deployment = ones(1, env.n_stations) * (50/env.n_stations);
+                    [~, ~, ~, info] = env.step(test_deployment, randi(env.n_stations));
                     if info.attack_success
                         success_count = success_count + 1;
                     end
