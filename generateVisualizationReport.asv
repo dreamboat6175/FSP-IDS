@@ -272,7 +272,7 @@ function generatePerformanceMetricsChart(results, save_dir, config)  % 添加con
     close;
 end
 
-function generateParameterChangesChart(results, save_dir, config)  % 添加config参数
+function generateParameterChangesChart(results, save_dir)
     % 生成算法参数变化图表
     fprintf('  - 算法参数变化图\n');
     
@@ -285,9 +285,6 @@ function generateParameterChangesChart(results, save_dir, config)  % 添加confi
     params = {'learning_rate', 'epsilon', 'q_values', 'visit_count'};
     param_titles = {'学习率变化', 'ε值变化', 'Q值演化', '访问计数累积'};
     
-    % 获取实际的episode数量
-    n_episodes = config.n_iterations;
-    
     for p = 1:length(params)
         subplot(2, 2, p);
         hold on;
@@ -299,19 +296,12 @@ function generateParameterChangesChart(results, save_dir, config)  % 添加confi
             if isfield(results, param_field)
                 param_history = results.(param_field);
             else
-                % 使用实际的n_episodes生成示例参数历史
-                param_history = generateExampleParameterHistory(params{p}, n_episodes);
+                % 生成示例参数历史
+                param_history = generateExampleParameterHistory(params{p});
             end
             
-            % 如果数据点太多，进行采样显示
-            if length(param_history) > 200
-                sample_rate = ceil(length(param_history) / 200);
-                sampled_indices = 1:sample_rate:length(param_history);
-                plot(sampled_indices, param_history(sampled_indices), '-', 'Color', colors(i,:), 'LineWidth', 2, 'DisplayName', algorithm_names{i});
-            else
-                episodes = 1:length(param_history);
-                plot(episodes, param_history, '-', 'Color', colors(i,:), 'LineWidth', 2, 'DisplayName', algorithm_names{i});
-            end
+            episodes = 1:length(param_history);
+            plot(episodes, param_history, '-', 'Color', colors(i,:), 'LineWidth', 2, 'DisplayName', algorithm_names{i});
         end
         
         xlabel('训练轮次');
@@ -437,7 +427,7 @@ function history = generateExampleMetricHistory(metric, algorithm, n_episodes)
     % 生成示例指标历史
     % 添加n_episodes参数，如果没有提供则使用默认值
     if nargin < 3
-        n_episodes = config.n_iterations;
+        n_episodes = 100;  % 默认值
     end
     
     % 预定义最终值
@@ -520,7 +510,7 @@ function history = generateExampleParameterHistory(param, n_episodes)
     % 生成示例参数历史
     % 添加n_episodes参数，如果没有提供则使用默认值
     if nargin < 2
-        n_episodes = config.n_iterations;
+        n_episodes = 100;  % 默认值
     end
     
     episodes = 1:n_episodes;

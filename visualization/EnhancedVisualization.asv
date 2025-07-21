@@ -57,7 +57,7 @@ classdef EnhancedVisualization < handle
             
             % 收集攻击者数据
             attacker = agents{1};
-            data.attacker = EnhancedVisualization.extractAgentData(attacker, 'attacker', config);
+            data.attacker = EnhancedVisualization.extractAgentData(attacker, 'attacker');
             
             % 收集防御者数据
             algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
@@ -68,12 +68,12 @@ classdef EnhancedVisualization < handle
                 alg_key = algorithms{i};
                 alg_name = algorithm_names{i};
                 
-                data.defenders.(alg_key) = EnhancedVisualization.extractAgentData(agent, alg_name, config);
+                data.defenders.(alg_key) = EnhancedVisualization.extractAgentData(agent, alg_name);
                 data.defenders.(alg_key).algorithm = alg_name;
             end
         end
         
-        function agent_data = extractAgentData(agent, agent_type, config)
+        function agent_data = extractAgentData(agent, agent_type)
             % 从智能体提取数据
             agent_data = struct();
             agent_data.type = agent_type;
@@ -94,7 +94,7 @@ classdef EnhancedVisualization < handle
             end
             
             % 提取性能指标
-            agent_data.performance = EnhancedVisualization.extractPerformanceMetrics(agent, agent_type, config);
+            agent_data.performance = EnhancedVisualization.extractPerformanceMetrics(agent, agent_type);
         end
         
         function value = getPropertyValue(agent, property_name)
@@ -156,7 +156,7 @@ classdef EnhancedVisualization < handle
             end
         end
         
-        function performance = extractPerformanceMetrics(agent, agent_type, config)
+        function performance = extractPerformanceMetrics(agent, agent_type)
             % 提取或生成性能指标
             performance = struct();
             
@@ -177,7 +177,7 @@ classdef EnhancedVisualization < handle
             end
             
             % 生成历史数据
-            n_episodes = config.n_iterations;
+            n_episodes = 100;
             performance.history = struct();
             fields = fieldnames(performance);
             for i = 1:length(fields)
