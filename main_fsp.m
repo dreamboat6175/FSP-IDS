@@ -81,7 +81,7 @@ function generateCompleteVisualizationReport(agents, results, config, env)
     end
     
     % 调用可视化报告生成器
-    EnhancedVisualizationManager.generateFullReport(all_agents, results, config, env);
+    EnhancedVisualization.generateFullReport(all_agents, results, config, env);
     
     fprintf('✓ 可视化报告生成完成\n');
 end

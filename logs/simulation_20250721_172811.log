@@ -1,0 +1,6 @@
+[2025-07-21 17:28:11] [INFO] 日志系统初始化完成
+[2025-07-21 17:28:11] [INFO] FSP-TCS仿真开始
+[2025-07-21 17:28:11] [ERROR] 仿真出错: 错误: <a href="matlab: opentoline('D:\CODE\FSP-IDS\core\PerformanceMonitor.m',187,9)">文件: PerformanceMonitor.m 行: 187 列: 9</a>
+文本字符无效。请检查不受支持的符号、不可见的字符或非 ASCII 字符的粘贴。
+[2025-07-21 17:28:11] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_fsp.m, 行号: 50
+[2025-07-21 17:28:11] [INFO] 日志系统关闭
