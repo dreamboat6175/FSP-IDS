@@ -1,20 +1,22 @@
-%% IntegrationFunctions.m - 集成与可视化调度中心
+%% generateEnhancedVisualization.m - 集成与可视化调度中心 (v3.0)
 % =========================================================================
 % 描述:
 %   此文件作为主程序与底层仿真、数据收集和可视化模块之间的桥梁。
 %   它提供了一系列高级接口函数，用于启动可视化流程、生成报告、
-%   进行实时监控和性能对比，而无需修改主调用逻辑。
+%   进行实时监控和性能对比。此版本根据您的完整项目结构进行了重构，
+%   动态地从`agents`对象中提取信息，并与您项目中的其他模块（如
+%   ResultsCollector, EnhancedVisualization）无缝协作。
 %
 % 主要功能:
 %   - generateEnhancedVisualization: 生成包含所有图表和HTML的完整报告。
 %   - generateQuickVisualization: 生成核心图表的快速预览，用于调试。
 %   - updateRealTimeMonitoring: 在训练循环中被调用，以实时更新监控图表。
-%   - generatePerformanceComparison: 生成不同防御算法的性能对比柱状图。
-%   - generateHTMLReport: 创建一个包含仿真结果摘要和图表的HTML报告。
+%   - generatePerformanceComparison: 动态生成防御算法的性能对比图。
+%   - generateHTMLReport: 动态创建一个包含仿真结果摘要和图表的HTML报告。
 %
 % 使用说明:
-%   从您的主脚本中调用此文件中的函数，例如:
-%   generateEnhancedVisualization(agents, config, environment);
+%   在您的主脚本 (main_fsp.m) 的末尾调用此文件中的函数，例如:
+%   >> generateEnhancedVisualization(agents, config, environment);
 %
 % =========================================================================
 
@@ -30,9 +32,6 @@ function generateEnhancedVisualization(agents, config, environment)
     try
         % 步骤 1: 验证和标准化配置
         % 确保 n_episodes 存在，这是所有历史数据长度的基准
-        if isfield(config, 'n_iterations') && ~isfield(config, 'n_episodes')
-            config.n_episodes = config.n_iterations; % 兼容 n_iterations
-        end
         config = validateAndFixConfig(config);
 
         % 步骤 2: 收集和整理数据
@@ -48,6 +47,7 @@ function generateEnhancedVisualization(agents, config, environment)
         
         % 步骤 4: 创建可视化对象并生成所有图表
         fprintf('2. 正在生成所有可视化图表...\n');
+        % 假设 visualization/EnhancedVisualization.m 在路径中
         visualization = EnhancedVisualization(results, config, environment);
         visualization.generateCompleteReport(); % 此方法会调用所有绘图函数
         fprintf('   ✓ 图表生成完成。\n');
@@ -67,7 +67,7 @@ function generateEnhancedVisualization(agents, config, environment)
         
         % 步骤 6: 生成HTML报告作为导航索引
         fprintf('4. 正在生成HTML索引报告...\n');
-        generateHTMLReport(save_dir, results, config);
+        generateHTMLReport(save_dir, results, config, agents); % 传递 agents 以动态获取名称
         fprintf('   ✓ HTML报告已生成。\n');
         
         fprintf('\n✓ 增强版可视化报告生成成功!\n');
@@ -113,7 +113,7 @@ function generateQuickVisualization(agents, config)
 end
 
 %% 实时监控函数
-function updateRealTimeMonitoring(agents, episode_num, config)
+function updateRealTimeMonitoring(agents, episode_num)
     % 在训练过程中实时更新奖励和损失曲线，用于监控训练状态。
     % 使用 persistent 变量来存储历史数据。
     
@@ -130,11 +130,11 @@ function updateRealTimeMonitoring(agents, episode_num, config)
         % 收集当前轮次的数据
         current_reward = 0;
         current_loss = 0;
-        agent_count = length(agents);
         
-        for i = 1:agent_count
+        for i = 1:length(agents)
             agent = agents{i};
-            if isfield(agent, 'performance_history')
+            % 从 agent 的 performance_history 中获取最新数据
+            if isprop(agent, 'performance_history') && isstruct(agent.performance_history)
                 if isfield(agent.performance_history, 'rewards') && ~isempty(agent.performance_history.rewards)
                     current_reward = current_reward + agent.performance_history.rewards(end);
                 end
@@ -180,7 +180,7 @@ end
 
 %% 性能对比函数
 function generatePerformanceComparison(agents, config)
-    % 生成不同防御算法在关键性能指标上的对比柱状图。
+    % 动态生成不同防御算法在关键性能指标上的对比柱状图。
     
     fprintf('\n=== 生成算法性能对比报告 ===\n');
     
@@ -193,22 +193,26 @@ function generatePerformanceComparison(agents, config)
         
         figure('Position', [100, 100, 1200, 700], 'Name', '算法性能对比', 'NumberTitle', 'off');
         
-        % 定义参与对比的算法和指标 (可以从config或results动态生成)
-        % 注意: 为保持稳定，此处暂时硬编码。若算法可变，需修改为动态获取。
-        algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
-        metrics = {'RADI', 'Damage', 'Success_Rate', 'Detection_Rate'};
+        % 动态获取防御者信息
+        defenders = getDefenderInfo(agents);
+        if isempty(defenders)
+            warning('未找到任何防御者智能体，无法生成性能对比图。');
+            close(gcf);
+            return;
+        end
         
-        % 使用颜色循环，避免算法数量改变时出错
+        algorithms = {defenders.displayName};
+        metrics = {'RADI', 'Damage', 'Success_Rate', 'Detection_Rate'};
         colors = lines(length(algorithms)); 
         
         % 收集最终性能数据
         performance_matrix = zeros(length(algorithms), length(metrics));
         
         for i = 1:length(algorithms)
-            alg_name_key = lower(strrep(algorithms{i}, '-', '')); % e.g., 'DoubleQLearning' -> 'doubleqlearning'
+            alg_key = defenders(i).key;
             for j = 1:length(metrics)
                 metric_key = lower(metrics{j});
-                performance_matrix(i, j) = getMetricValue(results, alg_name_key, metric_key);
+                performance_matrix(i, j) = getMetricValue(results, alg_key, metric_key);
             end
         end
         
@@ -221,7 +225,7 @@ function generatePerformanceComparison(agents, config)
         title('防御算法最终性能对比', 'FontSize', 16);
         legend(metrics, 'Location', 'northeastoutside', 'FontSize', 10);
         grid on;
-        ylim([0, max(performance_matrix(:)) * 1.2 + 0.05]); % 动态调整Y轴范围
+        ylim([0, max(performance_matrix(:), [], 'all') * 1.2 + 0.05]); % 动态调整Y轴范围
         
         % 为每个柱子设置颜色
         for i = 1:length(bar_handle)
@@ -248,7 +252,7 @@ function generatePerformanceComparison(agents, config)
 end
 
 %% HTML报告生成函数
-function generateHTMLReport(save_dir, results, config)
+function generateHTMLReport(save_dir, results, config, agents)
     % 生成一个HTML文件，作为所有结果的摘要和导航。
     
     html_file = fullfile(save_dir, 'report.html');
@@ -279,7 +283,7 @@ function generateHTMLReport(save_dir, results, config)
         
         % 性能指标表格
         fprintf(fid, '<h2>最终性能指标对比</h2>\n');
-        fprintf(fid, '%s\n', generatePerformanceTableHTML(results));
+        fprintf(fid, '%s\n', generatePerformanceTableHTML(results, agents)); % 传递 agents
         
         % 可视化图表画廊
         fprintf(fid, '<h2>可视化图表</h2>\n');
@@ -316,11 +320,12 @@ function generateHTMLReport(save_dir, results, config)
     end
 end
 
+%% ------------------- 辅助函数 -------------------
+
 %% HTML辅助函数 - 生成性能表格
-function html_table = generatePerformanceTableHTML(results)
-    % 从results结构体生成HTML性能表格
-    algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-    algorithm_names = {'Q-Learning', 'SARSA', 'Double Q-Learning'};
+function html_table = generatePerformanceTableHTML(results, agents)
+    % 动态地从results结构体和agents列表生成HTML性能表格
+    defenders = getDefenderInfo(agents);
     metrics = {'radi', 'damage', 'success_rate', 'detection_rate'};
     metric_names = {'RADI', '损害度', '攻击成功率', '检测率'};
     
@@ -330,16 +335,19 @@ function html_table = generatePerformanceTableHTML(results)
     end
     html_table = [html_table, '</tr>\n'];
     
-    for i = 1:length(algorithms)
-        alg = algorithms{i};
-        name = algorithm_names{i};
-        html_table = [html_table, sprintf('<tr><td><strong>%s</strong></td>', name)];
-        for j = 1:length(metrics)
-            metric = metrics{j};
-            value = getMetricValue(results, alg, metric);
-            html_table = [html_table, sprintf('<td>%.4f</td>', value)];
+    if isempty(defenders)
+        html_table = [html_table, '<tr><td colspan="%d">未找到防御者数据</td></tr>\n'];
+    else
+        for i = 1:length(defenders)
+            defender = defenders(i);
+            html_table = [html_table, sprintf('<tr><td><strong>%s</strong></td>', defender.displayName)];
+            for j = 1:length(metrics)
+                metric = metrics{j};
+                value = getMetricValue(results, defender.key, metric);
+                html_table = [html_table, sprintf('<td>%.4f</td>', value)];
+            end
+            html_table = [html_table, '</tr>\n'];
         end
-        html_table = [html_table, '</tr>\n'];
     end
     html_table = [html_table, '</table>\n'];
 end
@@ -367,10 +375,10 @@ function style = getHTMLStyle()
 end
 
 %% 辅助函数 - 安全获取指标值
-function value = getMetricValue(results, algorithm, metric)
+function value = getMetricValue(results, algorithm_key, metric)
     % 从 results 结构体中安全地获取指标值。
     % 如果字段不存在或值为NaN/空，则返回0。
-    field_name = sprintf('%s_final_%s', algorithm, metric);
+    field_name = sprintf('%s_final_%s', algorithm_key, metric);
     if isfield(results, field_name)
         val = results.(field_name);
         if ~isempty(val) && isscalar(val) && isfinite(val)
@@ -383,20 +391,24 @@ function value = getMetricValue(results, algorithm, metric)
     end
 end
 
-%% 智能体工厂函数
-function agents = createEnhancedAgents(config)
-    % 创建并返回一个包含所有预定义智能体的单元数组。
-    fprintf('正在创建增强版智能体...\n');
-    try
-        agents = {
-            QLearningAgent('攻击者', 'attacker', config, config.state_dim, config.action_dim), ...
-            QLearningAgent('QLearning防御者', 'defender', config, config.state_dim, config.action_dim), ...
-            SARSAAgent('SARSA防御者', 'defender', config, config.state_dim, config.action_dim), ...
-            DoubleQLearningAgent('DoubleQ防御者', 'defender', config, config.state_dim, config.action_dim)
-        };
-        fprintf('✓ 增强版智能体创建完成。\n');
-    catch ME
-        error('智能体创建失败: %s', ME.message);
+%% 辅助函数 - 从智能体列表中提取防御者信息
+function defenders = getDefenderInfo(agents)
+    % 从agents单元数组中提取所有类型为'defender'的智能体信息。
+    % 返回一个结构体数组，包含用于显示的名字和用于索引结果的键。
+    defenders = struct('displayName', {}, 'key', {});
+    for i = 1:length(agents)
+        agent = agents{i};
+        % 假设agent对象有 'type' 和 'name' 属性
+        if isprop(agent, 'type') && strcmp(agent.type, 'defender')
+            % 从 'QLearning防御者' 中提取 'QLearning'
+            displayName = strrep(agent.name, '防御者', ''); 
+            % 创建一个用于字段索引的key, e.g., 'DoubleQLearning' -> 'doubleqlearning'
+            key = lower(strrep(displayName, ' ', '')); 
+            
+            info.displayName = displayName;
+            info.key = key;
+            defenders(end+1) = info;
+        end
     end
 end
 
@@ -410,14 +422,14 @@ function config = validateAndFixConfig(config)
             config.n_episodes = config.n_iterations; % 兼容旧的 n_iterations
         else
             config.n_episodes = 500; % 设置一个安全的默认值
-            fprintf('警告: 未找到 config.n_episodes, 已设为默认值 %d\n', config.n_episodes);
+            fprintf('警告: 未找到 config.n_episodes 或 config.n_iterations, 已设为默认值 %d\n', config.n_episodes);
         end
     end
     
+    % 定义并应用其他默认值
     defaults = {
         'n_stations', 10;
-        'state_dim', 25;
-        'action_dim', max(config.n_stations, 10)
+        'state_dim', 25
     };
     
     for i = 1:size(defaults, 1)
@@ -426,10 +438,13 @@ function config = validateAndFixConfig(config)
         end
     end
     
+    % 动作空间维度依赖于站点数量
+    if ~isfield(config, 'action_dim')
+        config.action_dim = max(config.n_stations, 10);
+    end
+    
     % 确保报告目录存在
     if ~exist('reports', 'dir')
         mkdir('reports');
     end
-    
-    % fprintf('✓ 配置验证完成，使用 %d 轮迭代。\n', config.n_episodes);
 end

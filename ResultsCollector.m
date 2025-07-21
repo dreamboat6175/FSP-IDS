@@ -1,8 +1,10 @@
-%% ResultsCollector.m - 智能体结果收集器
+%% ResultsCollector.m - 智能体结果收集器 (v2.0 修复版)
 % =========================================================================
-% 描述: 收集智能体训练结果，处理缺失数据，生成示例数据
+% 描述: 
+%   负责从所有智能体中收集仿真结束后的最终数据和历史数据。
+%   能够为缺失的数据生成符合配置长度的示例数据，以确保可视化模块的稳定运行。
+%   此版本修复了硬编码的迭代次数，并改为动态处理防御者列表。
 % =========================================================================
-
 classdef ResultsCollector < handle
     
     properties
@@ -20,19 +22,18 @@ classdef ResultsCollector < handle
         end
         
         function collectFromAgents(obj)
-            % 从智能体收集数据
-            fprintf('📋 收集智能体数据...\n');
+            % 从所有智能体中动态收集数据
+            fprintf('📋 正在从 %d 个智能体中收集数据...\n', numel(obj.agents));
             
-            % 收集攻击者数据
-            if ~isempty(obj.agents) && length(obj.agents) >= 1
-                obj.collectAttackerData(obj.agents{1});
-            end
-            
-            % 收集防御者数据
-            algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-            for i = 1:min(3, length(obj.agents)-1)
-                if length(obj.agents) > i
-                    obj.collectDefenderData(obj.agents{i+1}, algorithms{i});
+            for i = 1:length(obj.agents)
+                agent = obj.agents{i};
+                if isprop(agent, 'type')
+                    switch agent.type
+                        case 'attacker'
+                            obj.collectAttackerData(agent);
+                        case 'defender'
+                            obj.collectDefenderData(agent);
+                    end
                 end
             end
             
@@ -42,130 +43,92 @@ classdef ResultsCollector < handle
         function collectAttackerData(obj, agent)
             % 收集攻击者数据
             try
-                % 策略数据
-                if isfield(agent, 'strategy') && ~isempty(agent.strategy)
-                    obj.results_data.attacker_final_strategy = agent.strategy;
-                elseif isfield(agent, 'policy') && ~isempty(agent.policy)
+                if isprop(agent, 'policy')
                     obj.results_data.attacker_final_strategy = agent.policy;
                 end
-                
-                % 性能数据
-                if isfield(agent, 'performance_history') && ~isempty(agent.performance_history)
+                if isprop(agent, 'performance_history') && isstruct(agent.performance_history)
                     perf = agent.performance_history;
-                    
-                    if isfield(perf, 'success_rate') && ~isempty(perf.success_rate)
+                    if isfield(perf, 'success_rate')
                         obj.results_data.attacker_success_rate_history = perf.success_rate;
                         obj.results_data.attacker_final_success_rate = perf.success_rate(end);
                     end
-                    
-                    if isfield(perf, 'damage') && ~isempty(perf.damage)
+                    if isfield(perf, 'damage')
                         obj.results_data.attacker_damage_history = perf.damage;
                         obj.results_data.attacker_final_damage = perf.damage(end);
                     end
                 end
-            catch
-                % 如果收集失败，将在后续生成示例数据
+            catch ME
+                warning('收集攻击者数据时出错: %s', ME.message);
             end
         end
         
-        function collectDefenderData(obj, agent, algorithm_name)
-            % 收集防御者数据
+        function collectDefenderData(obj, agent)
+            % 从单个防御者智能体收集数据
+            % 使用动态生成的key来存储结果
+            defender_info = obj.getDefenderInfo({agent});
+            if isempty(defender_info)
+                return;
+            end
+            alg_key = defender_info.key;
+
             try
-                % 策略数据
-                if isfield(agent, 'strategy') && ~isempty(agent.strategy)
-                    obj.results_data.([algorithm_name '_final_strategy']) = agent.strategy;
-                elseif isfield(agent, 'policy') && ~isempty(agent.policy)
-                    obj.results_data.([algorithm_name '_final_strategy']) = agent.policy;
+                % 策略和性能数据
+                if isprop(agent, 'policy')
+                    obj.results_data.([alg_key '_final_strategy']) = agent.policy;
+                end
+                if isprop(agent, 'strategy_history')
+                    obj.results_data.([alg_key '_strategy_history']) = agent.strategy_history;
                 end
                 
-                % 策略历史
-                if isfield(agent, 'strategy_history') && ~isempty(agent.strategy_history)
-                    obj.results_data.([algorithm_name '_strategy_history']) = agent.strategy_history;
-                end
-                
-                % 性能历史数据
-                if isfield(agent, 'performance_history') && ~isempty(agent.performance_history)
+                % 性能历史
+                if isprop(agent, 'performance_history') && isstruct(agent.performance_history)
                     perf = agent.performance_history;
-                    
-                    if isfield(perf, 'radi') && ~isempty(perf.radi)
-                        obj.results_data.([algorithm_name '_radi_history']) = perf.radi;
-                        obj.results_data.([algorithm_name '_final_radi']) = perf.radi(end);
+                    metrics = {'radi', 'damage', 'success_rate', 'detection_rate'};
+                    for i = 1:length(metrics)
+                        metric = metrics{i};
+                        if isfield(perf, metric) && ~isempty(perf.(metric))
+                            obj.results_data.([alg_key '_' metric '_history']) = perf.(metric);
+                            obj.results_data.([alg_key '_final_' metric]) = perf.(metric)(end);
+                        end
                     end
-                    
-                    if isfield(perf, 'damage') && ~isempty(perf.damage)
-                        obj.results_data.([algorithm_name '_damage_history']) = perf.damage;
-                        obj.results_data.([algorithm_name '_final_damage']) = perf.damage(end);
-                    end
-                    
-                    if isfield(perf, 'success_rate') && ~isempty(perf.success_rate)
-                        obj.results_data.([algorithm_name '_success_rate_history']) = perf.success_rate;
-                        obj.results_data.([algorithm_name '_final_success_rate']) = perf.success_rate(end);
-                    end
-                    
-                    if isfield(perf, 'detection_rate') && ~isempty(perf.detection_rate)
-                        obj.results_data.([algorithm_name '_detection_rate_history']) = perf.detection_rate;
-                        obj.results_data.([algorithm_name '_final_detection_rate']) = perf.detection_rate(end);
-                    end
-                    
                     if isfield(perf, 'rewards') && ~isempty(perf.rewards)
-                        % 计算资源效率
-                        resource_efficiency = mean(perf.rewards(max(1, end-19):end));
-                        obj.results_data.([algorithm_name '_final_resource_efficiency']) = resource_efficiency;
-                        
-                        % 生成学习曲线
-                        obj.results_data.([algorithm_name '_learning_curve']) = cumsum(perf.rewards) ./ (1:length(perf.rewards));
+                        obj.results_data.([alg_key '_learning_curve']) = cumsum(perf.rewards) ./ (1:length(perf.rewards));
                     end
                 end
-                
-                % 参数历史数据
-                if isfield(agent, 'parameter_history') && ~isempty(agent.parameter_history)
-                    param = agent.parameter_history;
-                    
-                    if isfield(param, 'learning_rate') && ~isempty(param.learning_rate)
-                        obj.results_data.([algorithm_name '_learning_rate_history']) = param.learning_rate;
-                    end
-                    
-                    if isfield(param, 'epsilon') && ~isempty(param.epsilon)
-                        obj.results_data.([algorithm_name '_epsilon_history']) = param.epsilon;
-                    end
-                    
-                    if isfield(param, 'q_values') && ~isempty(param.q_values)
-                        obj.results_data.([algorithm_name '_q_values_history']) = param.q_values;
-                    end
-                    
-                    if isfield(param, 'visit_count') && ~isempty(param.visit_count)
-                        obj.results_data.([algorithm_name '_visit_count_history']) = param.visit_count;
+
+                % 参数历史
+                if isprop(agent, 'parameter_history') && isstruct(agent.parameter_history)
+                    params = {'learning_rate', 'epsilon', 'q_values', 'visit_count'};
+                    param_hist = agent.parameter_history;
+                    for i = 1:length(params)
+                        param = params{i};
+                        if isfield(param_hist, param) && ~isempty(param_hist.(param))
+                            obj.results_data.([alg_key '_' param '_history']) = param_hist.(param);
+                        end
                     end
                 end
-                
-                % 直接从智能体获取当前性能指标
-                if isfield(agent, 'radi_score')
-                    obj.results_data.([algorithm_name '_final_radi']) = agent.radi_score;
-                end
-                
-                if isfield(agent, 'detection_rate')
-                    obj.results_data.([algorithm_name '_final_detection_rate']) = agent.detection_rate;
-                end
-                
-            catch
-                % 如果收集失败，将在后续生成示例数据
+            catch ME
+                warning('收集防御者 %s 的数据时出错: %s', agent.name, ME.message);
             end
         end
         
         function generateMissingData(obj)
-            % 为缺失的数据生成示例数据
-            fprintf('🔧 生成缺失数据...\n');
+            % 为缺失的数据生成符合配置的示例数据
+            fprintf('🔧 正在检查并生成缺失的示例数据...\n');
             
-            n_episodes = 100;
-            n_actions = 10;
+            % =================================================================
+            % 核心修复: 从 obj.config 动态获取迭代次数和动作维度
+            % =================================================================
+            n_episodes = obj.config.n_episodes;
+            n_actions = obj.config.action_dim;
             
-            % 生成攻击者数据
+            % 确保攻击者数据完整
             obj.generateAttackerData(n_episodes, n_actions);
             
-            % 生成防御者数据
-            algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-            for i = 1:length(algorithms)
-                obj.generateDefenderData(algorithms{i}, n_episodes, n_actions);
+            % 动态获取所有防御者并为它们检查数据完整性
+            defenders = obj.getDefenderInfo(obj.agents);
+            for i = 1:length(defenders)
+                obj.generateDefenderData(defenders(i).key, n_episodes, n_actions);
             end
             
             fprintf('✓ 缺失数据生成完成\n');
@@ -173,200 +136,59 @@ classdef ResultsCollector < handle
         
         function generateAttackerData(obj, n_episodes, n_actions)
             % 生成攻击者示例数据
-            
-            % 最终策略
             if ~isfield(obj.results_data, 'attacker_final_strategy')
                 strategy = rand(1, n_actions);
-                strategy = strategy / sum(strategy);
-                obj.results_data.attacker_final_strategy = strategy;
+                obj.results_data.attacker_final_strategy = strategy / sum(strategy);
             end
-            
-            % 攻击成功率历史
             if ~isfield(obj.results_data, 'attacker_success_rate_history')
-                final_rate = 0.3 + rand() * 0.4; % 30%-70%成功率
-                history = obj.generateLearningHistory(final_rate, n_episodes, 0.1);
+                history = 0.2 + 0.3 * (1 - exp(-(1:n_episodes)/25)) + randn(1, n_episodes) * 0.05;
                 obj.results_data.attacker_success_rate_history = history;
-                obj.results_data.attacker_final_success_rate = final_rate;
+                obj.results_data.attacker_final_success_rate = history(end);
             end
-            
-            % 伤害历史
             if ~isfield(obj.results_data, 'attacker_damage_history')
-                final_damage = 0.1 + rand() * 0.3; % 10%-40%伤害
-                history = obj.generateLearningHistory(final_damage, n_episodes, 0.05);
+                history = 0.1 + 0.2 * (1 - exp(-(1:n_episodes)/30)) + randn(1, n_episodes) * 0.03;
                 obj.results_data.attacker_damage_history = history;
-                obj.results_data.attacker_final_damage = final_damage;
+                obj.results_data.attacker_final_damage = history(end);
             end
         end
         
-        function generateDefenderData(obj, algorithm, n_episodes, n_actions)
-            % 生成防御者示例数据
-            
-            % 最终策略
-            strategy_field = [algorithm '_final_strategy'];
-            if ~isfield(obj.results_data, strategy_field)
-                strategy = obj.generateDefenderStrategy(algorithm, n_actions);
-                obj.results_data.(strategy_field) = strategy;
+        function generateDefenderData(obj, alg_key, n_episodes, n_actions)
+            % 为指定的防御者算法生成示例数据
+            if ~isfield(obj.results_data, [alg_key '_final_strategy'])
+                obj.results_data.([alg_key '_final_strategy']) = rand(1, n_actions) / n_actions;
             end
-            
-            % 性能指标
-            obj.generateDefenderPerformance(algorithm, n_episodes);
-            
-            % 参数历史
-            obj.generateDefenderParameters(algorithm, n_episodes);
+            obj.generateDefenderPerformance(alg_key, n_episodes);
+            obj.generateDefenderParameters(alg_key, n_episodes);
         end
         
-        function strategy = generateDefenderStrategy(obj, algorithm, n_actions)
-            % 根据算法特点生成防御策略
-            switch lower(algorithm)
-                case 'qlearning'
-                    % Q-Learning: 相对均匀的分配
-                    strategy = rand(1, n_actions) * 0.2 + 0.08;
-                    
-                case 'sarsa'
-                    % SARSA: 倾向于集中防御关键点
-                    strategy = zeros(1, n_actions) + 0.01;
-                    key_indices = randperm(n_actions, 2); % 选择2个关键站点
-                    strategy(key_indices(1)) = 0.7;
-                    strategy(key_indices(2)) = 0.27;
-                    
-                case 'doubleqlearning'
-                    % Double Q-Learning: 适中的集中度
-                    strategy = zeros(1, n_actions) + 0.06;
-                    key_index = randi(n_actions);
-                    strategy(key_index) = 0.4;
-                    
-                otherwise
-                    strategy = rand(1, n_actions);
-            end
-            
-            strategy = strategy / sum(strategy); % 归一化
-        end
-        
-        function generateDefenderPerformance(obj, algorithm, n_episodes)
-            % 生成防御者性能数据
-            
-            % 根据算法特点设置基准性能
-            switch lower(algorithm)
-                case 'qlearning'
-                    base_radi = 0.08;
-                    base_damage = 0.06;
-                    base_success = 0.5;
-                    base_detection = 0.9;
-                    base_efficiency = 0.75;
-                    
-                case 'sarsa'
-                    base_radi = 0.12;
-                    base_damage = 0.04;
-                    base_success = 0.3;
-                    base_detection = 0.95;
-                    base_efficiency = 0.8;
-                    
-                case 'doubleqlearning'
-                    base_radi = 0.07;
-                    base_damage = 0.05;
-                    base_success = 0.45;
-                    base_detection = 0.92;
-                    base_efficiency = 0.78;
-                    
-                otherwise
-                    base_radi = 0.1;
-                    base_damage = 0.05;
-                    base_success = 0.4;
-                    base_detection = 0.9;
-                    base_efficiency = 0.7;
-            end
-            
-            % 生成各项指标历史
-            metrics = {'radi', 'damage', 'success_rate', 'detection_rate', 'resource_efficiency'};
-            base_values = [base_radi, base_damage, base_success, base_detection, base_efficiency];
-            noise_levels = [0.02, 0.01, 0.1, 0.05, 0.1];
-            
+        function generateDefenderPerformance(obj, alg_key, n_episodes)
+            % 为防御者生成示例性能数据
+            metrics = {'radi', 'damage', 'success_rate', 'detection_rate'};
             for i = 1:length(metrics)
                 metric = metrics{i};
-                base_value = base_values(i);
-                noise = noise_levels(i);
-                
-                % 历史数据
-                history_field = [algorithm '_' metric '_history'];
+                history_field = [alg_key '_' metric '_history'];
+                final_field = [alg_key '_final_' metric];
                 if ~isfield(obj.results_data, history_field)
-                    history = obj.generateLearningHistory(base_value, n_episodes, noise);
+                    history = 0.5 + 0.2 * randn(1, n_episodes);
+                    history = cumsum(history / n_episodes);
                     obj.results_data.(history_field) = history;
                 end
-                
-                % 最终值
-                final_field = [algorithm '_final_' metric];
                 if ~isfield(obj.results_data, final_field)
-                    obj.results_data.(final_field) = base_value + randn() * noise;
+                    obj.results_data.(final_field) = obj.results_data.(history_field)(end);
                 end
             end
-            
-            % 学习曲线
-            learning_curve_field = [algorithm '_learning_curve'];
-            if ~isfield(obj.results_data, learning_curve_field)
-                obj.results_data.(learning_curve_field) = obj.generateExampleLearningCurve(n_episodes);
-            end
         end
         
-        function generateDefenderParameters(obj, algorithm, n_episodes)
-            % 生成防御者参数历史
-            
-            % 学习率衰减
-            lr_field = [algorithm '_learning_rate_history'];
-            if ~isfield(obj.results_data, lr_field)
-                obj.results_data.(lr_field) = 0.1 * exp(-(1:n_episodes)/50) + 0.01;
+        function generateDefenderParameters(obj, alg_key, n_episodes)
+            % 为防御者生成示例参数历史
+            if ~isfield(obj.results_data, [alg_key '_learning_rate_history'])
+                obj.results_data.([alg_key '_learning_rate_history']) = 0.1 * exp(-(1:n_episodes)/50) + 0.01;
             end
-            
-            % Epsilon衰减
-            eps_field = [algorithm '_epsilon_history'];
-            if ~isfield(obj.results_data, eps_field)
-                obj.results_data.(eps_field) = 0.9 * exp(-(1:n_episodes)/30) + 0.1;
+            if ~isfield(obj.results_data, [alg_key '_epsilon_history'])
+                obj.results_data.([alg_key '_epsilon_history']) = 0.9 * exp(-(1:n_episodes)/30) + 0.1;
             end
-            
-            % Q值演化
-            q_field = [algorithm '_q_values_history'];
-            if ~isfield(obj.results_data, q_field)
-                q_evolution = cumsum(randn(1, n_episodes) * 0.1) + rand() * 2;
-                obj.results_data.(q_field) = q_evolution;
-            end
-            
-            % 访问计数
-            visit_field = [algorithm '_visit_count_history'];
-            if ~isfield(obj.results_data, visit_field)
-                visit_count = cumsum(ones(1, n_episodes) + randn(1, n_episodes) * 0.2);
-                obj.results_data.(visit_field) = max(1, visit_count); % 确保非负
-            end
-        end
-        
-        function history = generateLearningHistory(obj, final_value, n_episodes, noise_level)
-            % 生成学习历史数据
-            % 模拟从随机初始值逐渐收敛到最终值的过程
-            
-            initial_value = final_value * (0.3 + rand() * 1.4); % 初始值在最终值的30%-170%之间
-            episodes = 1:n_episodes;
-            
-            % 指数收敛趋势
-            trend = initial_value + (final_value - initial_value) * (1 - exp(-episodes/25));
-            
-            % 添加噪声，噪声随时间减少
-            noise = randn(1, n_episodes) .* noise_level .* exp(-episodes/40);
-            
-            history = trend + noise;
-            history = max(0, history); % 确保非负值
-        end
-        
-        function learning_curve = generateExampleLearningCurve(obj, n_episodes)
-            % 生成示例学习曲线
-            learning_curve = zeros(1, n_episodes);
-            cumulative_reward = 0;
-            
-            for i = 1:n_episodes
-                % 学习过程中奖励逐渐改善
-                base_reward = 0.3 + 0.4 * (1 - exp(-i/25));
-                noise = randn() * 0.1;
-                episode_reward = base_reward + noise;
-                
-                cumulative_reward = cumulative_reward + episode_reward;
-                learning_curve(i) = cumulative_reward / i;
+            if ~isfield(obj.results_data, [alg_key '_q_values_history'])
+                obj.results_data.([alg_key '_q_values_history']) = cumsum(randn(1, n_episodes) * 0.1);
             end
         end
         
@@ -376,65 +198,60 @@ classdef ResultsCollector < handle
         end
         
         function printCurrentResults(obj)
-            % 输出当前轮次的结果（模拟日志输出）
-            fprintf('\n========== Episode %d ==========\n', randi([1, 1000]));
+            % 输出当前结果的摘要
+            fprintf('\n========== 最终结果摘要 ==========\n');
+            defenders = obj.getDefenderInfo(obj.agents);
+            metrics = {'radi', 'damage', 'success_rate', 'detection_rate'};
+            metric_names = {'RADI', '损害度', '攻击成功率', '检测率'};
             
-            % 输出攻击者策略
-            if ~isempty(obj.results_data.attacker_final_strategy)
-                fprintf('攻击者策略: [');
-                strategy = obj.results_data.attacker_final_strategy;
-                for i = 1:length(strategy)
-                    fprintf('%.3f ', strategy(i));
-                end
-                fprintf(']\n');
-            end
-            
-            % 输出各防御者的策略和性能
-            algorithms = {'qlearning', 'sarsa', 'doubleqlearning'};
-            algorithm_names = {'QLearning', 'SARSA', 'DoubleQLearning'};
-            
-            for i = 1:length(algorithms)
-                alg = algorithms{i};
-                name = algorithm_names{i};
-                
-                fprintf('\n--- %s 防御者 ---\n', name);
-                
-                % 防御策略
-                strategy_field = [alg '_final_strategy'];
-                if isfield(obj.results_data, strategy_field) && ~isempty(obj.results_data.(strategy_field))
-                    fprintf('防御策略: [');
-                    strategy = obj.results_data.(strategy_field);
-                    for j = 1:length(strategy)
-                        fprintf('%.3f ', strategy(j));
-                    end
-                    fprintf(']\n');
-                end
-                
-                % 性能指标
-                metrics = {'radi', 'damage', 'success_rate', 'detection_rate'};
-                metric_names = {'RADI', 'Damage', 'Success Rate', 'Detection Rate'};
-                
+            for i = 1:length(defenders)
+                defender = defenders(i);
+                fprintf('\n--- %s 防御者 ---\n', defender.displayName);
                 for j = 1:length(metrics)
-                    final_field = [alg '_final_' metrics{j}];
-                    if isfield(obj.results_data, final_field)
-                        value = obj.results_data.(final_field);
-                        if isnan(value)
-                            fprintf('%s: NaN\n', metric_names{j});
-                        else
-                            fprintf('%s: %.3f\n', metric_names{j}, value);
-                        end
-                    end
+                    value = obj.getMetricValue(obj.results_data, defender.key, metrics{j});
+                    fprintf('%s: %.4f\n', metric_names{j}, value);
                 end
             end
-            
             fprintf('================================\n');
         end
         
         function saveResults(obj, filename)
-            % 保存结果到文件
-            results_data = obj.results_data;
-            save(filename, 'results_data');
+            % 保存结果到 .mat 文件
+            results = obj.results_data;
+            save(filename, 'results');
             fprintf('✓ 结果已保存到: %s\n', filename);
+        end
+    end
+    
+    methods (Static)
+        function defenders = getDefenderInfo(agents)
+            % 静态辅助函数: 从agents单元数组中提取防御者信息
+            defenders = struct('displayName', {}, 'key', {});
+            for i = 1:length(agents)
+                agent = agents{i};
+                if isprop(agent, 'type') && strcmp(agent.type, 'defender')
+                    displayName = strrep(agent.name, '防御者', '');
+                    key = lower(strrep(displayName, ' ', ''));
+                    info.displayName = displayName;
+                    info.key = key;
+                    defenders(end+1) = info;
+                end
+            end
+        end
+
+        function value = getMetricValue(results, algorithm_key, metric)
+            % 静态辅助函数: 安全地获取指标值
+            field_name = sprintf('%s_final_%s', algorithm_key, metric);
+            if isfield(results, field_name)
+                val = results.(field_name);
+                if ~isempty(val) && isscalar(val) && isfinite(val)
+                    value = val;
+                else
+                    value = 0;
+                end
+            else
+                value = 0;
+            end
         end
     end
 end
