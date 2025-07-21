@@ -59,7 +59,7 @@ classdef ConfigManager
             config.total_resources = 100;
             
             % === 2. FSP仿真参数 ===
-            config.n_iterations = 100;
+            config.n_iterations = 1000;
             config.n_episodes_per_iter = 50;
             config.max_episode_steps = 50;     % 统一使用这个字段名
             config.pool_size_limit = 50;
