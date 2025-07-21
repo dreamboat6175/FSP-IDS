@@ -53,8 +53,8 @@ classdef ConfigManager
             % 获取完整的默认配置 - 集中所有初始化参数
             
             % === 1. 基础系统参数 ===
-            config.n_stations = 5;
-            config.n_components_per_station = [7, 6, 8, 5, 9];
+            config.n_stations = 10;
+            config.n_components_per_station = [7, 6, 8, 5, 9, 15, 4, 6, 3, 4];
             config.total_components = sum(config.n_components_per_station);
             config.total_resources = 100;
             
