@@ -55,7 +55,7 @@ classdef QLearningAgent < RLAgent
             obj.lr_scheduler.decay_rate = 0.99;
             
             % 初始化新添加的属性
-            % obj.use_softmax = false;     % 默认使用epsilon-greedy
+            obj.use_softmax = false;     % 默认使用epsilon-greedy
             
             % 确保基类属性有默认值
             if isempty(obj.epsilon_min)

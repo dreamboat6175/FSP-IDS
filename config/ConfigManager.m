@@ -1,9 +1,8 @@
-%% ConfigManager.m - 统一配置管理器类 (修复版)
+%% ConfigManager.m - 统一配置管理器类 (改进版)
 % =========================================================================
 % 描述: 集中管理所有仿真初始化参数，提供完整的配置管理功能
-% 修复版本：添加缺失的字段以解决运行时错误
+% 改进版本：实现了结构优化、参数合理性改进和代码逻辑增强
 % =========================================================================
-
 classdef ConfigManager
     
     methods (Static)
@@ -39,6 +38,13 @@ classdef ConfigManager
             % 确保所有必要字段存在
             config = ConfigManager.ensureRequiredFields(config);
             
+            % 处理日志文件名（只在未定义时生成）
+            if ~isfield(config.output, 'log_file') || isempty(config.output.log_file)
+                log_dir = 'logs';
+                if ~exist(log_dir, 'dir'), mkdir(log_dir); end
+                config.output.log_file = fullfile(log_dir, sprintf('simulation_%s.log', datestr(now, 'yyyymmdd_HHMMSS')));
+            end
+            
             % 验证配置有效性
             ConfigManager.validateConfig(config);
         end
@@ -49,59 +55,99 @@ classdef ConfigManager
             % === 1. 基础系统参数 ===
             config.n_stations = 5;
             config.n_components_per_station = [7, 6, 8, 5, 9];
-            config.total_components = sum([7, 6, 8, 5, 9]);
+            config.total_components = sum(config.n_components_per_station);
             config.total_resources = 100;
             
             % === 2. FSP仿真参数 ===
             config.n_iterations = 100;
             config.n_episodes_per_iter = 50;
-            config.max_steps_per_episode = 50; % 添加缺失的字段
-            config.max_episode_steps = 50;     % 备用字段名
+            config.max_episode_steps = 50;     % 统一使用这个字段名
             config.pool_size_limit = 50;
             config.pool_update_interval = 10;
             config.alpha_ewma = 0.1;  % 策略平均更新参数
             
-            % === 3. 强化学习参数 ===
-            config.learning_rate = 0.15;
-            config.discount_factor = 0.95;
-            config.epsilon = 0.4;
-            config.epsilon_decay = 0.999;
-            config.epsilon_min = 0.05;
-            config.temperature = 1.0;
-            config.temperature_decay = 0.995;
-            config.temperature_min = 0.1;
+            % === 3. 强化学习默认参数 ===
+            config.rl_defaults = struct();
+            config.rl_defaults.learning_rate = 0.15;
+            config.rl_defaults.discount_factor = 0.95;
+            
+            % 探索策略配置
+            config.rl_defaults.exploration_strategy = 'epsilon-greedy'; % 可选: 'softmax', 'none'
+            
+            % Epsilon-Greedy 参数
+            config.rl_defaults.epsilon_greedy = struct(...
+                'epsilon', 0.4, ...
+                'epsilon_decay', 0.999, ...
+                'epsilon_min', 0.05 ...
+            );
+            
+            % Softmax (Boltzmann) 参数
+            config.rl_defaults.softmax_exploration = struct(...
+                'temperature', 1.0, ...
+                'temperature_decay', 0.995, ...
+                'temperature_min', 0.1 ...
+            );
             
             % === 4. 算法配置 ===
             config.algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
-            config.defender_types = config.algorithms; % 兼容性
             config.attacker_algorithm = 'QLearning';
             
             % === 5. 环境参数 ===
             config.state_space_size = sum(config.n_components_per_station) + config.n_stations;
             config.action_space_size = config.total_resources + 1;
             
-            % === 6. 攻击模型参数 ===
-            config.attack_types = {'malware', 'dos', 'intrusion', 'spoofing', 'tampering', 'eavesdropping'};
-            config.attack_severity = [0.8, 0.7, 0.6, 0.5, 0.9, 0.4];
-            config.attack_detection_difficulty = [0.6, 0.5, 0.7, 0.8, 0.4, 0.9];
+            % === 6. 攻击模型参数 (改进后的结构体数组) ===
+            config.attacks = [ ...
+                struct('name', 'malware',       'severity', 0.8, 'detection_difficulty', 0.6), ...
+                struct('name', 'dos',           'severity', 0.7, 'detection_difficulty', 0.5), ...
+                struct('name', 'intrusion',     'severity', 0.6, 'detection_difficulty', 0.7), ...
+                struct('name', 'spoofing',      'severity', 0.5, 'detection_difficulty', 0.8), ...
+                struct('name', 'tampering',     'severity', 0.9, 'detection_difficulty', 0.4), ...
+                struct('name', 'eavesdropping', 'severity', 0.4, 'detection_difficulty', 0.9)  ...
+            ];
             config.attack_frequency = 0.3;
             config.attack_success_probability = 0.4;
             
-            % === 7. 资源模型参数 ===
-            config.resource_types = {'computational', 'bandwidth', 'sensors', 'scanning', 'inspection'};
-            config.n_resource_types = length(config.resource_types);
-            config.resource_effectiveness = [0.7, 0.6, 0.8, 0.5, 0.9];
-            config.resource_cost = [1.0, 0.8, 1.2, 0.6, 1.5];
+            % 兼容性支持（旧字段名）
+            config.attack_types = {config.attacks.name};
+            config.attack_severity = [config.attacks.severity];
+            config.attack_detection_difficulty = [config.attacks.detection_difficulty];
+            
+            % === 7. 资源模型参数 (改进后的结构体数组) ===
+            config.resources = [ ...
+                struct('name', 'computational', 'effectiveness', 0.7, 'cost', 1.0), ...
+                struct('name', 'bandwidth',     'effectiveness', 0.6, 'cost', 0.8), ...
+                struct('name', 'sensors',       'effectiveness', 0.8, 'cost', 1.2), ...
+                struct('name', 'scanning',      'effectiveness', 0.5, 'cost', 0.6), ...
+                struct('name', 'inspection',    'effectiveness', 0.9, 'cost', 1.5)  ...
+            ];
+            config.n_resource_types = length(config.resources);
+            
+            % 兼容性支持（旧字段名）
+            config.resource_types = {config.resources.name};
+            config.resource_effectiveness = [config.resources.effectiveness];
+            config.resource_cost = [config.resources.cost];
             
             % === 8. RADI (Resource Allocation and Detection Index) 配置 ===
             config.radi = struct();
-            config.radi.weight_computation = 0.25;
-            config.radi.weight_bandwidth = 0.15;
-            config.radi.weight_sensors = 0.25;
-            config.radi.weight_scanning = 0.15;
-            config.radi.weight_inspection = 0.20;
+            % 使用结构体存储权重，更灵活
+            config.radi.weights = struct(...
+                'computational', 0.25, ...
+                'bandwidth',     0.15, ...
+                'sensors',       0.25, ...
+                'scanning',      0.15, ...
+                'inspection',    0.20  ...
+            );
+            
+            % 兼容性支持（旧字段名）
+            config.radi.weight_computation = config.radi.weights.computational;
+            config.radi.weight_bandwidth = config.radi.weights.bandwidth;
+            config.radi.weight_sensors = config.radi.weights.sensors;
+            config.radi.weight_scanning = config.radi.weights.scanning;
+            config.radi.weight_inspection = config.radi.weights.inspection;
+            
             config.radi.baseline_detection_rate = 0.7;
-            config.radi.optimal_allocation = ones(1, length(config.resource_types)) / length(config.resource_types);
+            config.radi.optimal_allocation = ones(1, length(config.resources)) / length(config.resources);
             
             % === 9. 奖励函数参数 ===
             config.reward_params = struct();
@@ -126,7 +172,7 @@ classdef ConfigManager
             config.output.report_dir = 'reports';
             config.output.models_dir = 'models';
             config.output.checkpoints_dir = 'checkpoints';
-            config.output.log_file = fullfile('logs', sprintf('simulation_%s.log', datestr(now, 'yyyymmdd_HHMMSS')));
+            % 注意：log_file 在 loadConfig 中生成，避免每次调用都生成新的文件名
             config.output.save_models = true;
             config.output.generate_plots = true;
             config.output.export_csv = true;
@@ -139,10 +185,23 @@ classdef ConfigManager
             config.debug.save_states = false;
             config.debug.validation_episodes = 10;
             
-            % === 13. 并行计算配置 ===
+            % === 13. 并行计算配置（动态配置） ===
             config.parallel = struct();
             config.parallel.enabled = false;
-            config.parallel.num_workers = 4;
+            % 动态获取工作进程数
+            try
+                % 尝试获取本地集群的默认工作进程数
+                p = gcp('nocreate');
+                if isempty(p)
+                    myCluster = parcluster('local');
+                    config.parallel.num_workers = myCluster.NumWorkers;
+                else
+                    config.parallel.num_workers = p.NumWorkers;
+                end
+            catch
+                % 如果出错，回退到安全值
+                config.parallel.num_workers = 4;
+            end
             config.parallel.chunk_size = 10;
             
             % === 14. 高级FSP参数 ===
@@ -166,13 +225,22 @@ classdef ConfigManager
             config.compatibility.matlab_version = version('-release');
             config.compatibility.toolbox_required = {'Statistics and Machine Learning Toolbox'};
             
-            % === 18. 智能体配置 ===
+            % === 18. 智能体配置（支持异构智能体） ===
             config.agents = struct();
             config.agents.defenders = cell(1, numel(config.algorithms));
             for i = 1:numel(config.algorithms)
                 config.agents.defenders{i} = struct();
+                config.agents.defenders{i}.algorithm = config.algorithms{i};
+                config.agents.defenders{i}.name = sprintf('Defender_%s', config.algorithms{i});
+                
+                % 可以为特定算法覆盖默认值
+                if strcmp(config.algorithms{i}, 'QLearning')
+                    config.agents.defenders{i}.learning_rate = 0.2; % 为QLearning设置不同的学习率
+                elseif strcmp(config.algorithms{i}, 'SARSA')
+                    config.agents.defenders{i}.epsilon = 0.5; % 为SARSA设置更高的探索率
+                end
             end
-            config.agents.attacker = struct();
+            config.agents.attacker = struct('algorithm', 'QLearning', 'name', 'Attacker');
             
             % === 19. 确保数组长度一致性 ===
             config = ConfigManager.ensureStationConsistency(config);
@@ -215,13 +283,8 @@ classdef ConfigManager
             default = ConfigManager.getDefaultConfig();
             config = ConfigManager.mergeStructures(default, config);
             
-            % 特殊处理：确保episode步数字段存在
-            if ~isfield(config, 'max_steps_per_episode') && ~isfield(config, 'max_episode_steps')
-                config.max_steps_per_episode = 50;
-                config.max_episode_steps = 50;
-            elseif isfield(config, 'max_episode_steps') && ~isfield(config, 'max_steps_per_episode')
-                config.max_steps_per_episode = config.max_episode_steps;
-            elseif isfield(config, 'max_steps_per_episode') && ~isfield(config, 'max_episode_steps')
+            % 特殊处理：优先使用 max_episode_steps
+            if isfield(config, 'max_steps_per_episode') && ~isfield(config, 'max_episode_steps')
                 config.max_episode_steps = config.max_steps_per_episode;
             end
             
@@ -264,25 +327,34 @@ classdef ConfigManager
                 config = ConfigManager.ensureStationConsistency(config);
             end
             
-            % 修正攻击相关数组
-            n_attack_types = length(config.attack_types);
-            if length(config.attack_severity) ~= n_attack_types
-                config.attack_severity = ConfigManager.adjustArrayLength(config.attack_severity, n_attack_types, 0.5);
-            end
-            if length(config.attack_detection_difficulty) ~= n_attack_types
-                config.attack_detection_difficulty = ConfigManager.adjustArrayLength(config.attack_detection_difficulty, n_attack_types, 0.5);
+            % 修正攻击相关数组（如果使用旧格式）
+            if isfield(config, 'attack_types') && ~isfield(config, 'attacks')
+                n_attack_types = length(config.attack_types);
+                if length(config.attack_severity) ~= n_attack_types
+                    config.attack_severity = ConfigManager.adjustArrayLength(config.attack_severity, n_attack_types, 0.5);
+                end
+                if length(config.attack_detection_difficulty) ~= n_attack_types
+                    config.attack_detection_difficulty = ConfigManager.adjustArrayLength(config.attack_detection_difficulty, n_attack_types, 0.5);
+                end
             end
             
-            % 修正资源相关数组
-            n_resource_types = length(config.resource_types);
-            if length(config.resource_effectiveness) ~= n_resource_types
-                config.resource_effectiveness = ConfigManager.adjustArrayLength(config.resource_effectiveness, n_resource_types, 0.7);
-            end
-            if length(config.resource_cost) ~= n_resource_types
-                config.resource_cost = ConfigManager.adjustArrayLength(config.resource_cost, n_resource_types, 1.0);
+            % 修正资源相关数组（如果使用旧格式）
+            if isfield(config, 'resource_types') && ~isfield(config, 'resources')
+                n_resource_types = length(config.resource_types);
+                if length(config.resource_effectiveness) ~= n_resource_types
+                    config.resource_effectiveness = ConfigManager.adjustArrayLength(config.resource_effectiveness, n_resource_types, 0.7);
+                end
+                if length(config.resource_cost) ~= n_resource_types
+                    config.resource_cost = ConfigManager.adjustArrayLength(config.resource_cost, n_resource_types, 1.0);
+                end
             end
             
             % 确保RADI配置完整
+            if isfield(config, 'resources')
+                n_resource_types = length(config.resources);
+            else
+                n_resource_types = length(config.resource_types);
+            end
             if ~isfield(config, 'radi') || ~isfield(config.radi, 'optimal_allocation')
                 config.radi.optimal_allocation = ones(1, n_resource_types) / n_resource_types;
             elseif length(config.radi.optimal_allocation) ~= n_resource_types
@@ -311,31 +383,56 @@ classdef ConfigManager
             assert(config.n_stations > 0, '主站数量必须大于0');
             assert(config.n_iterations > 0, '迭代次数必须大于0');
             assert(config.n_episodes_per_iter > 0, '每次迭代的episode数必须大于0');
-            assert(config.max_steps_per_episode > 0, '每个episode的最大步数必须大于0');
+            assert(config.max_episode_steps > 0, '每个episode的最大步数必须大于0');
             assert(config.total_resources > 0, '总资源数必须大于0');
             
             % === 学习参数检查 ===
-            assert(config.learning_rate > 0 && config.learning_rate <= 1, '学习率必须在(0,1]范围内');
-            assert(config.discount_factor >= 0 && config.discount_factor <= 1, '折扣因子必须在[0,1]范围内');
-            assert(config.epsilon >= 0 && config.epsilon <= 1, 'epsilon必须在[0,1]范围内');
-            assert(config.epsilon_min >= 0 && config.epsilon_min <= config.epsilon, 'epsilon_min必须在[0,epsilon]范围内');
+            rl_defaults = config.rl_defaults;
+            assert(rl_defaults.learning_rate > 0 && rl_defaults.learning_rate <= 1, '学习率必须在(0,1]范围内');
+            assert(rl_defaults.discount_factor >= 0 && rl_defaults.discount_factor <= 1, '折扣因子必须在[0,1]范围内');
+            
+            % 根据探索策略检查相应参数
+            if strcmp(rl_defaults.exploration_strategy, 'epsilon-greedy')
+                eps_params = rl_defaults.epsilon_greedy;
+                assert(eps_params.epsilon >= 0 && eps_params.epsilon <= 1, 'epsilon必须在[0,1]范围内');
+                assert(eps_params.epsilon_min >= 0 && eps_params.epsilon_min <= eps_params.epsilon, ...
+                    'epsilon_min必须在[0,epsilon]范围内');
+            elseif strcmp(rl_defaults.exploration_strategy, 'softmax')
+                temp_params = rl_defaults.softmax_exploration;
+                assert(temp_params.temperature > 0, 'temperature必须大于0');
+                assert(temp_params.temperature_min > 0, 'temperature_min必须大于0');
+            end
             
             % === 数组长度检查 ===
             assert(length(config.n_components_per_station) == config.n_stations, ...
                    '组件数量数组长度与主站数量不匹配');
             
-            n_attack_types = length(config.attack_types);
-            assert(length(config.attack_severity) == n_attack_types, ...
-                   '攻击严重程度数组长度与攻击类型数量不匹配');
-            assert(length(config.attack_detection_difficulty) == n_attack_types, ...
-                   '攻击检测难度数组长度与攻击类型数量不匹配');
+            % 检查攻击和资源数组（支持新旧格式）
+            if isfield(config, 'attacks')
+                assert(length(config.attacks) > 0, '攻击类型数组不能为空');
+            else
+                n_attack_types = length(config.attack_types);
+                assert(length(config.attack_severity) == n_attack_types, ...
+                       '攻击严重程度数组长度与攻击类型数量不匹配');
+                assert(length(config.attack_detection_difficulty) == n_attack_types, ...
+                       '攻击检测难度数组长度与攻击类型数量不匹配');
+            end
             
-            n_resource_types = length(config.resource_types);
-            assert(length(config.resource_effectiveness) == n_resource_types, ...
-                   '资源效率数组长度与资源类型数量不匹配');
+            if isfield(config, 'resources')
+                assert(length(config.resources) > 0, '资源类型数组不能为空');
+            else
+                n_resource_types = length(config.resource_types);
+                assert(length(config.resource_effectiveness) == n_resource_types, ...
+                       '资源效率数组长度与资源类型数量不匹配');
+            end
             
             % === RADI配置检查 ===
-            if isfield(config, 'radi')
+            if isfield(config, 'radi') && isfield(config.radi, 'weights')
+                % 新格式：检查权重结构体
+                weights = struct2array(config.radi.weights);
+                assert(abs(sum(weights) - 1.0) < 0.01, 'RADI权重总和应该接近1.0');
+            elseif isfield(config, 'radi')
+                % 旧格式：检查独立权重字段
                 radi_weights = [config.radi.weight_computation, config.radi.weight_bandwidth, ...
                                config.radi.weight_sensors, config.radi.weight_scanning, ...
                                config.radi.weight_inspection];
@@ -356,26 +453,26 @@ classdef ConfigManager
             end
             
             config_path = fullfile('config', filename);
-
-                % 确保目录存在
-                if ~exist('config', 'dir')
-                    mkdir('config');
-                end
-                
-                % 保存为格式化JSON
-                config_json = jsonencode(config, 'PrettyPrint', true);
-                fid = fopen(config_path, 'w');
-                fprintf(fid, '%s', config_json);
-                fclose(fid);
-                
-                fprintf('✓ 配置已保存: %s\n', config_path);
+            
+            % 确保目录存在
+            if ~exist('config', 'dir')
+                mkdir('config');
+            end
+            
+            % 保存为格式化JSON
+            config_json = jsonencode(config, 'PrettyPrint', true);
+            fid = fopen(config_path, 'w');
+            fprintf(fid, '%s', config_json);
+            fclose(fid);
+            
+            fprintf('✓ 配置已保存: %s\n', config_path);
         end
         
         function createDirectories(config)
             % 创建所有必要的目录结构
             
             % 基础目录
-            basic_dirs = {'logs', 'results', 'reports', 'config', 'data'};
+            basic_dirs = {'logs', 'results', 'reports', 'config', 'data', 'models', 'checkpoints'};
             
             % 从配置中获取的目录
             config_dirs = {};
@@ -417,18 +514,93 @@ classdef ConfigManager
             % 快速测试参数
             config.n_iterations = 20;
             config.n_episodes_per_iter = 10;
-            config.max_steps_per_episode = 20;
+            config.max_episode_steps = 20;
             config.pool_size_limit = 10;
             
             % 快速收敛参数
-            config.learning_rate = 0.3;
-            config.epsilon = 0.9;
-            config.epsilon_decay = 0.99;
+            config.rl_defaults.learning_rate = 0.3;
+            config.rl_defaults.epsilon_greedy.epsilon = 0.9;
+            config.rl_defaults.epsilon_greedy.epsilon_decay = 0.99;
             
             % 简化配置
             config.algorithms = {'QLearning'};
             config.debug.mode = true;
             config.performance.display_interval = 5;
+            
+            % 重新确保一致性
+            config = ConfigManager.ensureStationConsistency(config);
+        end
+        
+        function mergeAgentConfig(agent, config)
+            % 合并智能体特定配置与默认配置
+            % 输入: agent - 智能体对象
+            %       config - 全局配置
+            
+            % 首先应用默认RL参数
+            if isfield(config, 'rl_defaults')
+                % 基本参数
+                if isfield(config.rl_defaults, 'learning_rate')
+                    agent.learning_rate = config.rl_defaults.learning_rate;
+                end
+                if isfield(config.rl_defaults, 'discount_factor')
+                    agent.discount_factor = config.rl_defaults.discount_factor;
+                end
+                
+                % 探索策略参数
+                if isfield(config.rl_defaults, 'exploration_strategy')
+                    agent.exploration_strategy = config.rl_defaults.exploration_strategy;
+                    
+                    % 根据策略类型设置相应参数
+                    if strcmp(agent.exploration_strategy, 'epsilon-greedy') && ...
+                       isfield(config.rl_defaults, 'epsilon_greedy')
+                        eps_params = config.rl_defaults.epsilon_greedy;
+                        agent.epsilon = eps_params.epsilon;
+                        agent.epsilon_decay = eps_params.epsilon_decay;
+                        agent.epsilon_min = eps_params.epsilon_min;
+                    elseif strcmp(agent.exploration_strategy, 'softmax') && ...
+                           isfield(config.rl_defaults, 'softmax_exploration')
+                        temp_params = config.rl_defaults.softmax_exploration;
+                        agent.temperature = temp_params.temperature;
+                        agent.temperature_decay = temp_params.temperature_decay;
+                        agent.temperature_min = temp_params.temperature_min;
+                    end
+                end
+            end
+            
+            % 然后应用智能体特定配置（如果存在）
+            if isfield(config, 'agents')
+                % 查找对应的智能体配置
+                agent_config = [];
+                if strcmp(agent.agent_type, 'defender') && isfield(config.agents, 'defenders')
+                    % =======================【代码修复】=======================
+                    % 修复1: 从JSON加载配置时, defenders 是结构体数组, 必须用圆括号 () 索引。
+                    % 修复2: 智能体名称(agent.name)如 'defender_QLearning_1',
+                    %        配置中算法名称(algorithm)为 'QLearning'。
+                    %        使用 'contains' 进行模糊匹配, 而不是 'strcmp'。
+                    % =========================================================
+                    for i = 1:length(config.agents.defenders)
+                        % 使用圆括号 (i) 索引结构体数组
+                        if isfield(config.agents.defenders(i), 'algorithm') && ...
+                           contains(agent.name, config.agents.defenders(i).algorithm, 'IgnoreCase', true)
+                            agent_config = config.agents.defenders(i);
+                            break;
+                        end
+                    end
+                elseif strcmp(agent.agent_type, 'attacker') && isfield(config.agents, 'attacker')
+                    agent_config = config.agents.attacker;
+                end
+                
+                % 应用找到的特定配置
+                if ~isempty(agent_config)
+                    fields = fieldnames(agent_config);
+                    for i = 1:length(fields)
+                        field = fields{i};
+                        if isprop(agent, field)
+                            agent.(field) = agent_config.(field);
+                        end
+                    end
+                end
+            end
         end
     end
 end

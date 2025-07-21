@@ -1,174 +1,245 @@
-%% AgentFactory.m - 智能体工厂类
+%% AgentFactory.m - 智能体工厂类 (改进版)
 % =========================================================================
-% 描述: 统一创建和管理不同类型的强化学习智能体
+% 描述: 负责创建和配置各种类型的强化学习智能体
+% 改进版本：支持新的配置结构和探索策略
 % =========================================================================
 
 classdef AgentFactory
     
     methods (Static)
         function agents = createDefenderAgents(config, environment)
-            % 创建防御者智能体数组
-            % 输入: config - 配置结构体, environment - 环境对象
-            % 输出: agents - 智能体对象数组
-            
-            fprintf('🛡️ 创建防御者智能体...\n');
-            
-            % 验证输入
-            if ~isstruct(config)
-                error('AgentFactory:InvalidInput', '配置参数必须是结构体');
-            end
+            % 创建防御者智能体数组（兼容旧接口）
             
             % 获取算法列表
             if isfield(config, 'algorithms')
                 algorithms = config.algorithms;
-            elseif isfield(config, 'defender_types')
-                algorithms = config.defender_types;
             else
                 algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
-                fprintf('使用默认算法: %s\n', strjoin(algorithms, ', '));
             end
             
-            % 获取状态和动作维度
-            if ismethod(environment, 'getStateDimension') && ismethod(environment, 'getActionDimension')
-                state_dim = environment.getStateDimension();
-                action_dim = environment.getActionDimension();
-            else
-                % 默认维度
-                state_dim = 1024;  % 2^10 for binary state encoding
-                action_dim = 10;   % 10 possible defense actions
-                fprintf('[DEBUG] 使用默认维度: state_dim=%d, action_dim=%d\n', state_dim, action_dim);
-            end
+            % 获取维度
+            state_dim = environment.state_dim;
+            action_dim = environment.action_dim_defender;
             
-            % 创建智能体数组
-            agents = cell(1, length(algorithms));
-            
-            for i = 1:length(algorithms)
-                algorithm = algorithms{i};
-                agent_name = sprintf('Defender_%d_%s', i, algorithm);
-                
-                fprintf('  创建 %s 智能体...\n', algorithm);
-                
-                % 确保配置完整性
-                agent_config = AgentFactory.ensureCompleteConfig(config);
-                
-                % 根据算法类型创建智能体
-                switch upper(algorithm)
-                    case 'QLEARNING'
-                        agents{i} = QLearningAgent(agent_name, 'defender', agent_config, state_dim, action_dim);
-                    case 'SARSA'
-                        agents{i} = SARSAAgent(agent_name, 'defender', agent_config, state_dim, action_dim);
-                    case 'DOUBLEQLEARNING'
-                        agents{i} = DoubleQLearningAgent(agent_name, 'defender', agent_config, state_dim, action_dim);
-                    otherwise
-                        warning('AgentFactory:UnknownAlgorithm', '未知算法 %s，创建默认Q-Learning智能体', algorithm);
-                        agents{i} = QLearningAgent(agent_name, 'defender', agent_config, state_dim, action_dim);
-                end
-                
-                % 设置智能体特定参数
-                AgentFactory.configureAgentSpecifics(agents{i}, algorithm, agent_config);
-                
-                fprintf('    ✓ %s 创建完成\n', agent_name);
-            end
-            
-            fprintf('✓ 防御者智能体创建完成，共 %d 个\n', length(agents));
+            % 使用新的批量创建方法
+            agents = AgentFactory.createMultipleAgents(algorithms, 'defender', config, state_dim, action_dim);
         end
         
         function agent = createAttackerAgent(config, environment)
-            % 创建攻击者智能体
-            % 输入: config - 配置结构体, environment - 环境对象
-            % 输出: agent - 攻击者智能体对象
+            % 创建攻击者智能体（兼容旧接口）
             
-            fprintf('⚔️ 创建攻击者智能体...\n');
-            
-            % 获取攻击者算法
+            % 获取算法
             if isfield(config, 'attacker_algorithm')
                 algorithm = config.attacker_algorithm;
             else
                 algorithm = 'QLearning';
-                fprintf('使用默认攻击者算法: %s\n', algorithm);
             end
             
-            % 获取状态和动作维度
-            if ismethod(environment, 'getStateDimension') && ismethod(environment, 'getActionDimension')
-                state_dim = environment.getStateDimension();
-                action_dim = environment.getActionDimension();
-            else
-                % 攻击者可能有不同的动作空间
-                state_dim = 1024;
-                action_dim = 8;   % 8 possible attack actions
-                fprintf('[DEBUG] 使用默认攻击者维度: state_dim=%d, action_dim=%d\n', state_dim, action_dim);
-            end
+            % 获取维度
+            state_dim = environment.state_dim;
+            action_dim = environment.action_dim_attacker;
             
-            agent_name = sprintf('Attacker_%s', algorithm);
-            
-            % 确保配置完整性
-            agent_config = AgentFactory.ensureCompleteConfig(config);
-            
-            % 攻击者可能有不同的参数设置
-            agent_config = AgentFactory.configureAttackerParams(agent_config);
-            
-            % 创建攻击者智能体
-            switch upper(algorithm)
-                case 'QLEARNING'
-                    agent = QLearningAgent(agent_name, 'attacker', agent_config, state_dim, action_dim);
-                case 'SARSA'
-                    agent = SARSAAgent(agent_name, 'attacker', agent_config, state_dim, action_dim);
-                case 'DOUBLEQLEARNING'
-                    agent = DoubleQLearningAgent(agent_name, 'attacker', agent_config, state_dim, action_dim);
-                otherwise
-                    warning('AgentFactory:UnknownAlgorithm', '未知攻击者算法 %s，创建默认Q-Learning智能体', algorithm);
-                    agent = QLearningAgent(agent_name, 'attacker', agent_config, state_dim, action_dim);
-            end
-            
-            % 设置攻击者特定参数
-            AgentFactory.configureAttackerSpecifics(agent, agent_config);
-            
-            fprintf('✓ 攻击者智能体创建完成: %s\n', agent_name);
+            % 使用新的创建方法
+            agent = AgentFactory.createAgent(algorithm, 'Attacker', 'attacker', config, state_dim, action_dim);
         end
         
-        function complete_config = ensureCompleteConfig(config)
-            % 确保配置结构体包含所有必需的字段
-            complete_config = config;
+        function agent = createAgent(algorithm, name, agent_type, config, state_dim, action_dim)
+            % 创建智能体
+            % 输入:
+            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning')
+            %   name - 智能体名称
+            %   agent_type - 智能体类型 ('defender' 或 'attacker')
+            %   config - 配置参数
+            %   state_dim - 状态空间维度
+            %   action_dim - 动作空间维度
             
-            % 学习参数
-            if ~isfield(complete_config, 'learning_rate')
-                complete_config.learning_rate = 0.15;
+            % 确保配置完整性
+            config = AgentFactory.ensureConfigCompleteness(config);
+            
+            % 根据智能体类型调整配置
+            if strcmpi(agent_type, 'attacker')
+                config = AgentFactory.configureAttackerParams(config);
             end
             
-            if ~isfield(complete_config, 'discount_factor')
-                complete_config.discount_factor = 0.95;
+            % 创建智能体
+            switch upper(algorithm)
+                case 'QLEARNING'
+                    agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
+                    
+                case 'SARSA'
+                    agent = SARSAAgent(name, agent_type, config, state_dim, action_dim);
+                    
+                case 'DOUBLEQLEARNING'
+                    agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
+                    
+                otherwise
+                    error('AgentFactory:UnknownAlgorithm', ...
+                          '未知的算法类型: %s', algorithm);
             end
             
-            if ~isfield(complete_config, 'epsilon')
-                complete_config.epsilon = 0.4;
+            % 配置智能体特定参数
+            AgentFactory.configureAgentSpecifics(agent, algorithm, config);
+            
+            % 如果是攻击者，进行额外配置
+            if strcmpi(agent_type, 'attacker')
+                AgentFactory.configureAttackerSpecifics(agent, config);
             end
             
-            if ~isfield(complete_config, 'epsilon_decay')
-                complete_config.epsilon_decay = 0.999;
+            % 验证智能体
+            AgentFactory.validateAgent(agent);
+            
+            fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
+        end
+        
+        function agents = createMultipleAgents(algorithms, agent_type, config, state_dim, action_dim)
+            % 批量创建智能体
+            
+            n_agents = length(algorithms);
+            agents = cell(1, n_agents);
+            
+            for i = 1:n_agents
+                name = sprintf('%s_%d_%s', agent_type, i, algorithms{i});
+                agents{i} = AgentFactory.createAgent(algorithms{i}, name, agent_type, ...
+                                                   config, state_dim, action_dim);
+            end
+        end
+        
+        function validateAgent(agent)
+            % 验证智能体配置是否正确
+            
+            % 检查必要属性
+            required_properties = {'name', 'agent_type', 'state_dim', 'action_dim', ...
+                                 'learning_rate', 'discount_factor'};
+            
+            for i = 1:length(required_properties)
+                prop = required_properties{i};
+                if ~isprop(agent, prop) || isempty(agent.(prop))
+                    error('AgentFactory:InvalidAgent', ...
+                          '智能体缺少必要属性: %s', prop);
+                end
             end
             
-            if ~isfield(complete_config, 'epsilon_min')
-                complete_config.epsilon_min = 0.05;
+            % 检查探索策略相关属性
+            if isprop(agent, 'exploration_strategy')
+                switch agent.exploration_strategy
+                    case 'epsilon-greedy'
+                        assert(isprop(agent, 'epsilon'), '缺少epsilon属性');
+                        assert(agent.epsilon >= 0 && agent.epsilon <= 1, ...
+                               'epsilon必须在[0,1]范围内');
+                        
+                    case 'softmax'
+                        assert(isprop(agent, 'temperature'), '缺少temperature属性');
+                        assert(agent.temperature > 0, 'temperature必须大于0');
+                end
             end
             
-            if ~isfield(complete_config, 'temperature')
-                complete_config.temperature = 1.0;
+            % 检查数值范围
+            assert(agent.learning_rate > 0 && agent.learning_rate <= 1, ...
+                   '学习率必须在(0,1]范围内');
+            assert(agent.discount_factor >= 0 && agent.discount_factor <= 1, ...
+                   '折扣因子必须在[0,1]范围内');
+        end
+        
+        function config = ensureConfigCompleteness(config)
+            % 确保配置包含所有必要参数
+            
+            % 如果有新格式的rl_defaults，使用它
+            if isfield(config, 'rl_defaults')
+                rl_defaults = config.rl_defaults;
+                
+                % 基本参数
+                if ~isfield(config, 'learning_rate')
+                    config.learning_rate = rl_defaults.learning_rate;
+                end
+                if ~isfield(config, 'discount_factor')
+                    config.discount_factor = rl_defaults.discount_factor;
+                end
+                
+                % 探索策略
+                if ~isfield(config, 'exploration_strategy')
+                    config.exploration_strategy = rl_defaults.exploration_strategy;
+                end
+                
+                % 根据探索策略设置相应参数
+                if strcmp(config.exploration_strategy, 'epsilon-greedy')
+                    eps_params = rl_defaults.epsilon_greedy;
+                    if ~isfield(config, 'epsilon')
+                        config.epsilon = eps_params.epsilon;
+                    end
+                    if ~isfield(config, 'epsilon_decay')
+                        config.epsilon_decay = eps_params.epsilon_decay;
+                    end
+                    if ~isfield(config, 'epsilon_min')
+                        config.epsilon_min = eps_params.epsilon_min;
+                    end
+                elseif strcmp(config.exploration_strategy, 'softmax')
+                    temp_params = rl_defaults.softmax_exploration;
+                    if ~isfield(config, 'temperature')
+                        config.temperature = temp_params.temperature;
+                    end
+                    if ~isfield(config, 'temperature_decay')
+                        config.temperature_decay = temp_params.temperature_decay;
+                    end
+                    if ~isfield(config, 'temperature_min')
+                        config.temperature_min = temp_params.temperature_min;
+                    end
+                end
+            else
+                % 使用传统默认值
+                config = AgentFactory.applyLegacyDefaults(config);
             end
             
-            if ~isfield(complete_config, 'temperature_decay')
-                complete_config.temperature_decay = 0.995;
+            % 学习率调度参数
+            if ~isfield(config, 'learning_rate_decay')
+                config.learning_rate_decay = 0.9995;
+            end
+            if ~isfield(config, 'learning_rate_min')
+                config.learning_rate_min = 0.001;
+            end
+        end
+        
+        function config = applyLegacyDefaults(config)
+            % 应用传统默认值（向后兼容）
+            
+            % 基本参数
+            if ~isfield(config, 'learning_rate')
+                config.learning_rate = 0.1;
+            end
+            if ~isfield(config, 'discount_factor')
+                config.discount_factor = 0.95;
             end
             
-            if ~isfield(complete_config, 'temperature_min')
-                complete_config.temperature_min = 0.1;
+            % 默认使用epsilon-greedy
+            if ~isfield(config, 'exploration_strategy')
+                config.exploration_strategy = 'epsilon-greedy';
             end
             
-            % 调试信息
-            fprintf('[DEBUG] 配置完整性检查完成，learning_rate = %.3f\n', complete_config.learning_rate);
+            % Epsilon-greedy参数
+            if ~isfield(config, 'epsilon')
+                config.epsilon = 0.3;
+            end
+            if ~isfield(config, 'epsilon_decay')
+                config.epsilon_decay = 0.995;
+            end
+            if ~isfield(config, 'epsilon_min')
+                config.epsilon_min = 0.01;
+            end
+            
+            % Softmax参数
+            if ~isfield(config, 'temperature')
+                config.temperature = 1.0;
+            end
+            if ~isfield(config, 'temperature_decay')
+                config.temperature_decay = 0.995;
+            end
+            if ~isfield(config, 'temperature_min')
+                config.temperature_min = 0.1;
+            end
         end
         
         function configureAgentSpecifics(agent, algorithm, config)
             % 配置智能体特定参数
+            
             switch upper(algorithm)
                 case 'QLEARNING'
                     % Q-Learning特定配置
@@ -178,8 +249,10 @@ classdef AgentFactory
                     
                 case 'SARSA'
                     % SARSA特定配置 - 更保守的探索
-                    if isprop(agent, 'epsilon')
+                    if strcmp(agent.exploration_strategy, 'epsilon-greedy')
                         agent.epsilon = agent.epsilon * 0.8;  % 降低探索率
+                    elseif strcmp(agent.exploration_strategy, 'softmax')
+                        agent.temperature = agent.temperature * 1.2;  % 提高温度
                     end
                     
                 case 'DOUBLEQLEARNING'
@@ -199,8 +272,14 @@ classdef AgentFactory
             attacker_config = config;
             
             % 攻击者通常需要更高的探索率
-            if isfield(attacker_config, 'epsilon')
-                attacker_config.epsilon = min(0.8, attacker_config.epsilon * 1.5);
+            if strcmp(attacker_config.exploration_strategy, 'epsilon-greedy')
+                if isfield(attacker_config, 'epsilon')
+                    attacker_config.epsilon = min(0.8, attacker_config.epsilon * 1.5);
+                end
+            elseif strcmp(attacker_config.exploration_strategy, 'softmax')
+                if isfield(attacker_config, 'temperature')
+                    attacker_config.temperature = attacker_config.temperature * 1.2;
+                end
             end
             
             % 攻击者可能需要不同的学习率
@@ -211,6 +290,7 @@ classdef AgentFactory
         
         function configureAttackerSpecifics(agent, config)
             % 配置攻击者特定属性
+            
             if isprop(agent, 'exploration_bonus')
                 agent.exploration_bonus = 0.1;  % 攻击者获得探索奖励
             end
@@ -218,6 +298,42 @@ classdef AgentFactory
             if isprop(agent, 'risk_tolerance')
                 agent.risk_tolerance = 0.8;  % 攻击者风险容忍度更高
             end
+            
+            % 攻击者可能使用不同的动作选择策略
+            if isprop(agent, 'action_selection_mode')
+                agent.action_selection_mode = 'aggressive';
+            end
+        end
+        
+        function displayAgentInfo(agent)
+            % 显示智能体信息
+            
+            fprintf('\n智能体信息:\n');
+            fprintf('  名称: %s\n', agent.name);
+            fprintf('  类型: %s\n', agent.agent_type);
+            fprintf('  算法: %s\n', class(agent));
+            fprintf('  状态维度: %d\n', agent.state_dim);
+            fprintf('  动作维度: %d\n', agent.action_dim);
+            fprintf('  学习率: %.4f\n', agent.learning_rate);
+            fprintf('  折扣因子: %.4f\n', agent.discount_factor);
+            
+            if isprop(agent, 'exploration_strategy')
+                fprintf('  探索策略: %s\n', agent.exploration_strategy);
+                
+                switch agent.exploration_strategy
+                    case 'epsilon-greedy'
+                        fprintf('    Epsilon: %.4f\n', agent.epsilon);
+                        fprintf('    Epsilon衰减: %.4f\n', agent.epsilon_decay);
+                        fprintf('    最小Epsilon: %.4f\n', agent.epsilon_min);
+                        
+                    case 'softmax'
+                        fprintf('    温度: %.4f\n', agent.temperature);
+                        fprintf('    温度衰减: %.4f\n', agent.temperature_decay);
+                        fprintf('    最小温度: %.4f\n', agent.temperature_min);
+                end
+            end
+            
+            fprintf('\n');
         end
     end
 end
