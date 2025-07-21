@@ -488,23 +488,81 @@ classdef QLearningAgent < RLAgent
             obj.performance_history.rewards(end+1) = reward;
             obj.performance_history.td_errors(end+1) = abs(td_error);
             
+            % 修复: 为 calculateRADI 提供必需的参数
+            try
+                % 获取当前资源分配
+                if ~isempty(obj.strategy_history)
+                    current_strategy = obj.strategy_history(end, :);
+                    % 确保是行向量且归一化
+                    if sum(current_strategy) > 0
+                        resource_allocation = current_strategy / sum(current_strategy);
+                    else
+                        resource_allocation = ones(1, length(current_strategy)) / length(current_strategy);
+                    end
+                else
+                    % 默认均匀分配（5个资源类型）
+                    resource_allocation = [0.2, 0.2, 0.2, 0.2, 0.2];
+                end
+                
+                % 调用修正后的 calculateRADI
+                radi_score = obj.calculateRADI(resource_allocation);
+                obj.performance_history.radi(end+1) = radi_score;
+            catch ME
+                % 如果还是出错，使用默认值
+                warning('calculateRADI 仍然出错: %s，使用默认值', ME.message);
+                obj.performance_history.radi(end+1) = 0.5;
+            end
+            
             % 计算并记录其他性能指标
-            obj.performance_history.radi(end+1) = calculateRADI();
             obj.performance_history.damage(end+1) = obj.calculateDamage();
             obj.performance_history.success_rate(end+1) = obj.calculateSuccessRate();
             obj.performance_history.detection_rate(end+1) = obj.calculateDetectionRate();
-        end
-        
-        function radi = calculateRADI(obj)
-            % 计算RADI指标
-            if isempty(obj.strategy_history)
-                radi = 0.5;
-            else
-                current_strategy = obj.strategy_history(end, :);
-                entropy = -sum(current_strategy .* log(current_strategy + eps));
-                radi = entropy / log(length(current_strategy));
+        end        
+
+        function radi = calculateRADI(obj, resource_allocation)
+            % 计算RADI指标 - 修正版
+            
+            % 参数验证
+            if nargin < 2 || isempty(resource_allocation)
+                % 如果没有提供资源分配，尝试从策略历史获取
+                if ~isempty(obj.strategy_history)
+                    current_strategy = obj.strategy_history(end, :);
+                    if sum(current_strategy) > 0
+                        resource_allocation = current_strategy / sum(current_strategy);
+                    else
+                        resource_allocation = ones(1, length(current_strategy)) / length(current_strategy);
+                    end
+                else
+                    % 默认均匀分配
+                    resource_allocation = [0.2, 0.2, 0.2, 0.2, 0.2];
+                end
             end
-        end
+            
+            % 确保是行向量
+            if iscolumn(resource_allocation)
+                resource_allocation = resource_allocation';
+            end
+            
+            % 计算熵值作为RADI的简化版本
+            if length(resource_allocation) > 1
+                % 避免log(0)
+                safe_allocation = max(resource_allocation, 1e-10);
+                entropy = -sum(safe_allocation .* log(safe_allocation));
+                
+                % 将熵值标准化到[0,1]范围
+                max_entropy = log(length(resource_allocation));
+                if max_entropy > 0
+                    radi = 1 - (entropy / max_entropy);
+                else
+                    radi = 0.5;
+                end
+            else
+                radi = 0.5;
+            end
+            
+            % 确保返回值在合理范围内
+            radi = max(0, min(1, radi));
+        end        
         
         function damage = calculateDamage(obj)
             % 计算损害程度
