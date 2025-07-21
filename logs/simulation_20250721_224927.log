@@ -1,6 +1,0 @@
-[2025-07-21 22:49:27] [INFO] 日志系统初始化完成
-[2025-07-21 22:49:27] [INFO] FSP-TCS仿真开始
-[2025-07-21 22:49:28] [INFO] 开始FSP仿真训练...
-[2025-07-21 22:49:28] [ERROR] 仿真出错: 未识别类 'PerformanceMonitor' 的方法、属性或字段 'recordIterationResults'。
-[2025-07-21 22:49:28] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\FSPSimulator.m, 行号: 140
-[2025-07-21 22:49:28] [INFO] 日志系统关闭
