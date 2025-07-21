@@ -294,9 +294,7 @@ classdef ConfigManager
         
         function config = mergeStructures(default, user_config)
             % 递归合并结构体，保留用户设置，补充默认值
-            
             config = default;
-            
             if ~isstruct(user_config)
                 return;
             end
@@ -305,15 +303,25 @@ classdef ConfigManager
             for i = 1:length(fields)
                 field = fields{i};
                 if isfield(default, field)
-                    if isstruct(default.(field)) && isstruct(user_config.(field))
-                        % 递归合并子结构
+                    % =======================【代码修复 v2】=======================
+                    % 检查字段是否为【标量】结构体 (scalar struct), 而非结构体数组.
+                    % 对结构体数组 (如 config.attacks 或从 JSON 加载的 config.agents.defenders)
+                    % 的递归会导致 "输入参数过多" 的错误, 因为 default.(field) 会返回一个逗号分隔的列表.
+                    % 对于结构体数组或普通数组, 我们直接采用用户的配置, 不进行递归合并.
+                    % ===========================================================
+                    isDefaultScalarStruct = isstruct(default.(field)) && isscalar(default.(field));
+                    isUserScalarStruct = isstruct(user_config.(field)) && isscalar(user_config.(field));
+
+                    if isDefaultScalarStruct && isUserScalarStruct
+                        % 仅当双方都是标量结构体时, 才进行递归合并
                         config.(field) = ConfigManager.mergeStructures(default.(field), user_config.(field));
                     else
-                        % 直接使用用户配置
+                        % 否则, 直接使用用户配置覆盖默认值
+                        % 这会正确处理结构体数组、普通数组和基本类型
                         config.(field) = user_config.(field);
                     end
                 else
-                    % 用户新增字段
+                    % 用户新增的字段, 直接添加
                     config.(field) = user_config.(field);
                 end
             end
@@ -572,7 +580,7 @@ classdef ConfigManager
                 % 查找对应的智能体配置
                 agent_config = [];
                 if strcmp(agent.agent_type, 'defender') && isfield(config.agents, 'defenders')
-                    % =======================【代码修复】=======================
+                    % =======================【代码修复 v1】=======================
                     % 修复1: 从JSON加载配置时, defenders 是结构体数组, 必须用圆括号 () 索引。
                     % 修复2: 智能体名称(agent.name)如 'defender_QLearning_1',
                     %        配置中算法名称(algorithm)为 'QLearning'。

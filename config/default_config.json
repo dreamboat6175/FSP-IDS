@@ -1,42 +1,82 @@
 {
-  "n_stations": 5,
+  "n_stations": 10,
   "n_components_per_station": [
     7,
     6,
     8,
     5,
-    9
+    9,
+    15,
+    4,
+    6,
+    3,
+    4
   ],
-  "total_components": 35,
+  "total_components": 67,
   "total_resources": 100,
   "n_iterations": 100,
   "n_episodes_per_iter": 50,
-  "max_steps_per_episode": 50,
   "max_episode_steps": 50,
   "pool_size_limit": 50,
   "pool_update_interval": 10,
   "alpha_ewma": 0.1,
-  "learning_rate": 0.15,
-  "discount_factor": 0.95,
-  "epsilon": 0.4,
-  "epsilon_decay": 0.999,
-  "epsilon_min": 0.05,
-  "temperature": 1,
-  "temperature_decay": 0.995,
-  "temperature_min": 0.1,
+  "rl_defaults": {
+    "learning_rate": 0.15,
+    "discount_factor": 0.95,
+    "exploration_strategy": "epsilon-greedy",
+    "epsilon_greedy": {
+      "epsilon": 0.4,
+      "epsilon_decay": 0.999,
+      "epsilon_min": 0.05
+    },
+    "softmax_exploration": {
+      "temperature": 1,
+      "temperature_decay": 0.995,
+      "temperature_min": 0.1
+    }
+  },
   "algorithms": [
     "QLearning",
     "SARSA",
     "DoubleQLearning"
   ],
-  "defender_types": [
-    "QLearning",
-    "SARSA",
-    "DoubleQLearning"
-  ],
   "attacker_algorithm": "QLearning",
-  "state_space_size": 40,
+  "state_space_size": 77,
   "action_space_size": 101,
+  "attacks": [
+    {
+      "name": "malware",
+      "severity": 0.8,
+      "detection_difficulty": 0.6
+    },
+    {
+      "name": "dos",
+      "severity": 0.7,
+      "detection_difficulty": 0.5
+    },
+    {
+      "name": "intrusion",
+      "severity": 0.6,
+      "detection_difficulty": 0.7
+    },
+    {
+      "name": "spoofing",
+      "severity": 0.5,
+      "detection_difficulty": 0.8
+    },
+    {
+      "name": "tampering",
+      "severity": 0.9,
+      "detection_difficulty": 0.4
+    },
+    {
+      "name": "eavesdropping",
+      "severity": 0.4,
+      "detection_difficulty": 0.9
+    }
+  ],
+  "attack_frequency": 0.3,
+  "attack_success_probability": 0.4,
   "attack_types": [
     "malware",
     "dos",
@@ -61,8 +101,34 @@
     0.4,
     0.9
   ],
-  "attack_frequency": 0.3,
-  "attack_success_probability": 0.4,
+  "resources": [
+    {
+      "name": "computational",
+      "effectiveness": 0.7,
+      "cost": 1
+    },
+    {
+      "name": "bandwidth",
+      "effectiveness": 0.6,
+      "cost": 0.8
+    },
+    {
+      "name": "sensors",
+      "effectiveness": 0.8,
+      "cost": 1.2
+    },
+    {
+      "name": "scanning",
+      "effectiveness": 0.5,
+      "cost": 0.6
+    },
+    {
+      "name": "inspection",
+      "effectiveness": 0.9,
+      "cost": 1.5
+    }
+  ],
+  "n_resource_types": 5,
   "resource_types": [
     "computational",
     "bandwidth",
@@ -70,7 +136,6 @@
     "scanning",
     "inspection"
   ],
-  "n_resource_types": 5,
   "resource_effectiveness": [
     0.7,
     0.6,
@@ -86,6 +151,13 @@
     1.5
   ],
   "radi": {
+    "weights": {
+      "computational": 0.25,
+      "bandwidth": 0.15,
+      "sensors": 0.25,
+      "scanning": 0.15,
+      "inspection": 0.2
+    },
     "weight_computation": 0.25,
     "weight_bandwidth": 0.15,
     "weight_sensors": 0.25,
@@ -120,7 +192,6 @@
     "report_dir": "reports",
     "models_dir": "models",
     "checkpoints_dir": "checkpoints",
-    "log_file": "logs\\simulation_20250721_184353.log",
     "save_models": true,
     "generate_plots": true,
     "export_csv": true
@@ -134,7 +205,7 @@
   },
   "parallel": {
     "enabled": false,
-    "num_workers": 4,
+    "num_workers": 8,
     "chunk_size": 10
   },
   "fsp_advanced": {
@@ -151,9 +222,7 @@
         0.01,
         0.01,
         0.01,
-        0.01
-      ],
-      [
+        0.01,
         0.01,
         0.01,
         0.01,
@@ -165,9 +234,7 @@
         0.01,
         0.01,
         0.01,
-        0.01
-      ],
-      [
+        0.01,
         0.01,
         0.01,
         0.01,
@@ -175,6 +242,95 @@
         0.01
       ],
       [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
         0.01,
         0.01,
         0.01,
@@ -188,9 +344,7 @@
         100,
         100,
         100,
-        100
-      ],
-      [
+        100,
         100,
         100,
         100,
@@ -202,9 +356,7 @@
         100,
         100,
         100,
-        100
-      ],
-      [
+        100,
         100,
         100,
         100,
@@ -212,6 +364,95 @@
         100
       ],
       [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      [
+        100,
+        100,
+        100,
+        100,
+        100,
         100,
         100,
         100,
@@ -229,10 +470,24 @@
   },
   "agents": {
     "defenders": [
-      {},
-      {},
-      {}
+      {
+        "algorithm": "QLearning",
+        "name": "Defender_QLearning",
+        "learning_rate": 0.2
+      },
+      {
+        "algorithm": "SARSA",
+        "name": "Defender_SARSA",
+        "epsilon": 0.5
+      },
+      {
+        "algorithm": "DoubleQLearning",
+        "name": "Defender_DoubleQLearning"
+      }
     ],
-    "attacker": {}
+    "attacker": {
+      "algorithm": "QLearning",
+      "name": "Attacker"
+    }
   }
 }

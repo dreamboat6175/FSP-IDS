@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>FSP-IDS 仿真报告</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+.header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; }
+.section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+.metrics { display: flex; justify-content: space-around; }
+.metric-box { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
+img { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 5px; }
+</style>
+</head>
+<body>
+<div class="header">
+<h1>FSP-IDS 智能防御系统仿真报告</h1>
+<p>生成时间: 2025-07-21 20:24:52</p>
+</div>
+<div class="section">
+<h2>性能指标汇总</h2>
+<div class="metrics">
+<div class="metric-box">
+<h3>QLEARNING</h3>
+<p>检测率: 91.2%</p>
+<p>成功率: 32.4%</p>
+</div>
+<div class="metric-box">
+<h3>SARSA</h3>
+<p>检测率: 99.5%</p>
+<p>成功率: 48.9%</p>
+</div>
+<div class="metric-box">
+<h3>DOUBLEQLEARNING</h3>
+<p>检测率: 90.4%</p>
+<p>成功率: 27.0%</p>
+</div>
+</div>
+</div>
+<div class="section">
+<h2>可视化图表</h2>
+<h3>攻击者策略分析</h3>
+<img src="attacker_strategy.png" alt="攻击者策略分析">
+<h3>防御者策略对比</h3>
+<img src="defender_strategies.png" alt="防御者策略对比">
+<h3>性能指标分析</h3>
+<img src="performance_metrics.png" alt="性能指标分析">
+<h3>参数变化趋势</h3>
+<img src="parameter_changes.png" alt="参数变化趋势">
+<h3>防御者性能对比</h3>
+<img src="defender_comparison.png" alt="防御者性能对比">
+</div>
+</body>
+</html>
