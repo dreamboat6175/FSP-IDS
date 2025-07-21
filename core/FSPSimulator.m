@@ -1,370 +1,196 @@
-%% FSPSimulator.m - FSP仿真器类
+% FSPSimulator.m - FSP-TCS智能防御系统仿真核心逻辑
 % =========================================================================
-% 描述: FSP (Fictitious Self-Play) 仿真器核心类
-% 提供静态方法run来执行FSP仿真
+% 描述: 负责运行FSP仿真，包括智能体交互、状态更新和奖励计算。
 % =========================================================================
 
-classdef FSPSimulator < handle
-   %% FSP仿真器 - 处理多智能体强化学习仿真
-   
-   methods (Static)
-       function results = run(env, defender_agents, attacker_agent, config, monitor)
-           %% 运行FSP仿真的主函数
-           % 输入:
-           %   env - TCS环境对象
-           %   defender_agents - 防御者智能体数组
-           %   attacker_agent - 攻击者智能体
-           %   config - 配置结构体
-           %   monitor - 性能监控器
-           % 输出:
-           %   results - 仿真结果结构体
-           
-           try
-               fprintf('🚀 开始FSP仿真训练...\n');
-               Logger.info('FSP仿真训练开始');
-               
-               n_iterations = config.n_iterations;
-               n_agents = length(defender_agents);
-               
-                % 初始化结果结构
-                results = struct();
-                results.defender_rewards = zeros(n_iterations, n_agents);
-                results.attacker_rewards = zeros(n_iterations, 1);
-                results.detection_rates = zeros(n_iterations, n_agents);
-                results.resource_efficiency = zeros(n_iterations, n_agents);
-                results.convergence_info = struct();
+classdef FSPSimulator
+    methods(Static)
+        function results = run(env, defenders, attacker, config, monitor)
+            % run - 运行FSP仿真
+            %   env: TCSEnvironment实例
+            %   defenders: 防御者智能体(cell array of RLAgent objects)
+            %   attacker: 攻击者智能体(RLAgent object)
+            %   config: 配置结构体
+            %   monitor: PerformanceMonitor实例
+
+            % 将所有智能体组织成一个cell数组，以便ResultsCollector处理
+            % ResultsCollector 期望第一个是攻击者，后面是防御者
+            all_agents_list = [{attacker}, defenders]; 
+
+            % 初始化结果收集器
+            results_collector_obj = ResultsCollector(all_agents_list, config); 
+
+            % 获取站点数量
+            n_stations = config.n_stations;
+
+            % 获取每个episode的步数，优先使用max_steps_per_episode，其次是max_episode_steps，最后是默认值
+            if isfield(config, 'max_steps_per_episode')
+                num_steps_per_episode = config.max_steps_per_episode;
+            elseif isfield(config, 'max_episode_steps')
+                num_steps_per_episode = config.max_episode_steps;
+            else
+                num_steps_per_episode = 50; % Default value if not specified in config
+                fprintf('[WARNING] Config missing max_steps_per_episode or max_episode_steps. Using default: %d\n', num_steps_per_episode);
+            end
+
+            % 主仿真循环
+            for iter = 1:config.n_iterations
+                tic; % Start timer for the iteration
+                fprintf('⏳ 执行第 %d/%d 次迭代...\n', iter, config.n_iterations);
                 
-                % === 添加缺失的字段 ===
-                results.n_agents = n_agents;
-                results.n_iterations = n_iterations;
-                results.config = config;
-                results.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
-               
-               % FSP迭代循环
-               for iter = 1:n_iterations
-                   tic;
-                   
-                   fprintf('⏳ 执行第 %d/%d 次迭代...', iter, n_iterations);
-                   
-                   % 运行episodes
-                   episode_results = FSPSimulator.runEpisodes(env, defender_agents, attacker_agent, config);
-                   
-                   % 更新智能体参数
-                   FSPSimulator.updateAgents(defender_agents, attacker_agent, episode_results, config);
-                   
-                   % 记录结果
-                   % 安全的数据赋值，处理维度不匹配问题
-                   if isfield(episode_results, 'avg_defender_reward')
-                       reward_data = episode_results.avg_defender_reward;
-                       if length(reward_data) == size(results.defender_rewards, 2)
-                           results.defender_rewards(iter, :) = reward_data;
-                       else
-                           % 维度不匹配时的处理
-                           min_len = min(length(reward_data), size(results.defender_rewards, 2));
-                           results.defender_rewards(iter, 1:min_len) = reward_data(1:min_len);
-                       end
-                   end
-                   results.attacker_rewards(iter) = episode_results.avg_attacker_reward;
-                   results.detection_rates(iter, :) = episode_results.avg_detection_rate;
-                   results.resource_efficiency(iter, :) = episode_results.avg_efficiency;
-                   
-                   % 更新监控器
-                   if exist('monitor', 'var') && ~isempty(monitor)
-                       try
-                           monitor.updateIteration(iter, episode_results);
-                       catch
-                           % 监控器更新失败不影响主程序
-                       end
-                   end
-                   
-                   iter_time = toc;
-                   fprintf(' 完成，用时 %.2f秒\n', iter_time);
-                   Logger.info(sprintf('迭代 %d 完成，用时 %.2f秒', iter, iter_time));
-                   
-                   % 每10次迭代显示进度
-                   if mod(iter, 10) == 0
-                       avg_detection = mean(results.detection_rates(iter, :));
-                       avg_efficiency = mean(results.resource_efficiency(iter, :));
-                       fprintf('📊 第%d次迭代 - 平均检测率: %.3f, 平均效率: %.3f\n', ...
-                               iter, avg_detection, avg_efficiency);
-                   end
-               end
-               
-               % 分析收敛性
-               results.convergence_info = FSPSimulator.analyzeConvergence(results);
-               
-               fprintf('✅ FSP仿真训练完成！\n');
-               Logger.info('FSP仿真训练成功完成');
-               
-           catch ME
-               Logger.error(sprintf('FSP仿真过程中出错: %s', ME.message));
-               rethrow(ME);
-           end
-       end
-       
-       function episode_results = runEpisodes(env, defender_agents, attacker_agent, config)
-           %% 运行多个episodes
-           
-           n_agents = length(defender_agents);
-           n_episodes = config.n_episodes_per_iter;
-           
-           % 初始化累积变量
-           defender_reward_sum = zeros(1, n_agents);
-           attacker_reward_sum = 0;
-           detection_rate_sum = zeros(1, n_agents);
-           efficiency_sum = zeros(1, n_agents);
-           
-           % 运行episodes
-           for ep = 1:n_episodes
-               % 重置环境
-               state = env.reset();
-               
-               episode_defender_rewards = zeros(1, n_agents);
-               episode_attacker_reward = 0;
-               episode_detection_rates = zeros(1, n_agents);
-               episode_efficiency = zeros(1, n_agents);
-               
-               % 每个时间步 - 使用默认值如果配置中没有此字段
-               max_steps = 50; % 默认最大步数
-               if isfield(config, 'max_steps_per_episode')
-                   max_steps = config.max_steps_per_episode;
-               elseif isfield(config, 'max_episode_steps')
-                   max_steps = config.max_episode_steps;
-               end
-               
-               for step = 1:max_steps
-                   % 防御者选择动作
-                   defender_actions = [];
-                   for i = 1:n_agents
-                       action = defender_agents{i}.selectAction(state);
-                       
-                       % 读取配置中的站点数量
-                      % 使用传入的配置中的站点数量
-                        n_stations = config.n_stations;
-                       
-                       % 确保动作向量长度等于站点数量
-                       if length(action) ~= n_stations
-                           if length(action) < n_stations
-                               action = [action, zeros(1, n_stations - length(action))];
-                           else
-                               action = action(1:n_stations);
-                           end
-                       end
-                       
-                       % 归一化
-                       if sum(action) > 0
-                           action = action / sum(action);
-                       else
-                           action = ones(1, n_stations) / n_stations;
-                       end
-                       
-                       % 存储整个动作向量，而不是标量
-                       if i == 1
-                           defender_actions = action;
-                       else
-                           defender_actions = [defender_actions; action];
-                       end
-                   end
-                   
-                   % 攻击者选择动作
-                   attacker_action = attacker_agent.selectAction(state);
-                   % 确保攻击者动作也是标量
-                   if length(attacker_action) > 1
-                       attacker_action = attacker_action(1);
-                   end
-                   
-                   % 执行环境步骤
-                   try
-                       [next_state, rewards, done, info] = env.step(defender_actions, attacker_action);
-                   catch ME
-                       % 如果环境步骤失败，使用默认值
-                       warning('环境步骤执行失败: %s', ME.message);
-                       next_state = state;
-                       rewards = struct();
-                       rewards.defender = zeros(1, n_agents);
-                       rewards.attacker = 0;
-                       done = false;
-                       info = struct();
-                       info.detection_rate = 0.5 * ones(1, n_agents);
-                       info.efficiency = 0.7 * ones(1, n_agents);
-                   end
-                   
-                   % 更新智能体经验
-                   for i = 1:n_agents
-                        if hasMethod(defender_agents{i}, 'updateExperience')
-                            % 检查rewards是否为结构体
-                            if isstruct(rewards) && isfield(rewards, 'defender')
-                                reward_value = rewards.defender(i);
-                            else
-                                reward_value = 0; % 默认奖励
-                            end
-                            
-                            defender_agents{i}.updateExperience(state, defender_actions(i,:), reward_value, next_state, done);
+                % 重置环境和智能体状态 (注意：QLearningAgent.reset() 已修改为不重置 update_count)
+                env.reset(); % 重置环境
+                for i = 1:length(defenders)
+                    defenders{i}.reset(); % 重置防御者智能体 (重置 episode 相关的状态，不重置总更新次数)
+                end
+                attacker.reset(); % 重置攻击者智能体 (重置 episode 相关的状态，不重置总更新次数)
+
+                % 初始化当前状态（所有站点初始状态相同，例如，都处于安全状态）
+                % 状态向量可以简化为每个站点的安全级别或威胁等级
+                % 这里假设状态是单一标量，表示系统整体状态或简化状态
+                current_state_defender = env.current_state; 
+                current_state_attacker = env.current_state; 
+
+                % 为每个Episode运行多个步骤
+                % Note: The actual episode running and agent updating logic is now primarily in runEpisodes.
+                % The inner loop here is for the steps within a single episode.
+                % The monitor.recordIterationResults was incorrectly placed here as it expects aggregated data.
+                
+                % Collect data for the current episode to pass to updateIterationData
+                episode_defender_rewards_sum = zeros(1, length(defenders));
+                episode_attacker_reward_sum = 0;
+                episode_detection_rates_sum = zeros(1, length(defenders));
+                episode_efficiency_sum = zeros(1, length(defenders)); % Assuming efficiency is also per defender
+
+                for step = 1:num_steps_per_episode 
+                    % === 1. 智能体选择动作 ===
+                    % 防御者选择资源分配策略 (动作是资源分配向量)
+                    defender_actions = cell(1, length(defenders));
+                    for i = 1:length(defenders)
+                        defender_actions{i} = defenders{i}.selectAction(current_state_defender);
+                        % 确保防御者动作是归一化的资源分配
+                        if sum(defender_actions{i}) > 0
+                            defender_actions{i} = defender_actions{i} / sum(defender_actions{i});
+                        else
+                            defender_actions{i} = ones(size(defender_actions{i})) / length(defender_actions{i}); % Avoid division by zero
                         end
+                        % 调试信息：打印防御者资源分配
+                        if mod(defenders{i}.update_count, 100) == 0 || defenders{i}.update_count < 5
+                           fprintf('[%s] 防御者 %s (更新次数 %d): 资源分配=%s\n', ...
+                               class(defenders{i}), defenders{i}.name, defenders{i}.update_count, mat2str(defender_actions{i}, 3));
+                        end
+                    end
+
+                    % 攻击者选择目标站点 (动作是站点索引)
+                    attacker_action = attacker.selectAction(current_state_attacker);
+                    % 确保攻击者动作是有效的站点索引
+                    attacker_action = max(1, min(n_stations, round(attacker_action)));
+                    % 调试信息：打印攻击者目标站点
+                    if mod(attacker.update_count, 100) == 0 || attacker.update_count < 5
+                        fprintf('[%s] 攻击者 %s (更新次数 %d): 选择目标站点=%d, 站点数=%d\n', ...
+                                class(attacker), attacker.name, attacker.update_count, attacker_action, n_stations);
                     end
                     
-                    if hasMethod(attacker_agent, 'updateExperience')
-                        % 检查rewards是否为结构体
-                        if isstruct(rewards) && isfield(rewards, 'attacker')
-                            if length(rewards.attacker) > 1
-                                attacker_reward_value = rewards.attacker(1);
-                            else
-                                attacker_reward_value = rewards.attacker;
-                            end
-                        else
-                            attacker_reward_value = 0; % 默认奖励
-                        end
-                        
-                        attacker_agent.updateExperience(state, attacker_action, attacker_reward_value, next_state, done);
+                    % === 2. 环境执行动作并计算奖励和下一个状态 ===
+                    % 这里需要根据实际的防御者数量和攻击者动作来计算奖励和下一个状态
+                    % 简化处理：假设只有一个防御者或所有防御者协同
+                    % 如果有多个防御者，需要聚合他们的资源分配
+                    aggregated_defender_action = zeros(1, n_stations);
+                    for i = 1:length(defenders)
+                        aggregated_defender_action = aggregated_defender_action + defender_actions{i};
                     end
-                   
-                   % 累积奖励（确保维度正确）
-                   if isstruct(rewards) && isfield(rewards, 'defender') && length(rewards.defender) == n_agents
-                       episode_defender_rewards = episode_defender_rewards + rewards.defender;
-                   else
-                       % 使用默认奖励
-                       episode_defender_rewards = episode_defender_rewards + zeros(1, n_agents);
-                   end
-                   
-                   if isstruct(rewards) && isfield(rewards, 'attacker')
-                       if length(rewards.attacker) > 1
-                           episode_attacker_reward = episode_attacker_reward + rewards.attacker(1);
-                       else
-                           episode_attacker_reward = episode_attacker_reward + rewards.attacker;
-                       end
-                   else
-                       % 使用默认奖励
-                       episode_attacker_reward = episode_attacker_reward + 0;
-                   end
-                   
-                   % 计算检测率和效率（确保维度正确）
-                   if isstruct(info) && isfield(info, 'detection_rate')
-                       if length(info.detection_rate) == n_agents
-                           episode_detection_rates = episode_detection_rates + info.detection_rate;
-                       elseif length(info.detection_rate) == 1
-                           episode_detection_rates = episode_detection_rates + repmat(info.detection_rate, 1, n_agents);
-                       end
-                   else
-                       % 如果info不是结构体或没有detection_rate字段，使用默认值
-                       episode_detection_rates = episode_detection_rates + 0.5 * ones(1, n_agents);
-                   end
-                   
-                   if isstruct(info) && isfield(info, 'efficiency')
-                       if length(info.efficiency) == n_agents
-                           episode_efficiency = episode_efficiency + info.efficiency;
-                       elseif length(info.efficiency) == 1
-                           episode_efficiency = episode_efficiency + repmat(info.efficiency, 1, n_agents);
-                       end
-                   else
-                       % 如果info不是结构体或没有efficiency字段，使用默认值
-                       episode_efficiency = episode_efficiency + 0.7 * ones(1, n_agents);
-                   end
-                   
-                   state = next_state;
-                   
-                   if done
-                       break;
-                   end
-               end
-               
-               % 累积episode结果
-               defender_reward_sum = defender_reward_sum + episode_defender_rewards;
-               attacker_reward_sum = attacker_reward_sum + episode_attacker_reward;
-               detection_rate_sum = detection_rate_sum + episode_detection_rates;
-               efficiency_sum = efficiency_sum + episode_efficiency;
-           end
-           
-           % 计算平均值
-           episode_results = struct();
-           episode_results.avg_defender_reward = defender_reward_sum / n_episodes;
-           episode_results.avg_attacker_reward = attacker_reward_sum / n_episodes;
-           episode_results.avg_detection_rate = detection_rate_sum / n_episodes;
-           episode_results.avg_efficiency = efficiency_sum / n_episodes;
-       end
-       
-       function updateAgents(defender_agents, attacker_agent, episode_results, config)
-            %% 更新智能体参数
-            
-            n_agents = length(defender_agents);
-            
-            % 更新防御者智能体
-            for i = 1:n_agents
-                if hasMethod(defender_agents{i}, 'updateParameters')
-                    % 不传递参数，直接调用
-                    defender_agents{i}.updateParameters();
-                end
-                
-                % 更新学习率等参数
-                if hasMethod(defender_agents{i}, 'decay')
-                    defender_agents{i}.decay();
-                end
-            end
-            
-            % 更新攻击者智能体
-            if hasMethod(attacker_agent, 'updateParameters')
-                % 不传递参数，直接调用
-                attacker_agent.updateParameters();
-            end
-            
-            if hasMethod(attacker_agent, 'decay')
-                attacker_agent.decay();
-            end
-        end
-       
-       function convergence_info = analyzeConvergence(results)
-           %% 分析收敛性
-           
-           convergence_info = struct();
-           
-           % 分析防御者奖励收敛
-           defender_rewards = results.defender_rewards;
-           n_iterations = size(defender_rewards, 1);
-           n_agents = size(defender_rewards, 2);
-           
-           % 计算最后20%迭代的稳定性
-           stable_window = max(10, floor(n_iterations * 0.2));
-           stable_start = n_iterations - stable_window + 1;
-           
-           convergence_info.defender_convergence = zeros(1, n_agents);
-           for i = 1:n_agents
-               stable_rewards = defender_rewards(stable_start:end, i);
-               convergence_info.defender_convergence(i) = std(stable_rewards) / mean(abs(stable_rewards));
-           end
-           
-           % 分析攻击者奖励收敛
-           attacker_rewards = results.attacker_rewards;
-           stable_attacker_rewards = attacker_rewards(stable_start:end);
-           convergence_info.attacker_convergence = std(stable_attacker_rewards) / mean(abs(stable_attacker_rewards));
-           
-           % 总体收敛指标
-           convergence_info.overall_convergence = mean([convergence_info.defender_convergence, convergence_info.attacker_convergence]);
-           
-           % 检测是否收敛（变异系数小于0.1认为收敛）
-           convergence_info.is_converged = convergence_info.overall_convergence < 0.1;
-           
-           % 准备状态文本
-           if convergence_info.is_converged
-               status_text = '(已收敛)';
-           else
-               status_text = '(未收敛)';
-           end
-           
-           fprintf('📈 收敛分析 - 整体收敛指标: %.4f %s\n', ...
-                   convergence_info.overall_convergence, status_text);
-       end
-   end
-end
+                    aggregated_defender_action = aggregated_defender_action / length(defenders); % 平均分配
 
-%% 辅助函数
-function has_method = hasMethod(obj, method_name)
-   %% 检查对象是否有指定方法
-   try
-       if isobject(obj)
-           has_method = any(strcmp(methods(obj), method_name));
-       else
-           has_method = false;
-       end
-   catch
-       has_method = false;
-   end
+                    [reward_attacker_step, reward_defenders_step, next_state_env] = ...
+                        env.step(aggregated_defender_action, attacker_action);
+
+                    % === 3. 智能体更新Q值表 ===
+                    % 获取下一个状态的表示
+                    next_state_defender = next_state_env;
+                    next_state_attacker = next_state_env;
+
+                    % 获取下一个动作 (用于SARSA，Q-learning只关心max Q)
+                    % 这里为了兼容RLAgent的update接口，我们传递一个占位符
+                    next_defender_action_for_update = 0; % 占位符
+                    next_attacker_action_for_update = 0; % 占位符
+
+                    for i = 1:length(defenders)
+                        % !!! 关键：调用防御者智能体的更新方法 !!!
+                        % 确保传递的是单个防御者的奖励
+                        if isstruct(reward_defenders_step) && isfield(reward_defenders_step, 'defender')
+                           current_defender_reward = reward_defenders_step.defender(i);
+                        elseif isvector(reward_defenders_step) && length(reward_defenders_step) >= i
+                           current_defender_reward = reward_defenders_step(i);
+                        else
+                           current_defender_reward = 0; % 默认值
+                        end
+                        defenders{i}.update(current_state_defender, defender_actions{i}, current_defender_reward, next_state_defender, next_defender_action_for_update);
+                        episode_defender_rewards_sum(i) = episode_defender_rewards_sum(i) + current_defender_reward;
+                    end
+                    % !!! 关键：调用攻击者智能体的更新方法 !!!
+                    % 确保传递的是单个攻击者的奖励
+                    if isstruct(reward_attacker_step) && isfield(reward_attacker_step, 'attacker')
+                        current_attacker_reward = reward_attacker_step.attacker;
+                    elseif isscalar(reward_attacker_step)
+                        current_attacker_reward = reward_attacker_step;
+                    else
+                        current_attacker_reward = 0; % 默认值
+                    end
+                    attacker.update(current_state_attacker, attacker_action, current_attacker_reward, next_state_attacker, next_attacker_action_for_update);
+                    episode_attacker_reward_sum = episode_attacker_reward_sum + current_attacker_reward;
+
+                    % Collect detection rates and efficiency for episode_results
+                    % Assuming getEnvironmentInfo() gives a single scalar detection rate
+                    % or needs to be adapted for per-defender detection rates if applicable
+                    env_info_step = env.getEnvironmentInfo(); % Get info for current step
+                    if isfield(env_info_step, 'recent_detection_rate')
+                        episode_detection_rates_sum = episode_detection_rates_sum + repmat(env_info_step.recent_detection_rate, 1, length(defenders));
+                    else
+                        episode_detection_rates_sum = episode_detection_rates_sum + zeros(1, length(defenders)); % Fallback
+                    end
+                    
+                    if isfield(env_info_step, 'recent_efficiency') % Assuming 'recent_efficiency' exists in env_info_step
+                         episode_efficiency_sum = episode_efficiency_sum + repmat(env_info_step.recent_efficiency, 1, length(defenders));
+                    else
+                         episode_efficiency_sum = episode_efficiency_sum + zeros(1, length(defenders)); % Fallback
+                    end
+
+
+                    % === 4. 更新当前状态 ===
+                    current_state_defender = next_state_env; 
+                    current_state_attacker = next_state_env; 
+
+                    % === 5. 记录和监控结果 (Removed from here, as updateIterationData expects aggregated episode data) ===
+                    % The monitor.recordIterationResults was incorrectly placed here.
+                    % It should either be an internal function of PerformanceMonitor
+                    % that collects step-by-step data, or this line should be removed
+                    % if only episode-level data is updated.
+                    % Given the structure of PerformanceMonitor.updateIterationData,
+                    % we assume only episode-level data is updated.
+
+                end % end step loop
+
+                % Aggregate episode results for updateIterationData
+                num_steps = num_steps_per_episode;
+                if num_steps == 0, num_steps = 1; end % Avoid division by zero if no steps ran
+
+                episode_results_aggregated = struct();
+                episode_results_aggregated.avg_defender_reward = episode_defender_rewards_sum / num_steps;
+                episode_results_aggregated.avg_attacker_reward = episode_attacker_reward_sum / num_steps;
+                episode_results_aggregated.avg_detection_rate = episode_detection_rates_sum / num_steps;
+                episode_results_aggregated.avg_efficiency = episode_efficiency_sum / num_steps; % Added efficiency
+
+                % 迭代结束后的性能更新
+                monitor.updateIterationData(iter, episode_results_aggregated); 
+                
+                % 记录智能体参数历史（在QLearningAgent.m的recordPerformance中完成）
+                iter_time = toc; % End timer for the iteration
+                fprintf('[%s] 迭代 %d 完成，用时 %.2f秒\n', datestr(now,'yyyy-mm-dd HH:MM:SS'), iter, iter_time); % Corrected: Use iter_time
+            end % end iter loop
+
+            % 在仿真结束后收集所有智能体的数据
+            results_collector_obj.collectFromAgents();
+            results = results_collector_obj.getResults(); % 获取最终收集到的结果
+        end
+    end
 end

@@ -54,9 +54,7 @@ classdef QLearningAgent < RLAgent
             obj.lr_scheduler.step_count = 0;
             obj.lr_scheduler.decay_rate = 0.99;
             
-            % ===== 重要修复：移除 use_softmax 属性定义 =====
             % 现在使用基类的 exploration_strategy 属性
-            % obj.use_softmax = false;  % 删除这行，改用基类属性
             
             % 确保基类属性有默认值
             if isempty(obj.epsilon)
@@ -118,14 +116,14 @@ classdef QLearningAgent < RLAgent
                 obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
             end
             
-            % ===== 修复：使用 exploration_strategy 而不是 use_softmax =====
+            % 使用 exploration_strategy 而不是 use_softmax
             if strcmp(obj.exploration_strategy, 'softmax') && obj.temperature_decay < 1
                 obj.temperature = max(0.1, obj.temperature * obj.temperature_decay);
             end
             
-            % ===== 关键修复：区分防御者和攻击者的动作生成 =====
+            % 区分防御者和攻击者的动作生成
             if contains(obj.agent_type, 'attacker') || contains(obj.name, 'attacker')
-                % ===== 攻击者：返回单个站点索引 =====
+                % 攻击者：返回单个站点索引
                 
                 % 确定站点数量 - 优先使用传入的config
                 if isfield(obj.config, 'n_stations')
@@ -136,7 +134,7 @@ classdef QLearningAgent < RLAgent
                     error('无法确定站点数量：config.n_stations和action_dim都不可用');
                 end
                 
-                % ===== 修复：使用 exploration_strategy 判断 =====
+                % 使用 exploration_strategy 判断
                 if strcmp(obj.exploration_strategy, 'softmax')
                     % Softmax选择
                     temperature = max(0.1, obj.temperature);
@@ -149,7 +147,7 @@ classdef QLearningAgent < RLAgent
                     rand_val = rand();
                     action = find(cumsum_probs >= rand_val, 1);
                     if isempty(action)
-                        action = 1;
+                        action = 1; % Fallback if no action is chosen (shouldn't happen with proper probabilities)
                     end
                 else
                     % Epsilon-贪婪选择
@@ -166,26 +164,26 @@ classdef QLearningAgent < RLAgent
                 % 确保攻击者动作在有效范围内
                 action = max(1, min(n_stations, round(action)));
                 
-                % 调试信息
-                if obj.update_count <= 2
-                    fprintf('[QLearningAgent] 攻击者 %s: 选择目标站点=%d, 站点数=%d\n', ...
-                            obj.name, action, n_stations);
+                % 调试信息 - 每100步或前5步打印
+                if mod(obj.update_count, 100) == 0 || obj.update_count < 5
+                    fprintf('[QLearningAgent] 攻击者 %s (更新次数 %d): 选择目标站点=%d, 站点数=%d\n', ...
+                            obj.name, obj.update_count, action, n_stations);
                 end
                 
             else
-                % ===== 防御者：返回资源分配向量 =====
+                % 防御者：返回资源分配向量
                 
                 % 确定站点数量
                 if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
                     n_stations = obj.config.n_stations;
                 else
-                    n_stations = min(obj.action_dim, 10);
+                    n_stations = min(obj.action_dim, 10); % Default to 10 if not specified
                 end
                 
                 % 生成资源分配向量
                 action = zeros(1, n_stations);
                 
-                % ===== 修复：使用 exploration_strategy 判断 =====
+                % 使用 exploration_strategy 判断
                 if strcmp(obj.exploration_strategy, 'softmax')
                     % Softmax策略选择
                     temperature = max(0.1, obj.temperature);
@@ -195,6 +193,9 @@ classdef QLearningAgent < RLAgent
                     
                     % 转换为站点级资源分配
                     for i = 1:n_stations
+                        % Distribute Q-values across the number of stations
+                        % This is a simplified approach, a more sophisticated approach
+                        % would involve discretizing the action space for resource allocation.
                         q_start = (i-1) * obj.action_dim / n_stations + 1;
                         q_end = i * obj.action_dim / n_stations;
                         q_start = max(1, round(q_start));
@@ -207,7 +208,7 @@ classdef QLearningAgent < RLAgent
                     end
                     
                     % 归一化
-                    action = action / max(sum(action), 1e-6);
+                    action = action / max(sum(action), 1e-6); % Avoid division by zero
                     
                 else
                     % Epsilon-贪婪策略选择
@@ -217,6 +218,9 @@ classdef QLearningAgent < RLAgent
                         action = action / sum(action);
                     else
                         % 利用：基于Q值分配资源
+                        % This is a heuristic to convert Q-values to resource allocation.
+                        % A more precise method would involve discretizing resource allocations
+                        % into distinct actions and learning Q-values for those.
                         for i = 1:n_stations
                             q_start = (i-1) * obj.action_dim / n_stations + 1;
                             q_end = i * obj.action_dim / n_stations;
@@ -229,15 +233,15 @@ classdef QLearningAgent < RLAgent
                         end
                         
                         % 将Q值转换为资源分配概率
-                        action = action - min(action) + 0.1;
-                        action = action / sum(action);
+                        action = action - min(action) + 0.1; % Shift to positive and add a small base
+                        action = action / sum(action); % Normalize to sum to 1
                     end
                 end
                 
-                % 调试信息
-                if obj.update_count <= 2
-                    fprintf('[QLearningAgent] 防御者 %s: 资源分配=%s\n', ...
-                            obj.name, mat2str(action, 3));
+                % 调试信息 - 每100步或前5步打印
+                if mod(obj.update_count, 100) == 0 || obj.update_count < 5
+                    fprintf('[QLearningAgent] 防御者 %s (更新次数 %d): 资源分配=%s\n', ...
+                            obj.name, obj.update_count, mat2str(action, 3));
                 end
             end
         end
@@ -245,8 +249,12 @@ classdef QLearningAgent < RLAgent
         function update(obj, state_vec, action, reward, next_state_vec, next_action)
             % Q-Learning算法更新
             
+            % 调试：确认进入更新方法
+            fprintf('[QLearningAgent] %s: 进入更新方法 (更新次数 %d)\n', obj.name, obj.update_count);
+
             % 健壮性检查
             if isempty(state_vec) || isempty(next_state_vec)
+                fprintf('[QLearningAgent] %s: 状态向量为空，跳过更新。\n', obj.name);
                 return;
             end
             
@@ -284,6 +292,10 @@ classdef QLearningAgent < RLAgent
             td_error = reward + obj.discount_factor * max_next_q - current_q;
             obj.Q_table(state_idx, action_idx) = current_q + adaptive_lr * td_error;
             
+            % 调试：打印TD误差和新Q值
+            fprintf('[QLearningAgent] %s (更新次数 %d): 状态=%d, 动作=%d, 奖励=%.2f, TD误差=%.4f, 新Q值=%.4f\n', ...
+                    obj.name, obj.update_count, state_idx, action_idx, reward, td_error, obj.Q_table(state_idx, action_idx));
+
             % 更新学习率
             obj.updateLearningRate();
             
@@ -341,7 +353,7 @@ classdef QLearningAgent < RLAgent
             % 计算所有状态的平均Q值
             avg_q_values = mean(obj.Q_table, 1);
             
-            % ===== 修复：使用 exploration_strategy 判断 =====
+            % 使用 exploration_strategy 判断
             if strcmp(obj.exploration_strategy, 'softmax')
                 % Softmax策略
                 temperature = max(0.1, obj.temperature);

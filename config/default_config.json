@@ -14,7 +14,7 @@
   ],
   "total_components": 67,
   "total_resources": 100,
-  "n_iterations": 100,
+  "n_iterations": 1000,
   "n_episodes_per_iter": 50,
   "max_episode_steps": 50,
   "pool_size_limit": 50,
