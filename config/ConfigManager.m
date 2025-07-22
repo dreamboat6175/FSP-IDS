@@ -1,13 +1,14 @@
 classdef ConfigManager < handle
     %% ConfigManager - FSP-TCS 配置管理器
     % ================================================================
-    % 版本：v2.0 - 完整功能版本
+    % 版本：v2.6 - 修复 displayConfig 中对 'steps_per_episode' 的访问路径
     % 功能：
     % 1. 配置文件加载和保存
     % 2. 默认配置管理
     % 3. 配置验证和合并
     % 4. 嵌套配置访问
     % 5. 配置显示和导出
+    % 6. 新增：智能体配置合并方法
     % ================================================================
     
     properties (Access = private, Constant)
@@ -155,13 +156,15 @@ classdef ConfigManager < handle
             % =========================
             % 兼容性字段（为了向后兼容）
             % =========================
+            % 这些字段在validateConfig中会根据新结构体进行设置
+            % 确保这些字段在默认配置中存在，即使它们可能在validateConfig中被覆盖
             config.n_stations = config.system.n_stations;
             config.n_episodes_per_iter = config.simulation.n_episodes_per_iter;
             config.state_space_size = config.system.state_space_size;
-            config.steps_per_episode = config.simulation.max_episode_steps;  % 使用max_episode_steps
+            config.steps_per_episode = config.simulation.max_episode_steps;
             config.debug_mode = config.debug.debug_mode;
-            config.n_components_per_station = config.system.n_components_per_station;  % 添加此字段
-            config.total_resources = config.system.total_resources;  % 添加此字段
+            config.n_components_per_station = config.system.n_components_per_station;
+            config.total_resources = config.system.total_resources;
         end
         
         function config = validateAndMergeConfig(user_config)
@@ -186,37 +189,51 @@ classdef ConfigManager < handle
             % 输入/输出: config - 配置结构体
             
             try
-                % 确保基本结构存在
-                if ~isfield(config, 'system')
+                % 确保基本结构存在且是结构体类型
+                % 增加对顶层字段的类型检查，如果不是struct，则初始化为struct
+                if ~isfield(config, 'system') || ~isstruct(config.system)
                     config.system = struct();
                 end
-                if ~isfield(config, 'simulation')
+                if ~isfield(config, 'simulation') || ~isstruct(config.simulation)
                     config.simulation = struct();
                 end
-                if ~isfield(config, 'learning')
+                if ~isfield(config, 'learning') || ~isstruct(config.learning)
                     config.learning = struct();
                 end
-                if ~isfield(config, 'algorithms')
+                if ~isfield(config, 'algorithms') || ~isstruct(config.algorithms)
                     config.algorithms = struct();
                 end
-                
+                if ~isfield(config, 'debug') || ~isstruct(config.debug)
+                    config.debug = struct();
+                end
+                if ~isfield(config, 'environment') || ~isstruct(config.environment)
+                    config.environment = struct();
+                end
+                if ~isfield(config, 'output') || ~isstruct(config.output)
+                    config.output = struct();
+                end
+
                 % 验证基本数值参数
-                if ~isfield(config.system, 'n_stations') || config.system.n_stations <= 0
+                config.system.n_stations = ConfigManager.getConfigValue(config, 'system.n_stations', 10);
+                if config.system.n_stations <= 0
                     warning('n_stations必须为正整数，设置为默认值10');
                     config.system.n_stations = 10;
                 end
                 
-                if ~isfield(config.simulation, 'n_iterations') || config.simulation.n_iterations <= 0
+                config.simulation.n_iterations = ConfigManager.getConfigValue(config, 'simulation.n_iterations', 50);
+                if config.simulation.n_iterations <= 0
                     warning('n_iterations必须为正整数，设置为默认值50');
                     config.simulation.n_iterations = 50;
                 end
                 
-                if ~isfield(config.learning, 'learning_rate') || config.learning.learning_rate <= 0 || config.learning.learning_rate > 1
+                config.learning.learning_rate = ConfigManager.getConfigValue(config, 'learning.learning_rate', 0.1);
+                if config.learning.learning_rate <= 0 || config.learning.learning_rate > 1
                     warning('learning_rate必须在(0,1]范围内，设置为默认值0.1');
                     config.learning.learning_rate = 0.1;
                 end
                 
-                if ~isfield(config.learning, 'discount_factor') || config.learning.discount_factor < 0 || config.learning.discount_factor > 1
+                config.learning.discount_factor = ConfigManager.getConfigValue(config, 'learning.discount_factor', 0.9);
+                if config.learning.discount_factor < 0 || config.learning.discount_factor > 1
                     warning('discount_factor必须在[0,1]范围内，设置为默认值0.9');
                     config.learning.discount_factor = 0.9;
                 end
@@ -225,48 +242,41 @@ classdef ConfigManager < handle
                 valid_algorithms = {'QLearning', 'SARSA', 'DoubleQLearning', 'DQN'};
                 
                 % 检查攻击者算法
-                if ~isfield(config.algorithms, 'attacker')
-                    config.algorithms.attacker = 'QLearning';
-                else
-                    % 处理可能的算法名称变体
-                    attacker_alg = config.algorithms.attacker;
-                    if ischar(attacker_alg)
-                        % 标准化算法名称
-                        switch lower(attacker_alg)
-                            case {'qlearning', 'q-learning', 'q_learning'}
+                attacker_alg = ConfigManager.getConfigValue(config, 'algorithms.attacker', 'QLearning');
+                if ischar(attacker_alg)
+                    % 标准化算法名称
+                    switch lower(attacker_alg)
+                        case {'qlearning', 'q-learning', 'q_learning'}
+                            config.algorithms.attacker = 'QLearning';
+                        case {'sarsa'}
+                            config.algorithms.attacker = 'SARSA';
+                        case {'doubleqlearning', 'double_q_learning', 'double-q-learning'}
+                            config.algorithms.attacker = 'DoubleQLearning';
+                        case {'dqn', 'deep_q_network'}
+                            config.algorithms.attacker = 'DQN';
+                        otherwise
+                            if ~ismember(attacker_alg, valid_algorithms)
+                                warning('未知的攻击者算法: %s，设置为QLearning', attacker_alg);
                                 config.algorithms.attacker = 'QLearning';
-                            case {'sarsa'}
-                                config.algorithms.attacker = 'SARSA';
-                            case {'doubleqlearning', 'double_q_learning', 'double-q-learning'}
-                                config.algorithms.attacker = 'DoubleQLearning';
-                            case {'dqn', 'deep_q_network'}
-                                config.algorithms.attacker = 'DQN';
-                            otherwise
-                                if ~ismember(attacker_alg, valid_algorithms)
-                                    warning('未知的攻击者算法: %s，设置为QLearning', attacker_alg);
-                                    config.algorithms.attacker = 'QLearning';
-                                end
-                        end
-                    else
-                        warning('攻击者算法配置格式错误，设置为QLearning');
-                        config.algorithms.attacker = 'QLearning';
+                            end
                     end
+                else
+                    warning('攻击者算法配置格式错误，设置为QLearning');
+                    config.algorithms.attacker = 'QLearning';
                 end
                 
                 % 验证防御者算法列表
-                if ~isfield(config.algorithms, 'defender') || isempty(config.algorithms.defender)
-                    config.algorithms.defender = {'QLearning'};
-                elseif ~iscell(config.algorithms.defender)
-                    config.algorithms.defender = {config.algorithms.defender};
+                defender_algs = ConfigManager.getConfigValue(config, 'algorithms.defender', {'QLearning'});
+                if ~iscell(defender_algs)
+                    defender_algs = {defender_algs};
                 end
                 
-                % 验证每个防御者算法
                 valid_defenders = {};
-                for i = 1:length(config.algorithms.defender)
-                    if ismember(config.algorithms.defender{i}, valid_algorithms)
-                        valid_defenders{end+1} = config.algorithms.defender{i}; %#ok<AGROW>
+                for i = 1:length(defender_algs)
+                    if ismember(defender_algs{i}, valid_algorithms)
+                        valid_defenders{end+1} = defender_algs{i}; %#ok<AGROW>
                     else
-                        warning('未知的防御者算法: %s，已移除', config.algorithms.defender{i});
+                        warning('未知的防御者算法: %s，已移除', defender_algs{i});
                     end
                 end
                 
@@ -278,61 +288,51 @@ classdef ConfigManager < handle
                 end
                 
                 % 验证组件配置
-                if ~isfield(config.system, 'n_components_per_station')
+                % 确保 config.system 是一个结构体，以避免后续的 . 索引错误
+                if ~isstruct(config.system)
+                    config.system = struct();
+                    warning('config.system 字段不是结构体，已重新初始化为结构体。');
+                end
+
+                n_components_per_station_cfg = ConfigManager.getConfigValue(config, 'system.n_components_per_station', []);
+                if isempty(n_components_per_station_cfg) || ~isnumeric(n_components_per_station_cfg)
                     config.system.n_components_per_station = repmat(3, 1, config.system.n_stations);
-                elseif ~isnumeric(config.system.n_components_per_station)
-                    config.system.n_components_per_station = repmat(3, 1, config.system.n_stations);
-                elseif length(config.system.n_components_per_station) ~= config.system.n_stations
+                elseif length(n_components_per_station_cfg) ~= config.system.n_stations
                     % 如果长度不匹配，截断或扩展
-                    if length(config.system.n_components_per_station) > config.system.n_stations
-                        config.system.n_components_per_station = config.system.n_components_per_station(1:config.system.n_stations);
+                    if length(n_components_per_station_cfg) > config.system.n_stations
+                        config.system.n_components_per_station = n_components_per_station_cfg(1:config.system.n_stations);
                     else
                         % 扩展数组
-                        missing = config.system.n_stations - length(config.system.n_components_per_station);
-                        config.system.n_components_per_station = [config.system.n_components_per_station, repmat(3, 1, missing)];
+                        missing = config.system.n_stations - length(n_components_per_station_cfg);
+                        config.system.n_components_per_station = [n_components_per_station_cfg, repmat(3, 1, missing)];
                     end
+                else
+                    config.system.n_components_per_station = n_components_per_station_cfg;
                 end
-                
+
                 % 更新兼容性字段
                 config.n_stations = config.system.n_stations;
-                if isfield(config.simulation, 'n_episodes_per_iter')
-                    config.n_episodes_per_iter = config.simulation.n_episodes_per_iter;
-                else
-                    config.n_episodes_per_iter = 100;
-                end
+                config.n_episodes_per_iter = ConfigManager.getConfigValue(config, 'simulation.n_episodes_per_iter', 100);
+                config.state_space_size = ConfigManager.getConfigValue(config, 'system.state_space_size', 77);
                 
-                if isfield(config.system, 'state_space_size')
-                    config.state_space_size = config.system.state_space_size;
-                else
-                    config.state_space_size = 77;
-                end
+                % 优先使用 max_episode_steps，如果不存在则检查 steps_per_episode
+                max_episode_steps = ConfigManager.getConfigValue(config, 'simulation.max_episode_steps', 100);
                 
-                if isfield(config.simulation, 'max_episode_steps')
-                    config.steps_per_episode = config.simulation.max_episode_steps;
-                elseif isfield(config.simulation, 'steps_per_episode')
-                    config.steps_per_episode = config.simulation.steps_per_episode;
-                else
-                    config.steps_per_episode = 100;
-                    if ~isfield(config, 'simulation')
-                        config.simulation = struct();
-                    end
-                    config.simulation.max_episode_steps = 100;
+                % 确保兼容性字段 config.steps_per_episode 存在
+                if ~isfield(config, 'steps_per_episode')
+                    config.steps_per_episode = 0; % 初始化为默认值，避免“无法识别的字段名称”错误
                 end
-                
-                if isfield(config, 'debug') && isfield(config.debug, 'debug_mode')
-                    config.debug_mode = config.debug.debug_mode;
+
+                if isempty(max_episode_steps)
+                    config.steps_per_episode = ConfigManager.getConfigValue(config, 'simulation.steps_per_episode', 100);
+                    config.simulation.max_episode_steps = config.steps_per_episode; % 确保两者一致
                 else
-                    config.debug_mode = false;
+                    config.steps_per_episode = max_episode_steps;
+                    config.simulation.max_episode_steps = max_episode_steps;
                 end
-                
-                config.n_components_per_station = config.system.n_components_per_station;
-                
-                if isfield(config.system, 'total_resources')
-                    config.total_resources = config.system.total_resources;
-                else
-                    config.total_resources = 100;
-                    config.system.total_resources = 100;
-                end
+
+                config.debug_mode = ConfigManager.getConfigValue(config, 'debug.debug_mode', false);
+                config.total_resources = ConfigManager.getConfigValue(config, 'system.total_resources', 100);
                 
             catch ME
                 warning('配置验证过程中发生错误: %s', ME.message);
@@ -389,7 +389,8 @@ classdef ConfigManager < handle
             fprintf('\n--- 仿真配置 ---\n');
             fprintf('FSP迭代次数: %d\n', config.simulation.n_iterations);
             fprintf('每次迭代episodes: %d\n', config.simulation.n_episodes_per_iter);
-            fprintf('每episode步数: %d\n', config.simulation.steps_per_episode);
+            % 修正对 steps_per_episode 的访问路径
+            fprintf('每episode步数: %d\n', config.steps_per_episode); 
             
             fprintf('\n--- 学习配置 ---\n');
             fprintf('学习率: %.3f\n', config.learning.learning_rate);
@@ -421,16 +422,18 @@ classdef ConfigManager < handle
             
             try
                 path_parts = strsplit(field_path, '.');
-                value = config;
+                current_value = config;
                 
                 for i = 1:length(path_parts)
-                    if isfield(value, path_parts{i})
-                        value = value.(path_parts{i});
+                    % 检查当前层是否为结构体，并且字段是否存在
+                    if isstruct(current_value) && isfield(current_value, path_parts{i})
+                        current_value = current_value.(path_parts{i});
                     else
                         value = default_value;
                         return;
                     end
                 end
+                value = current_value;
                 
             catch
                 value = default_value;
@@ -455,6 +458,7 @@ classdef ConfigManager < handle
             merged = struct1;
             
             if ~isstruct(struct2)
+                % 如果 struct2 不是结构体，则无法进行深度合并，直接返回 struct1
                 return;
             end
             
@@ -462,16 +466,20 @@ classdef ConfigManager < handle
             for i = 1:length(fields)
                 field = fields{i};
                 
+                % 检查 struct1 中是否存在该字段，并且两个结构体的对应字段都是结构体
                 if isfield(merged, field) && isstruct(merged.(field)) && isstruct(struct2.(field))
                     % 递归合并子结构体
                     merged.(field) = ConfigManager.deepMergeStruct(merged.(field), struct2.(field));
+                elseif isfield(merged, field) && isstruct(merged.(field)) && ~isstruct(struct2.(field))
+                    % 如果 struct1 中是结构体，但 struct2 中不是结构体，则不覆盖，并发出警告
+                    warning('deepMergeStruct: 字段 "%s" 在用户配置中不是结构体，但默认配置中是。保留默认配置值。', field);
                 else
-                    % 直接覆盖
+                    % 直接覆盖（如果 struct1 中没有该字段，或者都不是结构体）
                     merged.(field) = struct2.(field);
                 end
             end
         end
-        
+
         function exportConfigTemplate(output_path)
             %% 导出配置模板文件
             % 输入: output_path - 输出路径（可选）
@@ -492,6 +500,70 @@ classdef ConfigManager < handle
             % 保存模板
             ConfigManager.saveConfig(template_config, output_path);
             fprintf('✓ 配置模板已导出到: %s\n', output_path);
+        end
+
+        function mergeAgentConfig(agent, config)
+            %% 将配置参数合并到智能体对象中
+            % 这是一个新的静态方法，用于将从配置文件中读取的参数
+            % 应用到RLAgent或其子类的实例上。
+            % 输入: agent - RLAgent或其子类的实例
+            %       config - 包含智能体配置参数的结构体
+            
+            % 确保config是一个结构体
+            if ~isstruct(config)
+                warning('mergeAgentConfig: 输入的config不是有效的结构体。');
+                return;
+            end
+
+            % 尝试从 config.learning 中获取参数，如果不存在则回退到 config 根目录
+            % 学习参数
+            agent.learning_rate = ConfigManager.getConfigValue(config, 'learning.learning_rate', ...
+                                  ConfigManager.getConfigValue(config, 'learning_rate', 0.1));
+            agent.discount_factor = ConfigManager.getConfigValue(config, 'learning.discount_factor', ...
+                                    ConfigManager.getConfigValue(config, 'discount_factor', 0.95));
+            
+            % 探索策略
+            agent.exploration_strategy = ConfigManager.getConfigValue(config, 'learning.exploration_strategy', ...
+                                         ConfigManager.getConfigValue(config, 'exploration_strategy', 'epsilon-greedy'));
+            
+            % Epsilon-Greedy 参数
+            agent.epsilon = ConfigManager.getConfigValue(config, 'learning.epsilon', ...
+                            ConfigManager.getConfigValue(config, 'epsilon', 0.3));
+            agent.epsilon_min = ConfigManager.getConfigValue(config, 'learning.epsilon_min', ...
+                                ConfigManager.getConfigValue(config, 'epsilon_min', 0.01));
+            agent.epsilon_decay = ConfigManager.getConfigValue(config, 'learning.epsilon_decay', ...
+                                  ConfigManager.getConfigValue(config, 'epsilon_decay', 0.995));
+            
+            % Softmax/Boltzmann 参数
+            agent.temperature = ConfigManager.getConfigValue(config, 'learning.temperature', ...
+                                ConfigManager.getConfigValue(config, 'temperature', 1.0));
+            agent.temperature_decay = ConfigManager.getConfigValue(config, 'learning.temperature_decay', ...
+                                      ConfigManager.getConfigValue(config, 'temperature_decay', 0.995));
+            agent.temperature_min = ConfigManager.getConfigValue(config, 'learning.temperature_min', ...
+                                    ConfigManager.getConfigValue(config, 'temperature_min', 0.1));
+            
+            % 学习率调度
+            agent.learning_rate_min = ConfigManager.getConfigValue(config, 'learning.learning_rate_min', ...
+                                      ConfigManager.getConfigValue(config, 'learning_rate_min', 0.001));
+            agent.learning_rate_decay = ConfigManager.getConfigValue(config, 'learning.learning_rate_decay', ...
+                                        ConfigManager.getConfigValue(config, 'learning_rate_decay', 0.9995));
+
+            % 对于QLearningAgent和DoubleQLearningAgent特有的参数
+            if isprop(agent, 'Q_table')
+                % QLearningAgent 或 DoubleQLearningAgent
+                % Q_table 初始化通常在子类构造函数中完成，这里只处理与配置相关的参数
+                % 例如，如果需要从配置中读取Q_table的初始值或大小，可以在这里添加
+            end
+
+            % 对于DQNAgent特有的参数 (如果将来有DQNAgent)
+            if isprop(agent, 'memory') && isprop(agent, 'batch_size')
+                agent.memory_size = ConfigManager.getConfigValue(config, 'learning.memory_size', ...
+                                    ConfigManager.getConfigValue(config, 'memory_size', 10000));
+                agent.batch_size = ConfigManager.getConfigValue(config, 'learning.batch_size', ...
+                                   ConfigManager.getConfigValue(config, 'batch_size', 32));
+                agent.update_target_freq = ConfigManager.getConfigValue(config, 'learning.update_target_freq', ...
+                                           ConfigManager.getConfigValue(config, 'update_target_freq', 100));
+            end
         end
     end
 end

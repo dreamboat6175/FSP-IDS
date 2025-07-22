@@ -10,6 +10,7 @@ classdef SARSAAgent < RLAgent
     
     methods
         function obj = SARSAAgent(name, agent_type, config, state_dim, action_dim)
+            % 修正：确保 agent_type 参数被正确接收并传递给基类
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
             % 改进的Q表初始化 - 使用乐观初始化

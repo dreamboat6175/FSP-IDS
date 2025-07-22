@@ -11,6 +11,7 @@ classdef QLearningAgent < RLAgent
     methods
         function obj = QLearningAgent(name, agent_type, config, state_dim, action_dim)
             % 构造函数
+            % 修正：确保 agent_type 参数被正确接收并传递给基类
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
             % 初始化Q表和访问计数

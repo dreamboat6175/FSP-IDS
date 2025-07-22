@@ -1,353 +1,315 @@
-function main_fsp()
-    %% main_fsp - 修复版FSP-TCS主函数
-    % =============================================
-    % 描述：主函数只负责调用，修复配置字段访问问题
-    % 版本：v2.1 - 修复版本
-    % =============================================
-    
-    clear;
-    clc;
-    close all;
-    
-    fprintf('🚀 FSP-TCS仿真系统启动\n\n');
-    
-    % 添加路径
-    addpath(genpath(pwd));
-    
-    try
-        % 1. 加载配置（所有参数由ConfigManager统一管理）
-        config = ConfigManager.loadConfig();
-        
-        % 2. 初始化日志系统
-        initializeLogging(config);
-        
-        % 3. 创建环境和智能体
-        [env, agents] = createEnvironmentAndAgents(config);
-        
-        % 4. 创建仿真器
-        simulator = FSPSimulator(config);
-        
-        % 5. 运行仿真
-        runSimulation(env, agents, simulator, config);
-        
-        fprintf('✅ FSP仿真完成！\n');
-        
-    catch ME
-        handleError(ME);
+%% main_fsp.m - FSP-TCS 仿真系统主入口 (改进版)
+% =========================================================================
+% 描述: 该脚本是FSP-TCS仿真系统的主入口。
+%       它负责加载配置、初始化环境和智能体、运行FSP迭代、
+%       收集结果并生成报告。
+% =========================================================================
+
+% 清理工作区、命令行和关闭所有图形窗口
+clear;
+clc;
+close all;
+
+%% 1. 添加路径
+% =========================================================================
+% 确保所有子文件夹都在MATLAB路径中，以便系统能够找到所有类和函数文件。
+% =========================================================================
+addpath(genpath(pwd));
+fprintf('🚀 FSP-TCS仿真系统启动\n');
+
+%% 2. 加载配置
+% =========================================================================
+% 使用ConfigManager加载和验证配置。
+% 默认从 config/default_config.json 加载，也可以指定其他文件。
+% =========================================================================
+config = []; % 初始化 config 变量
+try
+    % 尝试加载用户自定义的仿真配置文件
+    config_file = fullfile('config', 'simulation_config.json');
+    if ~exist(config_file, 'file')
+        % 如果用户配置文件不存在，则加载默认配置文件
+        config_file = fullfile('config', 'default_config.json');
+        fprintf('⚠️ 未找到用户配置文件 (%s)，将加载默认配置。\n', fullfile('config', 'simulation_config.json'));
     end
+    
+    % 调用 ConfigManager 加载并验证配置
+    config = ConfigManager.loadConfig(config_file);
+    
+    % 显示加载和合并后的配置摘要
+    ConfigManager.displayConfig(config); 
+    
+catch ME
+    fprintf('❌ 配置加载或验证过程中发生严重错误: %s\n', ME.message);
+    fprintf('💡 尝试使用硬编码的备用默认配置以继续...\n');
+    % 如果配置加载失败，使用硬编码的默认配置作为备用方案
+    config = ConfigManager.getDefaultConfig();
+    ConfigManager.displayConfig(config); % 显示备用配置
 end
 
-%% 初始化日志系统
-function initializeLogging(config)
-    try
-        % 确保日志目录存在
-        log_file = '';
-        if isfield(config, 'output') && isfield(config.output, 'log_file')
-            log_file = config.output.log_file;
-        elseif isfield(config, 'log_file')
-            log_file = config.log_file;
-        else
-            log_file = 'logs/simulation.log';
-        end
-        
-        % 创建日志目录
-        log_dir = fileparts(log_file);
-        if ~isempty(log_dir) && ~exist(log_dir, 'dir')
-            mkdir(log_dir);
-        end
-        
-        % 初始化Logger
-        if exist('Logger', 'class') == 8
-            Logger.initialize(log_file);
-            Logger.info('FSP-TCS仿真系统启动');
-        end
-        
-        fprintf('✓ 日志系统初始化: %s\n', log_file);
-    catch ME
-        fprintf('⚠️  日志初始化失败，使用标准输出: %s\n', ME.message);
-    end
+% 再次检查 config 是否成功加载为结构体
+if ~isstruct(config)
+    fprintf('❌ 错误: 配置对象未成功初始化为结构体。仿真无法继续。\n');
+    return; % 终止脚本执行
 end
 
-%% 创建环境和智能体
-function [env, agents] = createEnvironmentAndAgents(config)
-    fprintf('🔧 创建环境和智能体...\n');
+%% 3. 初始化日志系统
+% =========================================================================
+% 根据配置初始化日志系统
+% =========================================================================
+try
+    log_file_path = ConfigManager.getConfigValue(config, 'output.log_file', 'simulation.log');
+    log_level = ConfigManager.getConfigValue(config, 'debug.log_level', 'INFO');
     
-    % 准备环境配置 - 安全地访问配置字段
-    env_config = prepareEnvironmentConfig(config);
+    Logger.init(log_file_path, log_level);
+    Logger.info('日志系统初始化完成');
+    fprintf('✓ 日志系统初始化: %s\n', log_file_path);
+catch ME
+    fprintf('❌ 日志系统初始化失败: %s\n', ME.message);
+    fprintf('✓ 将使用默认日志文件: simulation.log\n');
+    % 如果日志系统初始化失败，使用备用日志配置
+    Logger.init('simulation.log', 'INFO');
+    Logger.warning('日志系统初始化失败，已切换到备用日志配置。');
+end
+Logger.info('FSP-TCS仿真系统启动');
+
+%% 4. 创建环境和智能体
+% =========================================================================
+% 根据配置创建TCS环境和RL智能体（攻击者和防御者）。
+% =========================================================================
+fprintf('🔧 创建环境和智能体...\n');
+env = []; % 初始化环境和智能体变量
+attacker_agent = [];
+defender_agents = {};
+
+try
+    % 从配置中获取环境和智能体所需的关键参数
+    n_stations = ConfigManager.getConfigValue(config, 'system.n_stations', 10);
+    n_components_per_station = ConfigManager.getConfigValue(config, 'system.n_components_per_station', repmat(3, 1, n_stations));
+    total_resources = ConfigManager.getConfigValue(config, 'system.total_resources', 100);
+    state_space_size = ConfigManager.getConfigValue(config, 'system.state_space_size', 77);
+    action_space_size = ConfigManager.getConfigValue(config, 'system.action_space_size', 15);
     
+    % --- 关键检查：确保状态和动作空间大小有效 ---
+    if ~isnumeric(state_space_size) || state_space_size <= 0
+        error('配置中 state_space_size 无效或缺失 (%s)。请检查 config.system.state_space_size。', num2str(state_space_size));
+    end
+    if ~isnumeric(action_space_size) || action_space_size <= 0
+        error('配置中 action_space_size 无效或缺失 (%s)。请检查 config.system.action_space_size。', num2str(action_space_size));
+    end
+    % --- 结束关键检查 ---
+
     % 创建TCS环境
-    env = TCSEnvironment(env_config);
-    
-    % 创建智能体
-    defender_algorithms = getConfigValue(config, 'algorithms.defender', {'QLearning'});
-    attacker_algorithm = getConfigValue(config, 'algorithms.attacker', 'QLearning');
-    
-    agents = cell(length(defender_algorithms) + 1, 1);
-    
-    % 创建攻击者
-    agents{1} = createAgent(attacker_algorithm, config, 'attacker');
-    
-    % 创建防御者们
-    for i = 1:length(defender_algorithms)
-        agents{i+1} = createAgent(defender_algorithms{i}, config, 'defender');
-    end
-    
-    fprintf('✓ 环境和智能体创建完成\n');
-end
+    env = TCSEnvironment(n_stations, n_components_per_station, ...
+                         total_resources, state_space_size, action_space_size, ...
+                         config.environment); % 传递环境相关配置
+    Logger.info('TCS 环境创建成功。');
 
-%% 准备环境配置
-function env_config = prepareEnvironmentConfig(config)
-    % 安全地将ConfigManager的嵌套配置转换为TCSEnvironment期望的平坦结构
-    
-    env_config = struct();
-    
-    % 系统基础参数 - 使用安全访问函数
-    env_config.n_stations = getConfigValue(config, 'system.n_stations', 10);
-    
-    % 处理 n_components_per_station 字段
-    if isfield(config, 'n_components_per_station')
-        env_config.n_components_per_station = config.n_components_per_station;
-    elseif isfield(config, 'system') && isfield(config.system, 'n_components_per_station')
-        env_config.n_components_per_station = config.system.n_components_per_station;
-    else
-        % 使用默认值：每个主站3个组件
-        env_config.n_components_per_station = repmat(3, 1, env_config.n_stations);
-    end
-    
-    env_config.total_components = getConfigValue(config, 'system.total_components', sum(env_config.n_components_per_station));
-    env_config.total_resources = getConfigValue(config, 'system.total_resources', 100);
-    env_config.n_resource_types = getConfigValue(config, 'system.n_resource_types', 5);
-    env_config.n_attack_types = getConfigValue(config, 'system.n_attack_types', 6);
-    env_config.state_space_size = getConfigValue(config, 'system.state_space_size', 77);
-    env_config.action_space_size = getConfigValue(config, 'system.action_space_size', 20);
-    
-    % 仿真参数
-    env_config.alpha_ewma = getConfigValue(config, 'simulation.alpha_ewma', 0.1);
-    env_config.max_episode_steps = getConfigValue(config, 'simulation.max_episode_steps', 100);
-    
-    % 学习参数（用于内置智能体）
-    env_config.attacker_lr = getConfigValue(config, 'learning.learning_rate', 0.1);
-    env_config.attacker_gamma = getConfigValue(config, 'learning.discount_factor', 0.95);
-    env_config.attacker_epsilon = getConfigValue(config, 'learning.epsilon', 0.3);
-    env_config.attacker_epsilon_decay = getConfigValue(config, 'learning.epsilon_decay', 0.995);
-    env_config.attacker_epsilon_min = getConfigValue(config, 'learning.epsilon_min', 0.01);
-    
-    % 环境参数
-    env_config.reward_scaling = getConfigValue(config, 'environment.reward_scaling', 1);
-    env_config.noise_level = getConfigValue(config, 'environment.noise_level', 0);
-    env_config.attack_success_rate = getConfigValue(config, 'environment.attack_success_rate', 0.3);
-    env_config.defense_success_rate = getConfigValue(config, 'environment.defense_success_rate', 0.7);
-    
-    % 调试参数
-    env_config.debug_mode = getConfigValue(config, 'debug.debug_mode', false);
-    
-    % 为了向后兼容，添加顶层字段
-    field_names = fieldnames(env_config);
-    for i = 1:length(field_names)
-        field = field_names{i};
-        if ~isfield(config, field)
-            config.(field) = env_config.(field);
-        end
-    end
-end
-
-%% 安全获取配置值
-function value = getConfigValue(config, field_path, default_value)
-    % 安全地获取嵌套配置值
-    % 输入: config - 配置结构体
-    %       field_path - 字段路径（如 'learning.learning_rate'）
-    %       default_value - 默认值
-    
-    if nargin < 3
-        default_value = [];
-    end
-    
+    % 创建攻击者智能体
+    attacker_type = ConfigManager.getConfigValue(config, 'algorithms.attacker', 'QLearning');
     try
-        path_parts = strsplit(field_path, '.');
-        value = config;
-        
-        for i = 1:length(path_parts)
-            if isstruct(value) && isfield(value, path_parts{i})
-                value = value.(path_parts{i});
-            else
-                value = default_value;
-                return;
-            end
-        end
-        
-    catch
-        value = default_value;
-    end
-end
-
-%% 创建智能体
-function agent = createAgent(algorithm, config, role)
-    try
-        % 获取状态和动作空间维度
-        state_dim = getConfigValue(config, 'system.state_space_size', 77);
-        action_dim = getConfigValue(config, 'system.action_space_size', 20);
-        
-        % 生成智能体名称
-        if strcmp(role, 'attacker')
-            agent_name = sprintf('%s_attacker', algorithm);
-        else
-            agent_name = sprintf('%s_defender', algorithm);
-        end
-        
-        if exist('AgentFactory', 'class') == 8
-            agent = AgentFactory.createAgent(algorithm, config, role);
-        else
-            % 简化的智能体创建 - 使用正确的构造函数参数
-            switch algorithm
-                case 'QLearning'
-                    if exist('QLearningAgent', 'class') == 8
-                        agent = QLearningAgent(agent_name, role, config, state_dim, action_dim);
-                    else
-                        error('QLearningAgent类不存在');
-                    end
-                case 'SARSA'
-                    if exist('SARSAAgent', 'class') == 8
-                        agent = SARSAAgent(agent_name, role, config, state_dim, action_dim);
-                    else
-                        error('SARSAAgent类不存在');
-                    end
-                case 'DQN'
-                    if exist('DQNAgent', 'class') == 8
-                        agent = DQNAgent(agent_name, role, config, state_dim, action_dim);
-                    else
-                        fprintf('⚠️  DQN不可用，使用QLearning替代\n');
-                        agent = QLearningAgent(agent_name, role, config, state_dim, action_dim);
-                    end
-                case 'DoubleQLearning'
-                    if exist('DoubleQLearningAgent', 'class') == 8
-                        agent = DoubleQLearningAgent(agent_name, role, config, state_dim, action_dim);
-                    else
-                        fprintf('⚠️  DoubleQLearning不可用，使用QLearning替代\n');
-                        agent = QLearningAgent(agent_name, role, config, state_dim, action_dim);
-                    end
-                otherwise
-                    fprintf('⚠️  未知算法%s，使用QLearning替代\n', algorithm);
-                    agent = QLearningAgent(agent_name, role, config, state_dim, action_dim);
-            end
-        end
-        
-        fprintf('✓ 智能体创建成功: %s (%s)\n', agent_name, algorithm);
-        
-    catch ME
-        fprintf('❌ 创建智能体失败: %s\n', ME.message);
-        % 使用最基本的智能体 - 提供所有必需参数
+        % 尝试使用 AgentFactory 创建攻击者智能体
+        attacker_agent = AgentFactory.createAgent(attacker_type, 'Attacker', 'attacker', config, state_space_size, action_space_size);
+        Logger.info(sprintf('攻击者智能体 "%s" 创建成功。', attacker_agent.name));
+    catch ME_Attacker
+        Logger.error(sprintf('创建攻击者智能体 "%s" 失败: %s', attacker_type, ME_Attacker.message));
+        fprintf('❌ 创建攻击者智能体失败: %s\n', ME_Attacker.message);
+        fprintf('⚠️  将使用备用 QLearning 智能体作为攻击者。\n');
+        % 备用方案：使用硬编码的 QLearningAgent
         try
-            fallback_name = sprintf('fallback_%s', role);
-            fallback_config = struct('learning_rate', 0.1, 'discount_factor', 0.9, ...
-                                   'epsilon', 0.1, 'epsilon_decay', 0.995, 'epsilon_min', 0.01);
-            state_dim = getConfigValue(config, 'system.state_space_size', 77);
-            action_dim = getConfigValue(config, 'system.action_space_size', 20);
-            agent = QLearningAgent(fallback_name, role, fallback_config, state_dim, action_dim);
-            fprintf('⚠️  使用备用QLearning智能体\n');
-        catch ME2
-            % 创建最基本的配置
-            fprintf('❌ 创建基础智能体也失败: %s\n', ME2.message);
-            fprintf('🔧 尝试使用硬编码配置创建智能体\n');
-            
-            % 硬编码最小配置
-            basic_config = struct();
-            basic_config.learning_rate = 0.1;
-            basic_config.discount_factor = 0.9;
-            basic_config.epsilon = 0.1;
-            basic_config.epsilon_decay = 0.995;
-            basic_config.epsilon_min = 0.01;
-            
-            state_dim = 77;  % 硬编码默认值
-            action_dim = 20; % 硬编码默认值
-            fallback_name = sprintf('emergency_%s', role);
-            
-            agent = QLearningAgent(fallback_name, role, basic_config, state_dim, action_dim);
-            fprintf('✓ 紧急智能体创建成功: %s\n', fallback_name);
+            attacker_agent = QLearningAgent('Attacker_Fallback', config, state_space_size, action_space_size);
+            Logger.info('备用 QLearning 攻击者智能体创建成功。');
+        catch ME_FallbackAttacker
+            Logger.error(sprintf('创建备用 QLearning 攻击者智能体也失败: %s', ME_FallbackAttacker.message));
+            fprintf('❌ 创建备用攻击者智能体也失败: %s\n', ME_FallbackAttacker.message);
+            rethrow(ME_FallbackAttacker); % 如果备用智能体也无法创建，则重新抛出错误
         end
     end
-end
 
-%% 运行仿真
-function runSimulation(env, agents, simulator, config)
-    try
-        fprintf('🚀 开始FSP仿真...\n');
-        
-        n_iterations = getConfigValue(config, 'simulation.n_iterations', 50);
-        
-        % 分离攻击者和防御者
-        attacker_agent = agents{1};
-        defender_agents = agents(2:end);
-        
-        for iter = 1:n_iterations
-            fprintf('📊 FSP迭代 %d/%d\n', iter, n_iterations);
-            
-            % 运行episodes
-            results = simulator.runEpisodes(env, defender_agents, attacker_agent, config);
-            
-            % 显示结果
-            if ~isempty(results) && isfield(results, 'mean_rewards')
-                fprintf('  平均奖励: %.4f\n', mean(results.mean_rewards));
-            end
-            
-            % 定期保存
-            save_interval = getConfigValue(config, 'simulation.save_interval', 10);
-            if mod(iter, save_interval) == 0
-                saveCheckpoint(results, iter, config);
-            end
-        end
-        
-        fprintf('✅ FSP仿真完成!\n');
-        
-    catch ME
-        fprintf('❌ 仿真运行失败: %s\n', ME.message);
-        rethrow(ME);
+    % 创建防御者智能体
+    defender_types = ConfigManager.getConfigValue(config, 'algorithms.defender', {'QLearning'});
+    if ~iscell(defender_types) % 确保 defender_types 是 cell 数组
+        defender_types = {defender_types};
     end
-end
 
-%% 保存检查点
-function saveCheckpoint(results, iter, config)
-    try
-        results_dir = getConfigValue(config, 'output.results_dir', 'results');
-        if ~exist(results_dir, 'dir')
-            mkdir(results_dir);
-        end
-        
-        checkpoint_file = fullfile(results_dir, sprintf('checkpoint_iter_%d.mat', iter));
-        save(checkpoint_file, 'results', 'iter');
-        fprintf('💾 检查点已保存: %s\n', checkpoint_file);
-    catch ME
-        fprintf('⚠️  保存检查点失败: %s\n', ME.message);
-    end
-end
-
-%% 错误处理
-function handleError(ME)
-    fprintf('❌ 仿真出错: %s\n', ME.message);
-    
-    if ~isempty(ME.stack)
-        fprintf('错误位置: %s (第%d行)\n', ME.stack(1).file, ME.stack(1).line);
-        
-        % 记录到日志
+    for i = 1:length(defender_types)
+        current_defender_type = defender_types{i};
         try
-            if exist('Logger', 'class') == 8
-                Logger.error('仿真出错: %s', ME.message);
-                Logger.error('错误位置: %s, 行号: %d', ME.stack(1).file, ME.stack(1).line);
+            % 尝试使用 AgentFactory 创建防御者智能体
+            % 修正：添加 'defender' 作为 agent_type 参数
+            defender_agents{i} = AgentFactory.createAgent(current_defender_type, ...
+                                                          sprintf('Defender_%s', current_defender_type), ...
+                                                          'defender', config, state_space_size, action_space_size);
+            Logger.info(sprintf('防御者智能体 "%s" 创建成功。', defender_agents{i}.name));
+        catch ME_Defender
+            Logger.error(sprintf('创建防御者智能体 "%s" 失败: %s', current_defender_type, ME_Defender.message));
+            fprintf('❌ 创建防御者智能体 "%s" 失败: %s\n', current_defender_type, ME_Defender.message);
+            fprintf('⚠️  将使用备用 QLearning 智能体作为防御者。\n');
+            % 备用方案：使用硬编码的 QLearningAgent
+            try
+                defender_agents{i} = QLearningAgent(sprintf('Defender_%s_Fallback', current_defender_type), ...
+                                                    config, state_space_size, action_space_size);
+                Logger.info(sprintf('备用 QLearning 防御者智能体 "%s" 创建成功。', defender_agents{i}.name));
+            catch ME_FallbackDefender
+                Logger.error(sprintf('创建备用 QLearning 防御者智能体也失败: %s', ME_FallbackDefender.message));
+                fprintf('❌ 创建备用防御者智能体也失败: %s\n', ME_FallbackDefender.message);
+                rethrow(ME_FallbackDefender); % 如果备用智能体也无法创建，则重新抛出错误
             end
-        catch
-            % 忽略日志记录错误
         end
     end
-    
+    fprintf('✓ 环境和智能体创建完成。\n');
+
+catch ME_Create
+    Logger.error(sprintf('环境或智能体创建过程中发生致命错误: %s', ME_Create.message));
+    fprintf('❌ 仿真出错: 环境或智能体创建失败。错误信息: %s\n', ME_Create.message);
+    fprintf('错误位置: %s (第%d行)\n', ME_Create.stack(1).file, ME_Create.stack(1).line);
     fprintf('🔧 解决建议:\n');
-    fprintf('1. 检查ConfigManager.m配置是否正确\n');
-    fprintf('2. 验证所有必要的类文件是否存在\n');
-    fprintf('3. 运行: addpath(genpath(pwd))\n');
+    fprintf('1. 检查 ConfigManager.m 中配置值的获取和验证逻辑。\n');
+    fprintf('2. 验证 AgentFactory.m 和所有智能体类 (RLAgent, QLearningAgent 等) 文件是否存在且无语法错误。\n');
+    fprintf('3. 确保配置中 "system.state_space_size" 和 "system.action_space_size" 为有效的正数值。\n');
+    fprintf('4. 确保所有类文件都在 MATLAB 路径中 (已执行 addpath(genpath(pwd)))。\n');
+    return; % 终止脚本执行
+end
+
+% 再次检查智能体是否成功创建
+if isempty(attacker_agent) || isempty(defender_agents)
+    fprintf('❌ 错误: 智能体未成功创建。仿真无法继续。\n');
+    Logger.error('智能体未成功创建，仿真终止。');
+    return; % 终止脚本执行
+end
+
+%% 5. 初始化结果收集器和性能监控器
+% =========================================================================
+% 设置用于存储仿真结果和监控性能的组件。
+% ResultsCollector 负责数据的持久化，PerformanceMonitor 负责实时性能跟踪。
+% =========================================================================
+Logger.info('初始化结果收集器和性能监控器。');
+results_collector = ResultsCollector(config);
+performance_monitor = PerformanceMonitor(config.simulation.n_iterations, ...
+                                         config.simulation.n_episodes_per_iter, ...
+                                         length(defender_agents)); % 传入防御者数量
+fprintf('✓ 结果收集器和性能监控器初始化完成。\n');
+
+%% 6. 运行FSP仿真主循环
+% =========================================================================
+% FSP (Fictitious Play) 迭代过程是仿真的核心。
+% 攻击者和防御者智能体在此过程中通过反复博弈学习和适应。
+% =========================================================================
+Logger.info('开始 FSP 仿真主循环。');
+fprintf('🔄 开始 FSP 仿真主循环 (%d 迭代)...\n', config.simulation.n_iterations);
+
+global_timer = tic; % 启动全局计时器，用于跟踪总运行时间
+
+for iter = 1:config.simulation.n_iterations
+    Logger.info(sprintf('--- FSP 迭代 %d/%d ---', iter, config.simulation.n_iterations));
+    fprintf('--- FSP 迭代 %d/%d ---\n', iter, config.simulation.n_iterations);
     
-    % 可选：显示完整错误堆栈
-    if length(ME.stack) > 1
-        fprintf('\n完整错误堆栈:\n');
-        for i = 1:length(ME.stack)
-            fprintf('  %d. %s (第%d行)\n', i, ME.stack(i).file, ME.stack(i).line);
-        end
+    iter_timer = tic; % 启动当前迭代计时器
+
+    % 6.1. 智能体学习阶段
+    % =====================================================================
+    % 在每个 FSP 迭代中，智能体进行多轮 episode 学习，与环境交互并更新策略。
+    % =====================================================================
+    Logger.info('智能体学习阶段开始。');
+    
+    % 获取当前策略（用于日志和可视化，表示智能体在当前迭代开始时的策略）
+    attacker_policy = attacker_agent.getPolicy();
+    defender_policies = cell(1, length(defender_agents));
+    for i = 1:length(defender_agents)
+        defender_policies{i} = defender_agents{i}.getPolicy();
+    end
+
+    % 运行多个 episode，收集本迭代的原始仿真数据
+    % runSimpleEpisodes 函数负责智能体与环境的交互和奖励计算
+    [iter_rewards, iter_detections, iter_resource_utilization, iter_allocation_balance] = ...
+        runSimpleEpisodes(env, attacker_agent, defender_agents, config);
+    
+    % 记录当前迭代的总奖励（用于性能监控）
+    current_attacker_reward = sum(iter_rewards.attacker_total);
+    % 对于多个防御者，iter_rewards.defender_total 可能是矩阵，按列求和得到每个防御者的总和
+    current_defender_rewards = sum(iter_rewards.defender_total, 1); 
+
+    % 6.2. 更新性能监控器
+    % =====================================================================
+    % 将当前迭代的性能数据传递给 PerformanceMonitor 进行聚合和更新。
+    % =====================================================================
+    performance_monitor.update(iter, current_attacker_reward, current_defender_rewards, ...
+                               iter_detections, iter_resource_utilization, iter_allocation_balance);
+    
+    % 6.3. 记录迭代结果
+    % =====================================================================
+    % 将当前迭代的详细结果保存到 ResultsCollector，以便后续分析和报告生成。
+    % =====================================================================
+    results_collector.recordIterationResults(iter, attacker_agent, defender_agents, ...
+                                             iter_rewards, iter_detections, iter_resource_utilization, ...
+                                             iter_allocation_balance, attacker_policy, defender_policies);
+
+    % 6.4. 智能体参数衰减
+    % =====================================================================
+    % 衰减学习率和探索参数 (如 epsilon 或 temperature)，以促进智能体策略的收敛。
+    % =====================================================================
+    attacker_agent.decay();
+    for i = 1:length(defender_agents)
+        defender_agents{i}.decay();
+    end
+
+    % 6.5. 输出迭代进度
+    % =====================================================================
+    % 在控制台和日志中显示当前迭代的进度和关键性能指标。
+    % =====================================================================
+    outputIterationResults(iter, config.simulation.n_iterations, toc(iter_timer), ...
+                           current_attacker_reward, current_defender_rewards, ...
+                           performance_monitor.current_detection_rate, ...
+                           performance_monitor.current_resource_efficiency);
+
+    % 6.6. 检查点保存
+    % =====================================================================
+    % 定期保存智能体模型和仿真状态，以便在仿真中断时可以从检查点恢复。
+    % =====================================================================
+    if ConfigManager.getConfigValue(config, 'output.save_checkpoints', true) && ...
+       mod(iter, ConfigManager.getConfigValue(config, 'simulation.save_interval', 10)) == 0
+        Logger.info(sprintf('保存检查点在迭代 %d', iter));
+        results_collector.saveCheckpoint(iter, attacker_agent, defender_agents);
+    end
+
+    % 6.7. 检查最大运行时间
+    % =====================================================================
+    % 如果仿真总运行时间超过预设的最大时间限制，则提前终止仿真。
+    % =====================================================================
+    max_time_hours = ConfigManager.getConfigValue(config, 'simulation.max_time_hours', 24);
+    if toc(global_timer) / 3600 > max_time_hours
+        Logger.warning(sprintf('仿真时间超过最大限制 (%.2f 小时)，提前终止。', max_time_hours));
+        fprintf('⚠️ 仿真时间超过最大限制 (%.2f 小时)，提前终止。\n', max_time_hours);
+        break; % 退出 FSP 迭代循环
     end
 end
+
+Logger.info('FSP仿真主循环结束。');
+fprintf('✓ FSP仿真主循环结束。\n');
+
+%% 7. 仿真结果后处理与报告生成
+% =========================================================================
+% 仿真结束后，保存最终结果，并生成详细的性能报告和可视化图表。
+% =========================================================================
+Logger.info('开始仿真结果后处理和报告生成。');
+fprintf('📊 生成仿真报告...\n');
+
+try
+    % 保存最终训练好的智能体模型
+    results_collector.saveAgentModels(attacker_agent, defender_agents);
+
+    % 保存所有在仿真过程中收集到的结果数据
+    results_collector.saveAllResults();
+
+    % 生成可视化报告，包括图表和关键指标总结
+    generateVisualizationReport(performance_monitor, results_collector, config);
+    Logger.info('仿真报告生成完成。');
+    fprintf('✓ 仿真报告生成完成。\n');
+
+catch ME_Report
+    Logger.error(sprintf('结果后处理或报告生成失败: %s', ME_Report.message));
+    fprintf('❌ 结果后处理或报告生成失败: %s\n', ME_Report.message);
+    fprintf('错误位置: %s (第%d行)\n', ME_Report.stack(1).file, ME_Report.stack(1).line);
+end
+
+Logger.info('FSP-TCS仿真系统运行结束。');
+fprintf('✅ FSP-TCS仿真系统运行结束。\n');

@@ -13,6 +13,7 @@ classdef DoubleQLearningAgent < RLAgent
     methods
         function obj = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim)
             % 构造函数
+            % 修正：确保 agent_type 参数被正确接收并传递给基类
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
             % 初始化两个Q表

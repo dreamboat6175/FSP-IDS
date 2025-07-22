@@ -1,7 +1,7 @@
 %% Logger.m - 增强版日志记录器类
 % =========================================================================
 % 描述: 支持静态方法调用的单例日志记录器
-% 版本: v2.0 - 修复静态方法调用问题
+% 版本: v2.1 - 修复静态方法调用名称问题 (initialize -> init)
 % =========================================================================
 
 classdef Logger < handle
@@ -39,7 +39,7 @@ classdef Logger < handle
             instance = logger_instance;
         end
         
-        function initialize(log_file, log_level)
+        function init(log_file, log_level)
             % 初始化日志系统
             % 输入:
             %   log_file - 日志文件路径
