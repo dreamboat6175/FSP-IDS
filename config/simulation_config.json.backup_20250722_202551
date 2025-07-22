@@ -45,13 +45,13 @@
     "defender": [
       "QLearning",
       "SARSA",
-      "DoubleQLearning"
+      "DQN"
     ],
     "attacker": "QLearning",
     "available": [
       "QLearning",
       "SARSA",
-      "DoubleQLearning",
+      "DQN",
       "PolicyGradient"
     ]
   },
