@@ -311,11 +311,14 @@ end
 %% 13. 运行主仿真
 function runMainSimulation(env, agents, simulator, config)
     fprintf('🔄 开始仿真循环...\n');
+    fprintf('迭代次数：%d次\n\n', config.n_iterations);
     
     for iteration = 1:config.n_iterations
-        fprintf('=== 迭代 %d/%d ===\n', iteration, config.n_iterations);
+        % 不再输出原来的进度信息，专注于结果输出
         
         try
+            episode_results = [];
+            
             if ~isempty(simulator)
                 % 使用完整仿真器
                 episode_results = simulator.runEpisodes(env, agents(2:end), agents{1}, config);
@@ -324,16 +327,18 @@ function runMainSimulation(env, agents, simulator, config)
                 runSimplifiedEpisodes(env, agents, config);
             end
             
-            % 显示进度
-            if mod(iteration, 5) == 0
-                fprintf('✓ 完成 %d/%d 迭代\n', iteration, config.n_iterations);
-            end
+            % === 每次迭代都输出结果（您要求的格式）===
+            outputIterationResults(iteration, agents, episode_results);
             
         catch ME
             fprintf('⚠️ 迭代 %d 出错: %s\n', iteration, ME.message);
+            % 即使出错也输出结果（使用默认值）
+            outputIterationResults(iteration, agents, []);
             continue;
         end
     end
+    
+    fprintf('✅ 所有%d次迭代完成！\n', config.n_iterations);
 end
 
 %% 14. 简化episode运行
