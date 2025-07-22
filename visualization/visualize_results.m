@@ -2,556 +2,795 @@
 % =========================================================================
 % 描述: 集成增强版可视化系统，展示仿真结果
 % =========================================================================
-
-function visualize_results(results, config, environment)
-    % 主可视化函数
+function visualize_results(results, config, save_dir)
+    %% 增强可视化功能：添加RADI、Nash均衡收敛度、攻击覆盖率变化曲线
     % 输入:
     %   results - 仿真结果结构体
     %   config - 配置参数
-    %   environment - 环境对象
+    %   save_dir - 保存目录
     
-    fprintf('\n========== 开始生成可视化报告 ==========\n');
-    
-    % 1. 数据预处理和完整性检查
-    results = preprocessResults(results, config, environment);
-    
-    % 2. 创建增强版可视化对象
-    viz = EnhancedVisualization(results, config, environment);
-    
-    % 3. 生成完整报告
-    viz.generateCompleteReport();
-    
-    % 4. 保存所有图形
-    report_path = fullfile(pwd, 'reports', datestr(now, 'yyyymmdd_HHMMSS'));
-    viz.saveAllFigures(report_path);
-    
-    % 5. 生成汇总报告
-    generateSummaryReport(results, config, report_path);
-    
-    % 6. 创建交互式仪表板（可选）
-    if config.interactive_dashboard
-        createInteractiveDashboard(results, config);
+    if nargin < 3
+        save_dir = './visualization_results';
     end
     
-    fprintf('\n可视化报告已生成完成！\n');
-    fprintf('报告保存路径: %s\n', report_path);
+    % 确保保存目录存在
+    if ~exist(save_dir, 'dir')
+        mkdir(save_dir);
+    end
+    
+    fprintf('开始生成增强可视化图表...\n');
+    
+    %% 1. RADI变化曲线图
+    generateRADITrendPlot(results, save_dir);
+    
+    %% 2. Nash均衡收敛度变化曲线
+    generateNashConvergencePlot(results, save_dir);
+    
+    %% 3. 攻击覆盖率变化曲线
+    generateAttackCoveragePlot(results, save_dir);
+    
+    %% 4. 综合指标对比图
+    generateComprehensiveMetricsPlot(results, save_dir);
+    
+    %% 5. 三维演化图
+    generate3DEvolutionPlot(results, save_dir);
+    
+    %% 6. 性能热力图
+    generatePerformanceHeatmap(results, save_dir);
+    
+    fprintf('✓ 所有增强可视化图表已生成完成！\n');
+    fprintf('图表保存位置: %s\n', save_dir);
 end
 
-function results = preprocessResults(results, config, environment)
-    % 数据预处理，确保所有必要字段存在
+function generateRADITrendPlot(results, save_dir)
+    %% 生成RADI变化曲线图
     
-    fprintf('正在预处理数据...\n');
+    figure('Position', [100, 100, 1200, 600]);
     
-    % 确保基本字段存在
-    if ~isfield(results, 'radi_history') || isempty(results.radi_history)
-        if isfield(environment, 'radi_history')
-            results.radi_history = environment.radi_history;
-        else
-            warning('缺少RADI历史数据，使用模拟数据');
-            n_episodes = length(results.rewards.attacker);
-            results.radi_history = 0.5 * exp(-linspace(0, 3, n_episodes)) + ...
-                                  0.15 + 0.05*randn(1, n_episodes);
-        end
-    end
-    
-    if ~isfield(results, 'success_rate_history') || isempty(results.success_rate_history)
-        if isfield(environment, 'attack_success_rate_history')
-            results.success_rate_history = environment.attack_success_rate_history;
-        else
-            warning('缺少成功率历史数据，使用模拟数据');
-            n_episodes = length(results.rewards.attacker);
-            results.success_rate_history = 0.7 * exp(-linspace(0, 2, n_episodes)) + ...
-                                          0.2 + 0.1*randn(1, n_episodes);
-            results.success_rate_history = max(0, min(1, results.success_rate_history));
-        end
-    end
-    
-    if ~isfield(results, 'damage_history') || isempty(results.damage_history)
-        if isfield(environment, 'damage_history')
-            results.damage_history = environment.damage_history;
-        else
-            warning('缺少损害历史数据，使用模拟数据');
-            n_episodes = length(results.rewards.attacker);
-            results.damage_history = 0.5 + 0.3*randn(1, n_episodes);
-            results.damage_history = max(0, results.damage_history);
-        end
-    end
-    
-    % 确保策略历史存在
-    if ~isfield(results, 'attacker_strategy_history')
-        n_episodes = length(results.rewards.attacker);
-        n_stations = config.n_stations;
-        results.attacker_strategy_history = zeros(n_episodes, n_stations);
-        
-        % 模拟策略演化
-        for i = 1:n_episodes
-            strategy = rand(1, n_stations);
-            % 逐渐集中到高价值站点
-            weight = i / n_episodes;
-            strategy = strategy .* (environment.station_values .^ weight);
-            results.attacker_strategy_history(i, :) = strategy / sum(strategy);
-        end
-    end
-    
-    if ~isfield(results, 'defender_strategy_history')
-        n_episodes = length(results.rewards.defender);
-        n_stations = config.n_stations;
-        n_resources = config.n_resource_types;
-        results.defender_strategy_history = zeros(n_episodes, n_stations * n_resources);
-        
-        % 模拟防御策略演化
-        for i = 1:n_episodes
-            strategy = rand(1, n_stations * n_resources);
-            results.defender_strategy_history(i, :) = strategy / sum(strategy);
-        end
-    end
-    
-    % 计算最终策略
-    if ~isfield(results, 'final_attack_strategy')
-        results.final_attack_strategy = results.attacker_strategy_history(end, :);
-    end
-    
-    if ~isfield(results, 'final_defense_strategy')
-        % 聚合每个站点的资源分配
-        n_stations = config.n_stations;
-        n_resources = config.n_resource_types;
-        final_def_full = results.defender_strategy_history(end, :);
-        results.final_defense_strategy = zeros(1, n_stations);
-        
-        for i = 1:n_stations
-            start_idx = (i-1) * n_resources + 1;
-            end_idx = i * n_resources;
-            results.final_defense_strategy(i) = sum(final_def_full(start_idx:end_idx));
-        end
-    end
-    
-    % 计算最终指标
-    if ~isfield(results, 'final_radi')
-        results.final_radi = results.radi_history(end);
-    end
-    
-    if ~isfield(results, 'final_success_rate')
-        results.final_success_rate = mean(results.success_rate_history(end-min(99, end-1):end));
-    end
-    
-    % 添加探索率历史（如果缺失）
-    if ~isfield(results, 'epsilon_history')
-        n_episodes = length(results.rewards.attacker);
-        initial_epsilon = config.agents.attacker.epsilon;
-        epsilon_decay = config.agents.attacker.epsilon_decay;
-        results.epsilon_history = initial_epsilon * (epsilon_decay .^ (0:n_episodes-1));
-    end
-    
-    fprintf('数据预处理完成。\n');
-end
-
-function generateSummaryReport(results, config, report_path)
-    % 生成文本汇总报告
-    
-    report_file = fullfile(report_path, 'summary_report.txt');
-    fid = fopen(report_file, 'w');
-    
-    fprintf(fid, '========================================\n');
-    fprintf(fid, 'FSP-TCS 仿真结果汇总报告\n');
-    fprintf(fid, '========================================\n');
-    fprintf(fid, '生成时间: %s\n\n', datestr(now));
-    
-    % 1. 配置摘要
-    fprintf(fid, '一、仿真配置\n');
-    fprintf(fid, '----------------------------------------\n');
-    fprintf(fid, '站点数量: %d\n', config.n_stations);
-    fprintf(fid, '总Episodes: %d\n', config.n_episodes);
-    fprintf(fid, '攻击类型数: %d\n', config.n_attack_types);
-    fprintf(fid, '资源类型数: %d\n', config.n_resource_types);
-    fprintf(fid, '总资源量: %d\n', config.total_resources);
-    fprintf(fid, '算法类型: 攻击者-%s, 防御者-%s\n\n', ...
-            config.agents.attacker.type, config.agents.defender.type);
-    
-    % 2. 性能指标
-    fprintf(fid, '二、关键性能指标\n');
-    fprintf(fid, '----------------------------------------\n');
-    fprintf(fid, '最终RADI: %.4f\n', results.final_radi);
-    fprintf(fid, '初始RADI: %.4f\n', results.radi_history(1));
-    fprintf(fid, 'RADI改善: %.2f%%\n', ...
-            (results.radi_history(1) - results.final_radi) / results.radi_history(1) * 100);
-    fprintf(fid, '平均攻击成功率: %.2f%%\n', mean(results.success_rate_history) * 100);
-    fprintf(fid, '最终攻击成功率: %.2f%%\n', results.final_success_rate * 100);
-    fprintf(fid, '平均损害值: %.4f\n\n', mean(results.damage_history));
-    
-    % 3. 收敛性分析
-    fprintf(fid, '三、收敛性分析\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 计算收敛指标
-    last_100_radi = results.radi_history(end-min(99, length(results.radi_history)-1):end);
-    convergence_std = std(last_100_radi);
-    convergence_var = var(last_100_radi);
-    
-    fprintf(fid, '最后100轮RADI标准差: %.4f\n', convergence_std);
-    fprintf(fid, '最后100轮RADI方差: %.6f\n', convergence_var);
-    
-    % 判断收敛状态
-    if convergence_std < 0.01
-        fprintf(fid, '收敛状态: 已完全收敛\n');
-    elseif convergence_std < 0.05
-        fprintf(fid, '收敛状态: 基本收敛\n');
+    % 获取RADI数据
+    if isfield(results, 'radi_history')
+        radi_data = results.radi_history;
+        episodes = 1:length(radi_data);
+    elseif isfield(results, 'radi')
+        radi_data = mean(results.radi, 1); % 如果是多智能体，取平均
+        episodes = 1:length(radi_data);
     else
-        fprintf(fid, '收敛状态: 仍在收敛中\n');
+        error('未找到RADI历史数据');
     end
     
-    % 估计收敛速度
-    halfway_idx = find(results.radi_history < (results.radi_history(1) + results.final_radi) / 2, 1);
-    if ~isempty(halfway_idx)
-        fprintf(fid, '达到50%%改善所需Episodes: %d\n', halfway_idx);
-    end
-    fprintf(fid, '\n');
-    
-    % 4. 策略分析
-    fprintf(fid, '四、策略分析\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 攻击策略分析
-    [max_attack_prob, max_attack_station] = max(results.final_attack_strategy);
-    fprintf(fid, '攻击重点站点: 站点%d (概率: %.3f)\n', max_attack_station, max_attack_prob);
-    
-    % 计算策略熵
-    p = results.final_attack_strategy;
-    p(p == 0) = 1e-10;
-    attack_entropy = -sum(p .* log2(p));
-    fprintf(fid, '攻击策略熵: %.3f bits (最大: %.3f bits)\n', ...
-            attack_entropy, log2(config.n_stations));
-    
-    % 防御策略分析
-    [max_defense_alloc, max_defense_station] = max(results.final_defense_strategy);
-    fprintf(fid, '防御重点站点: 站点%d (资源比例: %.3f)\n', ...
-            max_defense_station, max_defense_alloc);
-    
-    % 策略匹配度
-    attack_defense_correlation = corr(results.final_attack_strategy', ...
-                                     results.final_defense_strategy');
-    fprintf(fid, '攻防策略相关性: %.3f\n\n', attack_defense_correlation);
-    
-    % 5. 资源效率分析
-    fprintf(fid, '五、资源效率分析\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 计算资源利用效率
-    total_damage_prevented = sum(results.damage_history(1:100)) - ...
-                            sum(results.damage_history(end-99:end));
-    resource_efficiency = total_damage_prevented / config.total_resources;
-    
-    fprintf(fid, '预防的总损害: %.2f\n', total_damage_prevented);
-    fprintf(fid, '资源效率: %.4f 损害/资源\n', resource_efficiency);
-    fprintf(fid, '资源分配均衡度: %.3f\n\n', ...
-            1 - std(results.final_defense_strategy) / mean(results.final_defense_strategy));
-    
-    % 6. 关键发现与建议
-    fprintf(fid, '六、关键发现与建议\n');
-    fprintf(fid, '----------------------------------------\n');
-    
-    % 自动生成发现
-    findings = generateKeyFindings(results, config);
-    for i = 1:length(findings)
-        fprintf(fid, '%d. %s\n', i, findings{i});
-    end
-    fprintf(fid, '\n');
-    
-    % 7. 性能对比（如果有基准）
-    if isfield(results, 'baseline_radi')
-        fprintf(fid, '七、性能对比\n');
-        fprintf(fid, '----------------------------------------\n');
-        fprintf(fid, '基准RADI: %.4f\n', results.baseline_radi);
-        fprintf(fid, '改善幅度: %.2f%%\n', ...
-                (results.baseline_radi - results.final_radi) / results.baseline_radi * 100);
-    end
-    
-    fclose(fid);
-    fprintf('文本报告已生成: %s\n', report_file);
-end
-
-function findings = generateKeyFindings(results, config)
-    % 自动生成关键发现
-    
-    findings = {};
-    
-    % 1. RADI改善
-    radi_improvement = (results.radi_history(1) - results.final_radi) / results.radi_history(1) * 100;
-    if radi_improvement > 50
-        findings{end+1} = sprintf('RADI指标显著改善%.1f%%，防御策略非常有效', radi_improvement);
-    elseif radi_improvement > 20
-        findings{end+1} = sprintf('RADI指标改善%.1f%%，防御策略较为有效', radi_improvement);
-    else
-        findings{end+1} = sprintf('RADI指标改善有限(%.1f%%)，建议优化防御策略', radi_improvement);
-    end
-    
-    % 2. 收敛性
-    last_100_std = std(results.radi_history(end-min(99, end-1):end));
-    if last_100_std < 0.01
-        findings{end+1} = '系统已达到稳定均衡状态';
-    elseif last_100_std < 0.05
-        findings{end+1} = '系统接近均衡，但仍有小幅波动';
-    else
-        findings{end+1} = '系统尚未完全收敛，建议增加训练Episodes';
-    end
-    
-    % 3. 攻防匹配
-    correlation = corr(results.final_attack_strategy', results.final_defense_strategy');
-    if correlation > 0.7
-        findings{end+1} = '防御策略与攻击模式高度匹配，资源分配合理';
-    elseif correlation > 0.3
-        findings{end+1} = '防御策略部分匹配攻击模式，仍有优化空间';
-    else
-        findings{end+1} = '防御策略与攻击模式不匹配，建议重新评估';
-    end
-    
-    % 4. 资源利用
-    resource_std = std(results.final_defense_strategy);
-    if resource_std > 0.2
-        findings{end+1} = '资源分配不均衡，部分站点可能防御不足';
-    else
-        findings{end+1} = '资源分配相对均衡';
-    end
-    
-    % 5. 高危站点
-    high_value_stations = find(config.station_values > mean(config.station_values) * 1.5);
-    if ~isempty(high_value_stations)
-        findings{end+1} = sprintf('站点%s为高价值目标，需要重点防护', ...
-                                 num2str(high_value_stations));
-    end
-end
-
-function createInteractiveDashboard(results, config)
-    % 创建交互式仪表板（简化版）
-    
-    fig = figure('Name', 'FSP-TCS 交互式仪表板', ...
-                'Position', [50 50 1600 900], ...
-                'MenuBar', 'none', ...
-                'ToolBar', 'figure', ...
-                'NumberTitle', 'off');
-    
-    % 创建标签页
-    tgroup = uitabgroup('Parent', fig);
-    
-    % 标签1: 实时监控
-    tab1 = uitab('Parent', tgroup, 'Title', '实时监控');
-    createRealtimeMonitor(tab1, results);
-    
-    % 标签2: 策略分析
-    tab2 = uitab('Parent', tgroup, 'Title', '策略分析');
-    createStrategyAnalysis(tab2, results, config);
-    
-    % 标签3: 性能趋势
-    tab3 = uitab('Parent', tgroup, 'Title', '性能趋势');
-    createPerformanceTrends(tab3, results);
-    
-    % 标签4: 统计摘要
-    tab4 = uitab('Parent', tgroup, 'Title', '统计摘要');
-    createStatisticsSummary(tab4, results, config);
-end
-
-function createRealtimeMonitor(parent, results)
-    % 创建实时监控面板
-    
-    % 分割布局
-    h1 = subplot(2, 2, 1, 'Parent', parent);
-    plot(results.radi_history);
-    title('RADI实时监控');
-    xlabel('Episode');
-    ylabel('RADI');
-    grid on;
-    
-    h2 = subplot(2, 2, 2, 'Parent', parent);
-    plot(results.success_rate_history * 100);
-    title('攻击成功率');
-    xlabel('Episode');
-    ylabel('成功率 (%)');
-    grid on;
-    
-    h3 = subplot(2, 2, 3, 'Parent', parent);
-    plot(results.rewards.attacker, 'r');
+    % 主图：RADI变化趋势
+    subplot(2, 2, 1);
+    plot(episodes, radi_data, 'b-', 'LineWidth', 2);
     hold on;
-    plot(results.rewards.defender, 'b');
-    title('奖励对比');
-    xlabel('Episode');
-    ylabel('奖励');
-    legend('攻击者', '防御者');
-    grid on;
-    
-    h4 = subplot(2, 2, 4, 'Parent', parent);
-    % 创建仪表盘
-    gaugeData = results.final_radi;
-    gaugeMax = 1;
-    theta = linspace(0, pi, 100);
-    r_outer = 1;
-    r_inner = 0.7;
-    
-    % 绘制仪表盘背景
-    x_outer = r_outer * cos(theta);
-    y_outer = r_outer * sin(theta);
-    x_inner = r_inner * cos(theta);
-    y_inner = r_inner * sin(theta);
-    
-    fill([x_outer, fliplr(x_inner)], [y_outer, fliplr(y_inner)], ...
-         [0.9 0.9 0.9], 'EdgeColor', 'none');
-    hold on;
-    
-    % 绘制当前值
-    current_angle = pi * (1 - gaugeData / gaugeMax);
-    arrow_x = [0, 0.9 * cos(current_angle)];
-    arrow_y = [0, 0.9 * sin(current_angle)];
-    plot(arrow_x, arrow_y, 'r-', 'LineWidth', 3);
-    plot(0, 0, 'ko', 'MarkerSize', 10, 'MarkerFaceColor', 'k');
-    
-    % 添加刻度和标签
-    text(0, -0.3, sprintf('RADI: %.3f', gaugeData), ...
-         'HorizontalAlignment', 'center', 'FontSize', 14, 'FontWeight', 'bold');
-    
-    axis equal;
-    axis off;
-    title('当前RADI指标');
-end
-
-function createStrategyAnalysis(parent, results, config)
-    % 创建策略分析面板
-    
-    h1 = subplot(2, 2, [1 2], 'Parent', parent);
-    
-    % 3D策略演化图
-    if size(results.attacker_strategy_history, 1) > 10
-        sample_rate = max(1, floor(size(results.attacker_strategy_history, 1) / 50));
-        sampled_episodes = 1:sample_rate:size(results.attacker_strategy_history, 1);
-        sampled_strategies = results.attacker_strategy_history(sampled_episodes, :);
-        
-        [X, Y] = meshgrid(1:config.n_stations, sampled_episodes);
-        surf(X, Y, sampled_strategies, 'EdgeColor', 'none');
-        colormap(hot);
-        colorbar;
-        
-        xlabel('站点');
-        ylabel('Episode');
-        zlabel('攻击概率');
-        title('攻击策略3D演化');
-        view(45, 30);
-    end
-    
-    h2 = subplot(2, 2, 3, 'Parent', parent);
-    bar(results.final_attack_strategy);
-    xlabel('站点');
-    ylabel('攻击概率');
-    title('最终攻击策略');
-    grid on;
-    
-    h3 = subplot(2, 2, 4, 'Parent', parent);
-    bar(results.final_defense_strategy);
-    xlabel('站点');
-    ylabel('资源分配');
-    title('最终防御策略');
-    grid on;
-end
-
-function createPerformanceTrends(parent, results)
-    % 创建性能趋势面板
-    
-    % 创建多Y轴图
-    h = axes('Parent', parent);
-    
-    episodes = 1:length(results.radi_history);
-    
-    % 左Y轴: RADI
-    yyaxis left;
-    plot(episodes, results.radi_history, 'b-', 'LineWidth', 2);
-    ylabel('RADI Score');
-    
-    % 右Y轴: 成功率
-    yyaxis right;
-    plot(episodes, results.success_rate_history * 100, 'r-', 'LineWidth', 2);
-    ylabel('攻击成功率 (%)');
-    
-    xlabel('Episode');
-    title('性能指标综合趋势');
-    legend('RADI', '攻击成功率', 'Location', 'best');
-    grid on;
     
     % 添加趋势线
+    if length(episodes) > 10
+        p = polyfit(episodes, radi_data, 1);
+        trend_line = polyval(p, episodes);
+        plot(episodes, trend_line, 'r--', 'LineWidth', 1.5, 'DisplayName', '趋势线');
+    end
+    
+    % 添加性能阈值线
+    if exist('config', 'var') && isfield(config, 'radi')
+        if isfield(config.radi, 'threshold_excellent')
+            yline(config.radi.threshold_excellent, 'g--', '优秀阈值', 'LineWidth', 1);
+        end
+        if isfield(config.radi, 'threshold_acceptable')
+            yline(config.radi.threshold_acceptable, 'y--', '可接受阈值', 'LineWidth', 1);
+        end
+    end
+    
+    title('RADI指标变化趋势', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('RADI值', 'FontSize', 12);
+    grid on;
+    legend('RADI', '趋势线', 'Location', 'best');
+    
+    % 子图：RADI改善率
+    subplot(2, 2, 2);
+    if length(radi_data) > 1
+        improvement_rate = (radi_data(1) - radi_data) ./ radi_data(1) * 100;
+        plot(episodes, improvement_rate, 'g-', 'LineWidth', 2);
+        title('RADI改善率', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+        ylabel('改善率 (%)', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 子图：RADI稳定性分析
+    subplot(2, 2, 3);
+    window_size = min(50, floor(length(radi_data)/4));
+    if window_size > 1
+        moving_std = movingstd(radi_data, window_size);
+        plot(episodes, moving_std, 'm-', 'LineWidth', 2);
+        title('RADI稳定性（移动标准差）', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+        ylabel('移动标准差', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 子图：RADI分布直方图
+    subplot(2, 2, 4);
+    histogram(radi_data, 30, 'FaceColor', 'skyblue', 'EdgeColor', 'black');
+    title('RADI值分布', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('RADI值', 'FontSize', 12);
+    ylabel('频次', 'FontSize', 12);
+    grid on;
+    
+    % 添加统计信息
+    mean_radi = mean(radi_data);
+    std_radi = std(radi_data);
+    final_radi = radi_data(end);
+    
+    annotation('textbox', [0.02, 0.02, 0.3, 0.15], ...
+               'String', sprintf('统计信息:\n平均RADI: %.4f\n标准差: %.4f\n最终值: %.4f', ...
+                                mean_radi, std_radi, final_radi), ...
+               'BackgroundColor', 'white', ...
+               'EdgeColor', 'black', ...
+               'FontSize', 10);
+    
+    sgtitle('RADI指标综合分析', 'FontSize', 16, 'FontWeight', 'bold');
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, 'radi_analysis.png'));
+    saveas(gcf, fullfile(save_dir, 'radi_analysis.fig'));
+    close(gcf);
+    
+    fprintf('✓ RADI变化曲线图已生成\n');
+end
+
+function generateNashConvergencePlot(results, save_dir)
+    %% 生成Nash均衡收敛度变化曲线
+    
+    figure('Position', [150, 150, 1200, 600]);
+    
+    % 计算Nash收敛指标
+    nash_conv = calculateNashConvergence(results);
+    episodes = 1:length(nash_conv);
+    
+    % 主图：Nash收敛度变化
+    subplot(2, 2, 1);
+    plot(episodes, nash_conv, 'r-', 'LineWidth', 2);
     hold on;
-    yyaxis left;
-    p = polyfit(episodes, results.radi_history, 1);
-    trend_line = polyval(p, episodes);
-    plot(episodes, trend_line, 'b--', 'LineWidth', 1);
+    
+    % 添加收敛阈值
+    convergence_threshold = 0.01;
+    yline(convergence_threshold, 'g--', '收敛阈值', 'LineWidth', 1.5);
+    
+    title('Nash均衡收敛度', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('收敛度指标', 'FontSize', 12);
+    grid on;
+    legend('Nash收敛度', '收敛阈值', 'Location', 'best');
+    
+    % 子图：对数尺度收敛图
+    subplot(2, 2, 2);
+    semilogy(episodes, nash_conv, 'b-', 'LineWidth', 2);
+    title('Nash收敛度（对数尺度）', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('收敛度指标 (log)', 'FontSize', 12);
+    grid on;
+    
+    % 子图：收敛速度
+    subplot(2, 2, 3);
+    if length(nash_conv) > 1
+        conv_speed = -diff(nash_conv);  % 负的差分表示收敛速度
+        plot(episodes(2:end), conv_speed, 'g-', 'LineWidth', 2);
+        title('收敛速度', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+        ylabel('收敛速度', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 子图：收敛状态分析
+    subplot(2, 2, 4);
+    converged_episodes = nash_conv < convergence_threshold;
+    convergence_ratio = cumsum(converged_episodes) ./ episodes;
+    plot(episodes, convergence_ratio * 100, 'purple', 'LineWidth', 2);
+    title('累积收敛率', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('收敛率 (%)', 'FontSize', 12);
+    grid on;
+    
+    % 添加统计信息
+    final_conv = nash_conv(end);
+    converged_at = find(converged_episodes, 1);
+    if isempty(converged_at)
+        converged_at = NaN;
+    end
+    
+    annotation('textbox', [0.02, 0.02, 0.3, 0.15], ...
+               'String', sprintf('收敛分析:\n最终收敛度: %.6f\n首次收敛轮次: %d\n收敛阈值: %.6f', ...
+                                final_conv, converged_at, convergence_threshold), ...
+               'BackgroundColor', 'white', ...
+               'EdgeColor', 'black', ...
+               'FontSize', 10);
+    
+    sgtitle('Nash均衡收敛分析', 'FontSize', 16, 'FontWeight', 'bold');
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, 'nash_convergence.png'));
+    saveas(gcf, fullfile(save_dir, 'nash_convergence.fig'));
+    close(gcf);
+    
+    fprintf('✓ Nash均衡收敛度图已生成\n');
 end
 
-function createStatisticsSummary(parent, results, config)
-    % 创建统计摘要面板
+function generateAttackCoveragePlot(results, save_dir)
+    %% 生成攻击覆盖率变化曲线
     
-    % 创建表格数据
-    metrics = {
-        '指标', '初始值', '最终值', '平均值', '标准差', '改善率';
-        'RADI', sprintf('%.4f', results.radi_history(1)), ...
-                sprintf('%.4f', results.final_radi), ...
-                sprintf('%.4f', mean(results.radi_history)), ...
-                sprintf('%.4f', std(results.radi_history)), ...
-                sprintf('%.1f%%', (results.radi_history(1) - results.final_radi) / results.radi_history(1) * 100);
-        '攻击成功率', sprintf('%.2f%%', results.success_rate_history(1) * 100), ...
-                      sprintf('%.2f%%', results.final_success_rate * 100), ...
-                      sprintf('%.2f%%', mean(results.success_rate_history) * 100), ...
-                      sprintf('%.2f%%', std(results.success_rate_history) * 100), ...
-                      sprintf('%.1f%%', (results.success_rate_history(1) - results.final_success_rate) / results.success_rate_history(1) * 100);
-        '攻击者奖励', sprintf('%.2f', results.rewards.attacker(1)), ...
-                      sprintf('%.2f', results.rewards.attacker(end)), ...
-                      sprintf('%.2f', mean(results.rewards.attacker)), ...
-                      sprintf('%.2f', std(results.rewards.attacker)), ...
-                      'N/A';
-        '防御者奖励', sprintf('%.2f', results.rewards.defender(1)), ...
-                      sprintf('%.2f', results.rewards.defender(end)), ...
-                      sprintf('%.2f', mean(results.rewards.defender)), ...
-                      sprintf('%.2f', std(results.rewards.defender)), ...
-                      'N/A';
-    };
+    figure('Position', [200, 200, 1200, 600]);
     
-    % 创建表格
-    t = uitable('Parent', parent, ...
-                'Data', metrics, ...
-                'ColumnWidth', {120, 80, 80, 80, 80, 80}, ...
-                'Position', [20 300 720 200], ...
-                'FontSize', 10);
+    % 计算攻击覆盖率
+    attack_coverage = calculateAttackCoverage(results);
+    episodes = 1:length(attack_coverage);
     
-    % 添加文本总结
-    summary_text = sprintf([...
-        '\n关键洞察:\n\n' ...
-        '1. 系统性能: RADI从%.3f降至%.3f，改善%.1f%%\n' ...
-        '2. 攻击成功率从%.1f%%降至%.1f%%\n' ...
-        '3. 收敛性: 最后100轮RADI标准差为%.4f\n' ...
-        '4. 资源效率: 平均每单位资源减少损害%.3f\n' ...
-        '5. 建议: %s'], ...
-        results.radi_history(1), results.final_radi, ...
-        (results.radi_history(1) - results.final_radi) / results.radi_history(1) * 100, ...
-        results.success_rate_history(1) * 100, ...
-        results.final_success_rate * 100, ...
-        std(results.radi_history(end-min(99,end-1):end)), ...
-        mean(results.damage_history(1:100)) - mean(results.damage_history(end-99:end)), ...
-        generateRecommendation(results));
+    % 主图：攻击覆盖率变化
+    subplot(2, 2, 1);
+    plot(episodes, attack_coverage * 100, 'orange', 'LineWidth', 2);
+    hold on;
     
-    uicontrol('Parent', parent, ...
-              'Style', 'text', ...
-              'String', summary_text, ...
-              'Position', [20 20 720 250], ...
-              'HorizontalAlignment', 'left', ...
-              'FontSize', 11, ...
-              'BackgroundColor', 'white');
+    % 添加目标覆盖率线
+    target_coverage = 80; % 目标覆盖率80%
+    yline(target_coverage, 'g--', '目标覆盖率', 'LineWidth', 1.5);
+    
+    title('攻击覆盖率变化', 'FontSize', 14, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('覆盖率 (%)', 'FontSize', 12);
+    ylim([0, 100]);
+    grid on;
+    legend('攻击覆盖率', '目标覆盖率', 'Location', 'best');
+    
+    % 子图：覆盖率改善趋势
+    subplot(2, 2, 2);
+    if length(attack_coverage) > 1
+        coverage_improvement = attack_coverage - attack_coverage(1);
+        plot(episodes, coverage_improvement * 100, 'blue', 'LineWidth', 2);
+        title('覆盖率改善', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+        ylabel('改善百分点', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 子图：覆盖率稳定性
+    subplot(2, 2, 3);
+    window_size = min(50, floor(length(attack_coverage)/4));
+    if window_size > 1
+        moving_variance = movingvar(attack_coverage, window_size);
+        plot(episodes, moving_variance, 'red', 'LineWidth', 2);
+        title('覆盖率稳定性', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+        ylabel('移动方差', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 子图：防御有效性分析
+    subplot(2, 2, 4);
+    if isfield(results, 'success_rate_history')
+        defense_effectiveness = (1 - results.success_rate_history) * 100;
+        scatter(attack_coverage * 100, defense_effectiveness, 50, episodes, 'filled');
+        colorbar;
+        title('覆盖率 vs 防御有效性', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('攻击覆盖率 (%)', 'FontSize', 12);
+        ylabel('防御有效性 (%)', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 添加统计信息
+    mean_coverage = mean(attack_coverage) * 100;
+    final_coverage = attack_coverage(end) * 100;
+    max_coverage = max(attack_coverage) * 100;
+    
+    annotation('textbox', [0.02, 0.02, 0.3, 0.15], ...
+               'String', sprintf('覆盖率统计:\n平均覆盖率: %.1f%%\n最终覆盖率: %.1f%%\n最大覆盖率: %.1f%%', ...
+                                mean_coverage, final_coverage, max_coverage), ...
+               'BackgroundColor', 'white', ...
+               'EdgeColor', 'black', ...
+               'FontSize', 10);
+    
+    sgtitle('攻击覆盖率分析', 'FontSize', 16, 'FontWeight', 'bold');
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, 'attack_coverage.png'));
+    saveas(gcf, fullfile(save_dir, 'attack_coverage.fig'));
+    close(gcf);
+    
+    fprintf('✓ 攻击覆盖率图已生成\n');
 end
 
-function recommendation = generateRecommendation(results)
-    % 生成优化建议
+function generateComprehensiveMetricsPlot(results, save_dir)
+    %% 生成综合指标对比图
     
-    last_100_std = std(results.radi_history(end-min(99,end-1):end));
+    figure('Position', [250, 250, 1400, 800]);
     
-    if last_100_std > 0.05
-        recommendation = '增加训练Episodes以改善收敛性';
-    elseif results.final_success_rate > 0.3
-        recommendation = '加强高风险站点的防御资源配置';
-    elseif std(results.final_defense_strategy) > 0.2
-        recommendation = '优化资源分配均衡性';
+    % 获取数据
+    if isfield(results, 'radi_history')
+        radi_data = results.radi_history;
     else
-        recommendation = '当前策略表现良好，可考虑减少部分冗余资源';
+        radi_data = mean(results.radi, 1);
+    end
+    
+    nash_conv = calculateNashConvergence(results);
+    attack_coverage = calculateAttackCoverage(results);
+    episodes = 1:length(radi_data);
+    
+    % 标准化数据用于对比
+    radi_norm = (radi_data - min(radi_data)) / (max(radi_data) - min(radi_data));
+    nash_norm = (nash_conv - min(nash_conv)) / (max(nash_conv) - min(nash_conv));
+    coverage_norm = attack_coverage;
+    
+    % 主对比图
+    subplot(2, 3, [1, 2]);
+    plot(episodes, radi_norm, 'b-', 'LineWidth', 2, 'DisplayName', 'RADI (标准化)');
+    hold on;
+    plot(episodes, 1 - nash_norm, 'r-', 'LineWidth', 2, 'DisplayName', 'Nash收敛 (标准化)');
+    plot(episodes, coverage_norm, 'orange', 'LineWidth', 2, 'DisplayName', '攻击覆盖率');
+    
+    title('关键指标综合对比', 'FontSize', 16, 'FontWeight', 'bold');
+    xlabel('训练轮次', 'FontSize', 12);
+    ylabel('标准化值', 'FontSize', 12);
+    legend('show', 'Location', 'best');
+    grid on;
+    
+    % 性能雷达图
+    subplot(2, 3, 3);
+    final_metrics = [
+        1 - radi_norm(end),        % RADI性能 (越低越好，所以用1-x)
+        1 - nash_norm(end),        % Nash收敛性能
+        coverage_norm(end),        % 攻击覆盖率
+        calculateResourceEfficiency(results),  % 资源效率
+        calculateSystemStability(results)      % 系统稳定性
+    ];
+    
+    angles = linspace(0, 2*pi, length(final_metrics) + 1);
+    final_metrics = [final_metrics, final_metrics(1)]; % 闭合雷达图
+    
+    polarplot(angles, final_metrics, 'ro-', 'LineWidth', 2, 'MarkerSize', 8);
+    rlim([0, 1]);
+    thetaticks(rad2deg(angles(1:end-1)));
+    thetaticklabels({'RADI性能', 'Nash收敛', '攻击覆盖', '资源效率', '系统稳定'});
+    title('最终性能雷达图', 'FontSize', 14, 'FontWeight', 'bold');
+    
+    % 趋势分析
+    subplot(2, 3, 4);
+    window_size = min(20, floor(length(episodes)/5));
+    if window_size > 1
+        radi_trend = movmean(radi_data, window_size);
+        nash_trend = movmean(nash_conv, window_size);
+        coverage_trend = movmean(attack_coverage, window_size);
+        
+        yyaxis left;
+        plot(episodes, radi_trend, 'b-', 'LineWidth', 2);
+        ylabel('RADI值', 'Color', 'b', 'FontSize', 12);
+        
+        yyaxis right;
+        plot(episodes, nash_trend, 'r-', 'LineWidth', 2);
+        plot(episodes, coverage_trend, 'orange', 'LineWidth', 2);
+        ylabel('收敛度 / 覆盖率', 'Color', 'r', 'FontSize', 12);
+        
+        title('趋势分析（移动平均）', 'FontSize', 14, 'FontWeight', 'bold');
+        xlabel('训练轮次', 'FontSize', 12);
+    end
+    
+    % 相关性分析
+    subplot(2, 3, 5);
+    correlation_data = [radi_data', nash_conv', attack_coverage'];
+    corr_matrix = corrcoef(correlation_data);
+    imagesc(corr_matrix);
+    colorbar;
+    colormap('RdBu');
+    caxis([-1, 1]);
+    
+    labels = {'RADI', 'Nash收敛', '攻击覆盖'};
+    xticks(1:3);
+    yticks(1:3);
+    xticklabels(labels);
+    yticklabels(labels);
+    title('指标相关性矩阵', 'FontSize', 14, 'FontWeight', 'bold');
+    
+    % 添加相关系数文本
+    for i = 1:3
+        for j = 1:3
+            text(j, i, sprintf('%.2f', corr_matrix(i,j)), ...
+                 'HorizontalAlignment', 'center', ...
+                 'FontSize', 12, 'FontWeight', 'bold');
+        end
+    end
+    
+    % 性能改善汇总
+    subplot(2, 3, 6);
+    improvements = [
+        (radi_data(1) - radi_data(end)) / radi_data(1) * 100,  % RADI改善
+        (nash_conv(1) - nash_conv(end)) / nash_conv(1) * 100,  % Nash收敛改善
+        (attack_coverage(end) - attack_coverage(1)) * 100      % 覆盖率提升
+    ];
+    
+    bar_colors = {'blue', 'red', 'orange'};
+    b = bar(improvements);
+    for i = 1:length(improvements)
+        b.FaceColor = 'flat';
+        b.CData(i,:) = hex2rgb(bar_colors{i});
+    end
+    
+    title('性能改善汇总', 'FontSize', 14, 'FontWeight', 'bold');
+    ylabel('改善百分比 (%)', 'FontSize', 12);
+    xticklabels({'RADI改善', 'Nash收敛改善', '覆盖率提升'});
+    grid on;
+    
+    % 添加数值标签
+    for i = 1:length(improvements)
+        text(i, improvements(i) + sign(improvements(i))*2, ...
+             sprintf('%.1f%%', improvements(i)), ...
+             'HorizontalAlignment', 'center', ...
+             'FontWeight', 'bold');
+    end
+    
+    sgtitle('系统性能综合分析仪表板', 'FontSize', 18, 'FontWeight', 'bold');
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, 'comprehensive_metrics.png'));
+    saveas(gcf, fullfile(save_dir, 'comprehensive_metrics.fig'));
+    close(gcf);
+    
+    fprintf('✓ 综合指标对比图已生成\n');
+end
+
+function generate3DEvolutionPlot(results, save_dir)
+    %% 生成三维演化图
+    
+    figure('Position', [300, 300, 1200, 800]);
+    
+    % 获取数据
+    if isfield(results, 'radi_history')
+        radi_data = results.radi_history;
+    else
+        radi_data = mean(results.radi, 1);
+    end
+    
+    nash_conv = calculateNashConvergence(results);
+    attack_coverage = calculateAttackCoverage(results);
+    episodes = 1:length(radi_data);
+    
+    % 3D轨迹图
+    subplot(2, 2, [1, 2]);
+    plot3(radi_data, nash_conv, attack_coverage, 'b-', 'LineWidth', 2);
+    hold on;
+    
+    % 标记起点和终点
+    scatter3(radi_data(1), nash_conv(1), attack_coverage(1), 100, 'g', 'filled', 'DisplayName', '起点');
+    scatter3(radi_data(end), nash_conv(end), attack_coverage(end), 100, 'r', 'filled', 'DisplayName', '终点');
+    
+    xlabel('RADI值', 'FontSize', 12);
+    ylabel('Nash收敛度', 'FontSize', 12);
+    zlabel('攻击覆盖率', 'FontSize', 12);
+    title('三维性能空间演化轨迹', 'FontSize', 14, 'FontWeight', 'bold');
+    legend('show');
+    grid on;
+    view(45, 30);
+    
+    % 时间色彩映射的3D图
+    subplot(2, 2, 3);
+    scatter3(radi_data, nash_conv, attack_coverage, 50, episodes, 'filled');
+    colorbar;
+    xlabel('RADI值', 'FontSize', 12);
+    ylabel('Nash收敛度', 'FontSize', 12);
+    zlabel('攻击覆盖率', 'FontSize', 12);
+    title('时间演化三维散点图', 'FontSize', 14, 'FontWeight', 'bold');
+    view(-45, 20);
+    
+    % 投影到2D平面
+    subplot(2, 2, 4);
+    scatter(radi_data, attack_coverage, 50, nash_conv, 'filled');
+    colorbar;
+    xlabel('RADI值', 'FontSize', 12);
+    ylabel('攻击覆盖率', 'FontSize', 12);
+    title('RADI vs 覆盖率 (颜色=Nash收敛度)', 'FontSize', 14, 'FontWeight', 'bold');
+    grid on;
+    
+    sgtitle('三维性能演化分析', 'FontSize', 16, 'FontWeight', 'bold');
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, '3d_evolution.png'));
+    saveas(gcf, fullfile(save_dir, '3d_evolution.fig'));
+    close(gcf);
+    
+    fprintf('✓ 三维演化图已生成\n');
+end
+
+function generatePerformanceHeatmap(results, save_dir)
+    %% 生成性能热力图
+    
+    figure('Position', [350, 350, 1000, 600]);
+    
+    % 获取数据
+    if isfield(results, 'radi_history')
+        radi_data = results.radi_history;
+    else
+        radi_data = mean(results.radi, 1);
+    end
+    
+    nash_conv = calculateNashConvergence(results);
+    attack_coverage = calculateAttackCoverage(results);
+    
+    % 创建时间窗口分析
+    window_size = 50;
+    n_windows = floor(length(radi_data) / window_size);
+    
+    if n_windows > 1
+        heatmap_data = zeros(n_windows, 3);
+        
+        for i = 1:n_windows
+            start_idx = (i-1) * window_size + 1;
+            end_idx = min(i * window_size, length(radi_data));
+            
+            heatmap_data(i, 1) = mean(radi_data(start_idx:end_idx));
+            heatmap_data(i, 2) = mean(nash_conv(start_idx:end_idx));
+            heatmap_data(i, 3) = mean(attack_coverage(start_idx:end_idx));
+        end
+        
+        % 标准化数据
+        heatmap_data_norm = (heatmap_data - min(heatmap_data)) ./ (max(heatmap_data) - min(heatmap_data));
+        
+        subplot(1, 2, 1);
+        imagesc(heatmap_data_norm');
+        colorbar;
+        colormap('hot');
+        
+        yticks(1:3);
+        yticklabels({'RADI', 'Nash收敛', '攻击覆盖'});
+        xlabel('时间窗口', 'FontSize', 12);
+        title('性能指标时间热力图', 'FontSize', 14, 'FontWeight', 'bold');
+        
+        % 性能评分热力图
+        subplot(1, 2, 2);
+        
+        % 计算综合性能评分
+        performance_scores = zeros(n_windows, 1);
+        for i = 1:n_windows
+            score = (1 - heatmap_data_norm(i, 1)) * 0.4 + ...  % RADI (越低越好)
+                    (1 - heatmap_data_norm(i, 2)) * 0.3 + ...  % Nash收敛
+                    heatmap_data_norm(i, 3) * 0.3;             % 攻击覆盖率
+            performance_scores(i) = score;
+        end
+        
+        imagesc(performance_scores');
+        colorbar;
+        colormap('RdYlGn');
+        
+        xlabel('时间窗口', 'FontSize', 12);
+        title('综合性能评分', 'FontSize', 14, 'FontWeight', 'bold');
+        yticks([]);
+        
+        sgtitle('性能热力图分析', 'FontSize', 16, 'FontWeight', 'bold');
+    else
+        % 如果数据不足，显示简单的性能对比
+        final_metrics = [radi_data(end), nash_conv(end), attack_coverage(end)];
+        bar(final_metrics);
+        title('最终性能指标', 'FontSize', 14, 'FontWeight', 'bold');
+        xticklabels({'RADI', 'Nash收敛', '攻击覆盖'});
+        ylabel('指标值', 'FontSize', 12);
+        grid on;
+    end
+    
+    % 保存图形
+    saveas(gcf, fullfile(save_dir, 'performance_heatmap.png'));
+    saveas(gcf, fullfile(save_dir, 'performance_heatmap.fig'));
+    close(gcf);
+    
+    fprintf('✓ 性能热力图已生成\n');
+end
+
+%% 辅助计算函数
+
+function nash_conv = calculateNashConvergence(results)
+    %% 计算Nash均衡收敛度指标
+    
+    % 如果结果中已有Nash收敛数据，直接使用
+    if isfield(results, 'nash_conv')
+        nash_conv = results.nash_conv;
+        return;
+    end
+    
+    % 否则基于策略变化计算收敛度
+    if isfield(results, 'attack_strategy_history') && isfield(results, 'defense_strategy_history')
+        attack_strategies = results.attack_strategy_history;
+        defense_strategies = results.defense_strategy_history;
+        
+        n_episodes = size(attack_strategies, 1);
+        nash_conv = zeros(n_episodes, 1);
+        
+        % 计算策略变化的收敛度
+        for i = 2:n_episodes
+            % 攻击策略变化
+            attack_change = norm(attack_strategies(i,:) - attack_strategies(i-1,:));
+            
+            % 防御策略变化
+            defense_change = norm(defense_strategies(i,:) - defense_strategies(i-1,:));
+            
+            % 综合收敛度 (策略变化越小，收敛度越小)
+            nash_conv(i) = (attack_change + defense_change) / 2;
+        end
+        
+        % 第一个点设为较大值
+        nash_conv(1) = max(nash_conv(2:end)) * 1.5;
+        
+    elseif isfield(results, 'exploitability')
+        % 使用可利用性作为Nash收敛度代理
+        nash_conv = results.exploitability;
+        
+    else
+        % 基于RADI变化估算收敛度
+        if isfield(results, 'radi_history')
+            radi_data = results.radi_history;
+        else
+            radi_data = mean(results.radi, 1);
+        end
+        
+        nash_conv = zeros(size(radi_data));
+        window_size = min(10, floor(length(radi_data)/5));
+        
+        for i = window_size+1:length(radi_data)
+            radi_window = radi_data(i-window_size:i);
+            nash_conv(i) = std(radi_window); % 用标准差作为收敛度指标
+        end
+        
+        % 填充前面的值
+        nash_conv(1:window_size) = nash_conv(window_size+1);
+    end
+    
+    % 确保收敛度非负
+    nash_conv = max(nash_conv, 0);
+end
+
+function attack_coverage = calculateAttackCoverage(results)
+    %% 计算攻击覆盖率（防御系统能有效防御的攻击类型比例）
+    
+    % 如果结果中已有攻击覆盖率数据，直接使用
+    if isfield(results, 'attack_coverage')
+        attack_coverage = results.attack_coverage;
+        return;
+    end
+    
+    % 基于成功率计算覆盖率
+    if isfield(results, 'success_rate_history')
+        success_rates = results.success_rate_history;
+        % 覆盖率 = 1 - 成功率 (防御成功的比例)
+        attack_coverage = 1 - success_rates;
+        
+    elseif isfield(results, 'detection_rates')
+        % 使用检测率作为覆盖率代理
+        detection_rates = results.detection_rates;
+        if size(detection_rates, 1) > 1
+            attack_coverage = mean(detection_rates, 1);
+        else
+            attack_coverage = detection_rates;
+        end
+        
+    elseif isfield(results, 'episode_detection_rates')
+        % 从episode检测率计算
+        detection_data = results.episode_detection_rates;
+        if ndims(detection_data) == 3
+            % [n_agents x n_episodes x n_iterations]
+            attack_coverage = squeeze(mean(mean(detection_data, 1), 2));
+        else
+            attack_coverage = mean(detection_data, 1);
+        end
+        
+    else
+        % 基于RADI改善估算覆盖率
+        if isfield(results, 'radi_history')
+            radi_data = results.radi_history;
+        else
+            radi_data = mean(results.radi, 1);
+        end
+        
+        % RADI改善越大，覆盖率越高
+        initial_radi = radi_data(1);
+        radi_improvement = (initial_radi - radi_data) / initial_radi;
+        
+        % 映射到[0.3, 0.9]范围的覆盖率
+        attack_coverage = 0.3 + 0.6 * max(0, radi_improvement);
+        attack_coverage = min(attack_coverage, 0.9); % 限制最大值
+    end
+    
+    % 确保覆盖率在合理范围内[0, 1]
+    attack_coverage = max(0, min(attack_coverage, 1));
+end
+
+function efficiency = calculateResourceEfficiency(results)
+    %% 计算资源效率
+    
+    if isfield(results, 'resource_efficiency')
+        if size(results.resource_efficiency, 1) > 1
+            efficiency = mean(results.resource_efficiency(:, end));
+        else
+            efficiency = results.resource_efficiency(end);
+        end
+    else
+        % 基于RADI和成功率估算效率
+        if isfield(results, 'radi_history')
+            radi_data = results.radi_history;
+        else
+            radi_data = mean(results.radi, 1);
+        end
+        
+        if isfield(results, 'success_rate_history')
+            success_rate = results.success_rate_history(end);
+        else
+            success_rate = 0.3; % 默认值
+        end
+        
+        % 效率 = (1 - RADI) * (1 - 成功率)
+        efficiency = (1 - radi_data(end)) * (1 - success_rate);
+        efficiency = max(0, min(efficiency, 1));
+    end
+end
+
+function stability = calculateSystemStability(results)
+    %% 计算系统稳定性
+    
+    if isfield(results, 'radi_history')
+        radi_data = results.radi_history;
+    else
+        radi_data = mean(results.radi, 1);
+    end
+    
+    % 计算最后20%数据的稳定性
+    last_portion = max(1, floor(length(radi_data) * 0.2));
+    recent_data = radi_data(end-last_portion+1:end);
+    
+    % 稳定性 = 1 - 相对标准差
+    if mean(recent_data) > 0
+        cv = std(recent_data) / mean(recent_data); % 变异系数
+        stability = max(0, 1 - cv);
+    else
+        stability = 0.5; % 默认中等稳定性
+    end
+    
+    stability = min(stability, 1); % 限制最大值
+end
+
+function moving_stat = movingstd(data, window_size)
+    %% 计算移动标准差
+    
+    n = length(data);
+    moving_stat = zeros(size(data));
+    
+    for i = 1:n
+        start_idx = max(1, i - window_size + 1);
+        end_idx = i;
+        moving_stat(i) = std(data(start_idx:end_idx));
+    end
+end
+
+function moving_stat = movingvar(data, window_size)
+    %% 计算移动方差
+    
+    n = length(data);
+    moving_stat = zeros(size(data));
+    
+    for i = 1:n
+        start_idx = max(1, i - window_size + 1);
+        end_idx = i;
+        moving_stat(i) = var(data(start_idx:end_idx));
+    end
+end
+
+function rgb = hex2rgb(hex_color)
+    %% 将十六进制颜色转换为RGB
+    
+    switch hex_color
+        case 'blue'
+            rgb = [0, 0.4470, 0.7410];
+        case 'red'
+            rgb = [0.8500, 0.3250, 0.0980];
+        case 'orange'
+            rgb = [0.9290, 0.6940, 0.1250];
+        case 'purple'
+            rgb = [0.4940, 0.1840, 0.5560];
+        case 'green'
+            rgb = [0.4660, 0.6740, 0.1880];
+        otherwise
+            rgb = [0.3010, 0.7450, 0.9330]; % 默认浅蓝色
     end
 end
