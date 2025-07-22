@@ -1,44 +1,33 @@
 classdef TCSEnvironment < handle
-    %% TCSEnvironment - 交通控制系统环境（完整优化版）
+    %% TCSEnvironment - 交通控制系统环境（架构优化版）
     % ================================================================
-    % 版本：v4.0 - 增强版数据记录与可视化支持
-    % 新增功能：
-    % 1. RADI、Nash均衡收敛度、攻击覆盖率数据记录
-    % 2. 策略变化跟踪
-    % 3. 防御有效性评估
-    % 4. 数据完整性验证
+    % 版本：v4.3 - 基于项目架构的优化版本
+    % 优化重点：
+    % 1. 依赖ConfigManager进行配置管理
+    % 2. 移除重复的配置处理逻辑
+    % 3. 专注于环境核心功能
+    % 4. 保持与AgentFactory的兼容性
     % ================================================================
     
     properties (Access = public)
-        %% === 基础系统参数 ===
+        %% === 基础系统参数（从config获取） ===
         n_stations              % 站点数量
         n_components            % 各站点组件数量向量
         total_components        % 总组件数
         total_resources         % 总资源数
-        n_resource_types        % 资源类型数
-        n_attack_types          % 攻击类型数
         station_values          % 站点价值向量
         
-        %% === 环境状态相关 ===
+        %% === 环境状态 ===
         time_step               % 当前时间步
         current_state           % 当前状态向量
         state_dim               % 状态维度
-        action_dim              % 动作维度
+        action_dim              % 动作维度（兼容性）
         action_dim_defender     % 防御者动作维度
         action_dim_attacker     % 攻击者动作维度
         
-        %% === FSP相关参数 ===
+        %% === FSP核心参数 ===
         alpha_ewma              % FSP指数加权移动平均参数
         attacker_avg_strategy   % 攻击者平均策略
-        
-        %% === 基线Q学习参数（内置攻击者） ===
-        attacker_lr             % 攻击者学习率
-        attacker_gamma          % 攻击者折扣因子
-        attacker_epsilon        % 攻击者探索率
-        attacker_epsilon_decay  % 探索率衰减
-        attacker_epsilon_min    % 最小探索率
-        max_defense_states      % 最大防御状态数
-        attacker_Q_table        % 攻击者Q表
         
         %% === RADI计算参数 ===
         radi_score              % 当前RADI分数
@@ -50,746 +39,500 @@ classdef TCSEnvironment < handle
         detection_sensitivity   % 检测敏感度
         false_positive_rate     % 误报率
         
-        %% === 历史记录（原有） ===
-        attack_success_history     % 攻击成功历史 [0,1]
-        attack_target_history      % 攻击目标历史 [one-hot]
-        defense_deployment_history % 防御部署历史
+        %% === 历史记录 ===
+        attack_success_history     % 攻击成功历史
+        attack_target_history      % 攻击目标历史（矩阵形式）
+        defense_deployment_history % 防御部署历史（矩阵形式）
         damage_history             % 损害历史
         radi_history               % RADI历史
         detection_history          % 检测历史
-        reward_history             % 奖励历史
         
-        %% === 新增：增强指标历史记录 ===
+        %% === 增强指标历史 ===
         nash_convergence_history     % Nash均衡收敛度历史
         attack_coverage_history      % 攻击覆盖率历史  
         defense_effectiveness_history % 防御有效性历史
-        strategy_change_history      % 策略变化历史[attack_change, defense_change]
+        strategy_change_history      % 策略变化历史
         
-        %% === 新增：策略跟踪 ===
+        %% === 策略跟踪 ===
         prev_attack_strategy         % 上一轮攻击策略
         prev_defense_strategy        % 上一轮防御策略
         curr_attack_strategy         % 当前攻击策略
         curr_defense_strategy        % 当前防御策略
         
-        %% === 兼容性属性 ===
-        defense_costs           % 防御成本
-        defense_effectiveness   % 防御效果
-        radi_defender          % 兼容性RADI
-        radi_attacker          % 兼容性RADI
-        defender_strategy      % 兼容性策略
-        attacker_strategy      % 兼容性策略
-        optimal_defender_strategy % 兼容性
-        optimal_attacker_strategy % 兼容性
-        deployment_history     % 兼容性历史
-        damage_history_alt     % 兼容性历史
-        attack_history         % 兼容性历史
-        defense_history        % 兼容性历史
-        attacker_actions       % 兼容性
-        defender_actions       % 兼容性
-        
-        %% === 其他参数 ===
-        epsilon               % 数值稳定性参数
-        debug_mode           % 调试模式
-        optimization_method  % 优化方法（兼容性）
+        %% === 系统配置 ===
+        debug_mode              % 调试模式
+        epsilon                 % 数值稳定性参数
     end
     
     properties (Access = private)
-        %% === 私有辅助属性 ===
-        action_templates     % 预定义动作模板
-        data_validation_enabled % 数据验证开关
+        action_templates        % 预定义动作模板
+        config                  % 完整配置对象（私有）
     end
     
     methods (Access = public)
         function obj = TCSEnvironment(config)
-            %TCSENVIRONMENT 构造函数（增强版）
+            %TCSENVIRONMENT 构造函数
             
             if nargin < 1
                 error('TCSEnvironment:InvalidInput', '需要配置参数config');
             end
             
-            % 验证配置
-            obj.validateConfig(config);
+            % 存储配置对象
+            obj.config = config;
             
-            % 初始化基础参数
-            obj.initializeBasicParameters(config);
+            % 从config中提取参数（使用ConfigManager的结构）
+            obj.extractConfigParameters(config);
             
             % 初始化环境组件
-            obj.initializeEnvironmentComponents(config);
-            
-            % 初始化增强功能
-            obj.initializeEnhancedFeatures(config);
-            
-            % 初始化历史记录（包括新增记录）
-            obj.initializeAllHistoryRecords();
+            obj.initializeEnvironmentComponents();
             
             % 计算空间维度
             obj.calculateSpaceDimensions();
             
-            % 重置到初始状态
+            % 重置环境
             obj.reset();
             
             if obj.debug_mode
-                fprintf('[TCSEnvironment v4.0] 初始化完成 - %d站点, %d资源, 增强数据记录已启用\n', ...
+                fprintf('[TCSEnvironment v4.3] 初始化完成 - %d站点, %d资源\n', ...
                         obj.n_stations, obj.total_resources);
             end
         end
         
         function state = reset(obj)
-            %RESET 重置环境到初始状态（增强版）
+            %RESET 重置环境到初始状态
             
             obj.time_step = 0;
-            
-            % 重置FSP平均策略为均匀分布
             obj.attacker_avg_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            obj.radi_score = 0.5;
             
-            % 重置内部Q表（如果使用）
-            if ~isempty(obj.attacker_Q_table)
-                obj.attacker_Q_table = randn(obj.max_defense_states, obj.n_stations) * 0.1;
-            end
-            
-            % 重置兼容性策略
-            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.attacker_strategy = obj.station_values / sum(obj.station_values); % 基于价值初始化
+            % 清空历史记录
+            obj.clearAllHistoryRecords();
             
             % 重置策略跟踪
             obj.resetStrategyTracking();
-            
-            % 清空所有历史记录
-            obj.clearAllHistoryRecords();
             
             % 生成初始状态
             obj.current_state = obj.generateEnvironmentState();
             state = obj.current_state;
             
             if obj.debug_mode
-                fprintf('[TCSEnvironment] 环境已重置，增强数据记录已初始化\n');
+                fprintf('[TCSEnvironment] 环境已重置\n');
             end
         end
         
         function [next_state, reward_def, reward_att, info] = step(obj, defender_deployment, attacker_target)
-            %STEP 执行一步环境交互（修复维度不匹配问题）
+            %STEP 执行一步环境交互
             
             try
-                % === 输入验证 ===
+                % 输入验证和修复
                 [defender_deployment, attacker_target] = obj.validateAndFixStepInputs(defender_deployment, attacker_target);
                 
-                % === 1. 更新FSP平均策略（环境维护的共享信息） ===
+                % 更新FSP平均策略
                 obj.updateAttackerAverageStrategy(attacker_target);
                 
-                % === 2. 计算攻击结果 ===
+                % 计算攻击结果
                 [attack_success, damage] = obj.computeAttackOutcome(attacker_target, defender_deployment);
                 
-                % === 3. 执行检测评估 ===
+                % 检测评估
                 detection_result = obj.evaluateDetection(attacker_target, defender_deployment, attack_success);
                 
-                % === 4. 计算奖励 - 添加维度检查 ===
-                [reward_def, reward_att] = obj.computeRewardsSafe(attack_success, damage, attacker_target, ...
-                                                                 defender_deployment, detection_result);
+                % 计算奖励
+                [reward_def, reward_att] = obj.computeRewards(attack_success, damage, attacker_target, defender_deployment, detection_result);
                 
-                % === 5. 更新环境状态 - 添加安全检查 ===
-                obj.updateEnvironmentStateSafe(attack_success, damage, attacker_target, ...
-                                              defender_deployment, detection_result);
+                % 更新环境状态
+                obj.updateEnvironmentState(attack_success, damage, attacker_target, defender_deployment, detection_result);
                 
-                % === 6. 生成下一状态 ===
-                next_state = obj.generateEnvironmentStateSafe();
+                % 生成下一状态
+                next_state = obj.generateEnvironmentState();
                 obj.current_state = next_state;
                 obj.time_step = obj.time_step + 1;
                 
-                % === 7. 创建信息结构 ===
-                info = obj.createStepInfoSafe(attack_success, damage, attacker_target, ...
-                                             defender_deployment, detection_result, reward_def, reward_att);
+                % 创建信息结构
+                info = obj.createStepInfo(attack_success, damage, attacker_target, defender_deployment, detection_result, reward_def, reward_att);
                 
             catch ME
                 fprintf('[ERROR] TCSEnvironment.step 执行失败: %s\n', ME.message);
-                fprintf('错误位置: %s (第%d行)\n', ME.stack(1).file, ME.stack(1).line);
-                
-                % 返回安全的默认值
+                if ~isempty(ME.stack)
+                    fprintf('错误位置: %s (第%d行)\n', ME.stack(1).file, ME.stack(1).line);
+                end
+                % 返回安全默认值
                 next_state = obj.current_state;
                 reward_def = 0;
                 reward_att = 0;
                 info = obj.createDefaultInfo();
-                
-                warning('TCSEnvironment:StepError', '环境步进失败，返回默认值');
-            end
-        end       
-
-        function [defender_deployment, attacker_target] = validateAndFixStepInputs(obj, defender_deployment, attacker_target)
-            %VALIDATEANDFIXSTEPINPUTS 验证和修复输入维度
-            
-            % === 修复防御者部署向量 ===
-            if isempty(defender_deployment)
-                warning('TCSEnvironment:EmptyInput', '防御者部署为空，使用均匀分配');
-                defender_deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
-            end
-            
-            % 确保是行向量
-            defender_deployment = defender_deployment(:)';
-            
-            % 检查长度
-            if length(defender_deployment) ~= obj.n_stations
-                if length(defender_deployment) < obj.n_stations
-                    % 填充不足的维度
-                    padding = ones(1, obj.n_stations - length(defender_deployment)) * ...
-                             (obj.total_resources / obj.n_stations / 10);
-                    defender_deployment = [defender_deployment, padding];
-                    warning('TCSEnvironment:DimensionMismatch', ...
-                           '防御者部署维度不足，已填充到%d维', obj.n_stations);
-                else
-                    % 截断过长的维度
-                    defender_deployment = defender_deployment(1:obj.n_stations);
-                    warning('TCSEnvironment:DimensionMismatch', ...
-                           '防御者部署维度过长，已截断到%d维', obj.n_stations);
-                end
-            end
-            
-            % 确保非负值
-            defender_deployment = max(0, defender_deployment);
-            
-            % 资源约束检查
-            if sum(defender_deployment) > obj.total_resources * 1.1 % 允许10%的超调
-                defender_deployment = defender_deployment * (obj.total_resources / sum(defender_deployment));
-                warning('TCSEnvironment:ResourceConstraint', '防御部署超出资源限制，已归一化');
-            end
-            
-            % === 修复攻击者目标 ===
-            if isempty(attacker_target)
-                warning('TCSEnvironment:EmptyInput', '攻击者目标为空，随机选择');
-                attacker_target = randi(obj.n_stations);
-            end
-            
-            if isscalar(attacker_target)
-                % 确保在有效范围内
-                attacker_target = max(1, min(obj.n_stations, round(attacker_target)));
-            else
-                % 如果是向量，取最大值对应的索引
-                if length(attacker_target) ~= obj.n_stations
-                    if length(attacker_target) < obj.n_stations
-                        % 填充
-                        attacker_target = [attacker_target, zeros(1, obj.n_stations - length(attacker_target))];
-                    else
-                        % 截断
-                        attacker_target = attacker_target(1:obj.n_stations);
-                    end
-                end
-                [~, attacker_target] = max(attacker_target);
-            end
-        end
-
-        function [reward_def, reward_att] = computeRewardsSafe(obj, attack_success, damage, attacker_target, ...
-                                                      defender_deployment, detection_result)
-            %COMPUTEREWARDSSAFE 安全的奖励计算方法
-            
-            try
-                % 调用原有的奖励计算方法
-                [reward_def, reward_att] = obj.computeRewards(attack_success, damage, attacker_target, ...
-                                                             defender_deployment, detection_result);
-                
-                % 验证输出
-                if isempty(reward_def) || ~isnumeric(reward_def) || isnan(reward_def) || isinf(reward_def)
-                    warning('TCSEnvironment:InvalidReward', '防御者奖励无效，使用默认值');
-                    reward_def = 0;
-                end
-                
-                if isempty(reward_att) || ~isnumeric(reward_att) || isnan(reward_att) || isinf(reward_att)
-                    warning('TCSEnvironment:InvalidReward', '攻击者奖励无效，使用默认值');
-                    reward_att = 0;
-                end
-                
-                % 确保标量输出
-                reward_def = reward_def(1);
-                reward_att = reward_att(1);
-                
-            catch ME
-                fprintf('[ERROR] 奖励计算失败: %s\n', ME.message);
-                
-                % 使用简化的奖励计算
-                if attack_success
-                    reward_att = 10 * obj.station_values(attacker_target);  % 攻击成功奖励
-                    reward_def = -10 * obj.station_values(attacker_target); % 防御失败惩罚
-                else
-                    reward_att = -1;  % 攻击失败成本
-                    reward_def = 5;   % 防御成功奖励
-                end
-                
-                % 检测奖励
-                if detection_result.detected && ~detection_result.is_false_positive
-                    reward_def = reward_def + 2;  % 正确检测奖励
-                elseif detection_result.is_false_positive
-                    reward_def = reward_def - 1;  % 误报惩罚
-                end
-                
-                % 资源使用成本
-                resource_cost = sum(defender_deployment) * 0.01;
-                reward_def = reward_def - resource_cost;
-                
-                fprintf('[INFO] 使用简化奖励计算: reward_def=%.3f, reward_att=%.3f\n', reward_def, reward_att);
-            end
-        end
-
-        function updateEnvironmentStateSafe(obj, attack_success, damage, attacker_target, ...
-                                           defender_deployment, detection_result)
-            %UPDATEENVIRONMENTSTATESAFE 安全的环境状态更新方法
-            
-            try
-                % 调用原有的状态更新方法
-                obj.updateEnvironmentState(attack_success, damage, attacker_target, ...
-                                          defender_deployment, detection_result);
-                
-            catch ME
-                fprintf('[ERROR] 环境状态更新失败: %s\n', ME.message);
-                
-                % 使用安全的状态更新
-                obj.safeUpdateEnvironmentState(attack_success, damage, attacker_target, ...
-                                              defender_deployment, detection_result);
             end
         end
         
-        function safeUpdateEnvironmentState(obj, attack_success, damage, attacker_target, ...
-                                           defender_deployment, detection_result)
-            %SAFEUPDATEENVIRONMENTSTATE 安全的环境状态更新实现
-            
+        function updateEnvironmentState(obj, attack_success, damage, attacker_target, defender_deployment, detection_result)
+            %UPDATEENVIRONMENTSTATE 更新环境状态
             try
-                % === 更新历史记录（确保维度匹配） ===
+                % 记录基本历史数据
+                obj.attack_success_history(end+1) = double(attack_success);
+                obj.damage_history(end+1) = damage;
                 
-                % 攻击成功历史
-                obj.attack_success_history = [obj.attack_success_history, double(attack_success)];
+                % 检测结果
+                if isstruct(detection_result) && isfield(detection_result, 'detected')
+                    obj.detection_history(end+1) = detection_result.detected;
+                else
+                    obj.detection_history(end+1) = false;
+                end
                 
-                % 攻击目标历史（one-hot编码）
+                % 记录攻击目标（one-hot编码）
                 target_vector = zeros(1, obj.n_stations);
                 if attacker_target >= 1 && attacker_target <= obj.n_stations
                     target_vector(attacker_target) = 1;
                 end
                 
+                % 更新矩阵形式历史记录
                 if isempty(obj.attack_target_history)
                     obj.attack_target_history = target_vector;
+                    obj.defense_deployment_history = defender_deployment(:)';
                 else
-                    % 确保维度匹配
-                    if size(obj.attack_target_history, 2) ~= obj.n_stations
-                        % 重新初始化历史记录
-                        obj.attack_target_history = target_vector;
-                    else
-                        obj.attack_target_history = [obj.attack_target_history; target_vector];
-                    end
+                    obj.attack_target_history(end+1, :) = target_vector;
+                    obj.defense_deployment_history(end+1, :) = defender_deployment(:)';
                 end
                 
-                % 防御部署历史
-                deployment_safe = defender_deployment(:)';  % 确保行向量
-                if length(deployment_safe) ~= obj.n_stations
-                    % 修复长度不匹配
-                    if length(deployment_safe) < obj.n_stations
-                        deployment_safe = [deployment_safe, ...
-                                         zeros(1, obj.n_stations - length(deployment_safe))];
-                    else
-                        deployment_safe = deployment_safe(1:obj.n_stations);
-                    end
-                end
-                
-                if isempty(obj.defense_deployment_history)
-                    obj.defense_deployment_history = deployment_safe;
-                else
-                    % 确保维度匹配
-                    if size(obj.defense_deployment_history, 2) ~= obj.n_stations
-                        % 重新初始化历史记录
-                        obj.defense_deployment_history = deployment_safe;
-                    else
-                        obj.defense_deployment_history = [obj.defense_deployment_history; deployment_safe];
-                    end
-                end
-                
-                % 损害历史
-                obj.damage_history = [obj.damage_history, damage];
-                
-                % 检测历史
-                detection_value = double(detection_result.detected);
-                obj.detection_history = [obj.detection_history, detection_value];
-                
-                % === 计算和更新RADI ===
-                optimal_allocation = obj.computeOptimalAllocation();
-                current_radi = obj.calculateRADISafe(deployment_safe, optimal_allocation);
-                obj.radi_history = [obj.radi_history, current_radi];
+                % 计算并更新RADI
+                current_radi = obj.calculateRADI(defender_deployment);
+                obj.radi_history(end+1) = current_radi;
                 obj.radi_score = current_radi;
                 
-                % === 更新兼容性属性 ===
-                obj.defender_strategy = deployment_safe / max(sum(deployment_safe), 1e-6);
-                obj.attacker_strategy = target_vector;
-                
-                fprintf('[DEBUG] 环境状态安全更新完成 (时间步: %d)\n', obj.time_step);
+                % 更新增强指标
+                obj.updateEnhancedMetrics(attack_success, damage, attacker_target, defender_deployment, detection_result);
                 
             catch ME
-                fprintf('[ERROR] 安全状态更新也失败: %s\n', ME.message);
-                fprintf('[WARNING] 跳过状态更新，继续仿真\n');
+                warning('TCSEnvironment:UpdateError', '更新环境状态时出错: %s', ME.message);
             end
         end
         
-        function radi = calculateRADISafe(obj, current_allocation, optimal_allocation)
-            %CALCULATERADISAFE 安全的RADI计算方法
-            
+        function optimal_allocation = computeOptimalAllocation(obj, varargin)
+            %COMPUTEOPTIMALALLOCATION 计算最优资源分配
             try
-                % 调用原有的RADI计算方法
-                radi = obj.calculateRADI(current_allocation, optimal_allocation);
+                % 初始均匀分配
+                optimal_allocation = ones(1, obj.n_stations) / obj.n_stations * obj.total_resources;
                 
-                % 验证输出
-                if isempty(radi) || ~isnumeric(radi) || isnan(radi) || isinf(radi)
-                    radi = 0.5;  % 默认中等RADI值
-                end
-                
-            catch ME
-                % 使用简化的RADI计算
-                try
-                    % 归一化分配
-                    current_norm = current_allocation / max(sum(current_allocation), 1e-6);
-                    optimal_norm = optimal_allocation / max(sum(optimal_allocation), 1e-6);
-                    
-                    % 确保维度匹配
-                    min_length = min(length(current_norm), length(optimal_norm));
-                    if min_length == 0
-                        radi = 0.5;
-                    else
-                        current_norm = current_norm(1:min_length);
-                        optimal_norm = optimal_norm(1:min_length);
-                        
-                        % 简化RADI计算
-                        deviation = abs(current_norm - optimal_norm);
-                        radi = 1 - mean(deviation);
-                        radi = max(0, min(1, radi));  % 确保在[0,1]范围内
-                    end
-                    
-                catch
-                    radi = 0.5;  % 最终备用值
-                end
-                
-                fprintf('[INFO] 使用简化RADI计算: %.3f\n', radi);
-            end
-        end
-        
-        %% 7. 添加安全的状态生成方法
-        
-        function state = generateEnvironmentStateSafe(obj)
-            %GENERATEENVIRONMENTSTATESAFE 安全的环境状态生成方法
-            
-            try
-                % 调用原有的状态生成方法
-                state = obj.generateEnvironmentState();
-                
-                % 验证状态
-                if isempty(state) || ~isnumeric(state) || any(isnan(state)) || any(isinf(state))
-                    error('生成的状态无效');
-                end
-                
-                % 确保状态维度正确
-                if length(state) ~= obj.state_dim
-                    if length(state) < obj.state_dim
-                        state = [state, zeros(1, obj.state_dim - length(state))];
-                    else
-                        state = state(1:obj.state_dim);
+                % 基于历史攻击数据优化分配
+                if ~isempty(obj.attack_target_history) && size(obj.attack_target_history, 1) > 0
+                    attack_frequencies = sum(obj.attack_target_history, 1);
+                    if sum(attack_frequencies) > 0
+                        attack_probabilities = attack_frequencies / sum(attack_frequencies);
+                        optimal_allocation = attack_probabilities * obj.total_resources;
                     end
                 end
                 
-            catch ME
-                fprintf('[ERROR] 环境状态生成失败: %s\n', ME.message);
-                
-                % 使用简化的状态生成
-                state = obj.generateSimpleState();
-            end
-        end
-        
-        function state = generateSimpleState(obj)
-            %GENERATESIMPLESTATE 简化的状态生成方法
-            
-            try
-                state_components = {};
-                
-                % 1. FSP平均策略
-                if ~isempty(obj.attacker_avg_strategy) && length(obj.attacker_avg_strategy) == obj.n_stations
-                    state_components{end+1} = obj.attacker_avg_strategy;
-                else
-                    state_components{end+1} = ones(1, obj.n_stations) / obj.n_stations;
-                end
-                
-                % 2. 当前RADI值
-                if ~isempty(obj.radi_score) && isnumeric(obj.radi_score)
-                    state_components{end+1} = obj.radi_score;
-                else
-                    state_components{end+1} = 0.5;
-                end
-                
-                % 3. 最近的检测历史
-                if ~isempty(obj.detection_history)
-                    recent_detections = obj.detection_history(max(1, end-4):end);
-                    detection_rate = mean(recent_detections);
-                    state_components{end+1} = detection_rate;
-                else
-                    state_components{end+1} = 0.5;
-                end
-                
-                % 4. 时间步归一化
-                time_normalized = min(obj.time_step / 1000, 1.0);
-                state_components{end+1} = time_normalized;
-                
-                % 5. 站点价值
-                state_components{end+1} = obj.station_values;
-                
-                % 6. 资源状态
-                resource_state = ones(1, obj.n_resource_types) * 0.5;
-                state_components{end+1} = resource_state;
-                
-                % 组合状态
-                state = [];
-                for i = 1:length(state_components)
-                    component = state_components{i};
-                    if isnumeric(component)
-                        state = [state, component(:)'];
+                % 基于RADI配置的最优分配
+                if isfield(obj.radi_config, 'optimal_allocation') && ...
+                   length(obj.radi_config.optimal_allocation) == obj.n_stations
+                    radi_optimal = obj.radi_config.optimal_allocation(:)';
+                    if sum(radi_optimal) > 0
+                        radi_optimal = radi_optimal / sum(radi_optimal);
+                        optimal_allocation = radi_optimal * obj.total_resources;
                     end
                 end
                 
-                % 确保维度匹配
-                if length(state) > obj.state_dim
-                    state = state(1:obj.state_dim);
-                elseif length(state) < obj.state_dim
-                    state = [state, zeros(1, obj.state_dim - length(state))];
+                % 确保分配有效性
+                optimal_allocation = max(0, optimal_allocation);
+                if sum(optimal_allocation) > obj.total_resources
+                    optimal_allocation = optimal_allocation / sum(optimal_allocation) * obj.total_resources;
                 end
                 
-                fprintf('[DEBUG] 生成简化状态，维度: %d\n', length(state));
+                optimal_allocation = optimal_allocation(:)';
                 
             catch ME
-                fprintf('[ERROR] 简化状态生成也失败: %s\n', ME.message);
-                % 最终备用方案
-                state = randn(1, obj.state_dim) * 0.1;
+                warning('TCSEnvironment:ComputeOptimalError', '计算最优分配时出错: %s', ME.message);
+                optimal_allocation = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
             end
         end
         
-        %% 8. 添加安全的信息结构创建方法
-        
-        function info = createStepInfoSafe(obj, attack_success, damage, attacker_target, ...
-                                          defender_deployment, detection_result, reward_def, reward_att)
-            %CREATESTEPINFOSAFE 安全的信息结构创建方法
-            
-            try
-                % 调用原有的信息创建方法
-                info = obj.createStepInfo(attack_success, damage, attacker_target, ...
-                                         defender_deployment, detection_result, reward_def, reward_att);
-                
-            catch ME
-                fprintf('[ERROR] 信息结构创建失败: %s，使用默认信息\n', ME.message);
-                info = obj.createDefaultInfo();
-                
-                % 添加基本信息
-                info.attack_success = attack_success;
-                info.damage = damage;
-                info.attacker_target = attacker_target;
-                info.defender_deployment = defender_deployment;
-                info.detection_result = detection_result;
-                info.defender_rewards = reward_def;
-                info.attacker_reward = reward_att;
-                info.radi_score = obj.radi_score;
-                info.time_step = obj.time_step;
-            end
-        end
-        
-        function info = createDefaultInfo(obj)
-            %CREATEDEFAULTINFO 创建默认信息结构
-            
-            info = struct();
-            info.attack_success = false;
-            info.damage = 0;
-            info.attacker_target = 1;
-            info.defender_deployment = ones(1, obj.n_stations) / obj.n_stations;
-            info.detection_result = struct('detected', false, 'detection_prob', 0, 'is_false_positive', false);
-            info.defender_rewards = 0;
-            info.attacker_reward = 0;
-            info.radi_score = 0.5;
-            info.time_step = obj.time_step;
-            info.current_nash_convergence = 0.5;
-            info.current_attack_coverage = 0.5;
-            info.current_defense_effectiveness = 0.5;
-        end
-        
-        %% 9. 修复历史记录维度问题
-        
-        function initializeAllHistoryRecords(obj)
-            %INITIALIZEALLHISTORYRECORDS 初始化所有历史记录
-            
-            % 基本历史记录
-            obj.attack_success_history = [];
-            obj.damage_history = [];
-            obj.radi_history = [];
-            obj.detection_history = [];
-            obj.reward_history = [];
-            
-            % 矩阵形式的历史记录（每行一个时间步）
-            obj.attack_target_history = zeros(0, obj.n_stations);      % N×stations 矩阵
-            obj.defense_deployment_history = zeros(0, obj.n_stations); % N×stations 矩阵
-            
-            % 兼容性历史记录
-            obj.deployment_history = zeros(0, obj.n_stations);
-            obj.attack_history = [];
-            obj.defense_history = zeros(0, obj.n_stations);
-            obj.damage_history_alt = [];
-            
-            fprintf('[DEBUG] 历史记录已初始化，矩阵维度: N×%d\n', obj.n_stations);
-        end
-
-
-        %% ========== 新增：策略管理方法 ==========
+        %% ========== 策略管理方法 ==========
         
         function updateStrategies(obj, attack_strategy, defense_strategy)
             % 更新策略并记录变化
-            % 输入：
-            %   attack_strategy - 当前攻击策略向量
-            %   defense_strategy - 当前防御策略向量
-            
-            % 验证输入
             if length(attack_strategy) ~= obj.n_stations || length(defense_strategy) ~= obj.n_stations
                 warning('TCSEnvironment:InvalidStrategy', '策略向量长度与站点数不匹配');
                 return;
             end
             
-            % 保存上一轮策略
             obj.prev_attack_strategy = obj.curr_attack_strategy;
             obj.prev_defense_strategy = obj.curr_defense_strategy;
             
-            % 更新当前策略
-            obj.curr_attack_strategy = attack_strategy(:)'; % 确保行向量
+            obj.curr_attack_strategy = attack_strategy(:)';
             obj.curr_defense_strategy = defense_strategy(:)';
             
-            % 归一化策略（确保概率和为1）
+            % 归一化策略
             if sum(obj.curr_attack_strategy) > 0
                 obj.curr_attack_strategy = obj.curr_attack_strategy / sum(obj.curr_attack_strategy);
             end
             if sum(obj.curr_defense_strategy) > 0
                 obj.curr_defense_strategy = obj.curr_defense_strategy / sum(obj.curr_defense_strategy);
             end
+        end
+        
+        %% ========== 信息获取方法 ==========
+        
+        function info = getEnvironmentInfo(obj)
+            %GETENVIRONMENTINFO 获取环境信息
             
-            if obj.debug_mode && mod(obj.time_step, 100) == 0
-                fprintf('[策略更新] 时步%d: 攻击策略=%.3f, 防御策略=%.3f\n', ...
-                        obj.time_step, obj.curr_attack_strategy(1), obj.curr_defense_strategy(1));
+            info = struct();
+            info.n_stations = obj.n_stations;
+            info.total_resources = obj.total_resources;
+            info.time_step = obj.time_step;
+            info.current_radi = obj.radi_score;
+            
+            % 性能统计
+            info.recent_success_rate = obj.computeRecentSuccessRate();
+            info.recent_detection_rate = obj.computeRecentDetectionRate();
+            info.recent_radi = obj.computeRecentRADI();
+            
+            % 增强指标统计
+            if ~isempty(obj.nash_convergence_history)
+                info.recent_nash_convergence = mean(obj.nash_convergence_history(max(1, end-19):end));
+            else
+                info.recent_nash_convergence = 1.0;
+            end
+            
+            if ~isempty(obj.attack_coverage_history)
+                info.recent_attack_coverage = mean(obj.attack_coverage_history(max(1, end-19):end));
+            else
+                info.recent_attack_coverage = 0.5;
+            end
+            
+            if ~isempty(obj.defense_effectiveness_history)
+                info.recent_defense_effectiveness = mean(obj.defense_effectiveness_history(max(1, end-19):end));
+            else
+                info.recent_defense_effectiveness = 0.5;
             end
         end
         
-        function nash_convergence = calculateNashConvergence(obj)
-            % 计算Nash均衡收敛度
-            % 输出：nash_convergence - 收敛度（越小表示越接近Nash均衡）
+        function summary = getDataSummary(obj)
+            % 获取数据摘要（用于调试和监控）
             
-            if isempty(obj.prev_attack_strategy) || isempty(obj.prev_defense_strategy) || ...
-               isempty(obj.curr_attack_strategy) || isempty(obj.curr_defense_strategy)
-                nash_convergence = 1.0; % 初始值
-                return;
-            end
+            summary = struct();
+            summary.total_steps = obj.time_step;
             
-            % 计算策略变化的L2范数
-            attack_change = norm(obj.curr_attack_strategy - obj.prev_attack_strategy, 2);
-            defense_change = norm(obj.curr_defense_strategy - obj.prev_defense_strategy, 2);
+            % 原有指标
+            summary.radi_data_points = length(obj.radi_history);
+            summary.attack_success_data_points = length(obj.attack_success_history);
             
-            % 综合收敛度（策略变化越小，收敛度越小）
-            nash_convergence = (attack_change + defense_change) / 2;
+            % 新增指标
+            summary.nash_convergence_data_points = length(obj.nash_convergence_history);
+            summary.attack_coverage_data_points = length(obj.attack_coverage_history);
+            summary.defense_effectiveness_data_points = length(obj.defense_effectiveness_history);
+            summary.strategy_change_data_points = size(obj.strategy_change_history, 1);
             
-            % 数值稳定性检查
-            if isnan(nash_convergence) || isinf(nash_convergence)
-                nash_convergence = 0;
-            end
-            
-            % 限制在合理范围内
-            nash_convergence = min(nash_convergence, 2.0); % 最大收敛度限制
-        end
-        
-        function attack_coverage = calculateAttackCoverage(obj, defense_deployment, attack_success, detection_result)
-            % 计算攻击覆盖率（防御系统能有效防御的攻击类型比例）
-            % 输入：
-            %   defense_deployment - 防御部署向量
-            %   attack_success - 当前攻击是否成功
-            %   detection_result - 检测结果结构体
-            % 输出：
-            %   attack_coverage - 攻击覆盖率 [0,1]
-            
-            % 防御强度（归一化的防御部署）
-            if sum(defense_deployment) > 0
-                defense_strength = defense_deployment / sum(defense_deployment);
+            % 最终值
+            if ~isempty(obj.radi_history)
+                summary.final_radi = obj.radi_history(end);
             else
-                defense_strength = zeros(size(defense_deployment));
+                summary.final_radi = NaN;
             end
             
-            % 基于检测能力和防御强度计算覆盖率
-            detection_bonus = 0;
-            if isfield(detection_result, 'detected') && detection_result.detected
-                detection_bonus = 0.3; % 检测成功加分
+            if ~isempty(obj.nash_convergence_history)
+                summary.final_nash_convergence = obj.nash_convergence_history(end);
+            else
+                summary.final_nash_convergence = NaN;
             end
             
-            defense_effectiveness = sum(defense_strength .* obj.station_values); % 防御有效性
-            attack_failure_bonus = double(~attack_success) * 0.2; % 攻击失败加分
-            
-            % 基础覆盖率（基于防御部署的均匀性）
-            defense_balance = 1 - std(defense_strength); % 部署越均匀，覆盖率越高
-            
-            % 综合覆盖率计算
-            attack_coverage = min(0.95, max(0.05, ...
-                defense_effectiveness * 0.4 + detection_bonus + attack_failure_bonus + defense_balance * 0.1));
-            
-            % 数值稳定性检查
-            if isnan(attack_coverage) || isinf(attack_coverage)
-                attack_coverage = 0.5; % 默认中等覆盖率
+            if ~isempty(obj.attack_coverage_history)
+                summary.final_attack_coverage = obj.attack_coverage_history(end);
+            else
+                summary.final_attack_coverage = NaN;
             end
         end
         
-        function defense_effectiveness = calculateDefenseEffectiveness(obj, defense_deployment, damage, attack_success)
-            % 计算防御有效性
-            % 输入：
-            %   defense_deployment - 防御部署
-            %   damage - 造成的损害
-            %   attack_success - 攻击是否成功
-            % 输出：
-            %   defense_effectiveness - 防御有效性 [0,1]
+        %% ========== 兼容性方法（与AgentFactory配合） ==========
+        
+        function deployment = parseDefenderAction(obj, action)
+            %PARSEDEFENDERACTION 解析防御者动作
             
-            max_possible_damage = max(obj.station_values);
-            if max_possible_damage > 0
-                damage_prevention = max(0, (max_possible_damage - damage) / max_possible_damage);
+            if isscalar(action)
+                % 使用预定义模板
+                template_idx = min(max(round(action), 1), size(obj.action_templates, 1));
+                deployment = obj.action_templates(template_idx, :) * obj.total_resources;
+            elseif length(action) == obj.n_stations
+                deployment = action;
+                if sum(deployment) > 0
+                    deployment = deployment / sum(deployment) * obj.total_resources;
+                end
             else
-                damage_prevention = 0;
+                deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
             end
             
-            attack_prevention = double(~attack_success);
+            deployment = max(0, deployment);
+        end
+        
+        function target = parseAttackerAction(obj, action)
+            %PARSEATTACKERACTION 解析攻击者动作
             
-            % 防御资源利用效率
-            if obj.total_resources > 0
-                resource_efficiency = sum(defense_deployment) / obj.total_resources;
+            if isscalar(action)
+                target = min(max(round(action), 1), obj.n_stations);
             else
-                resource_efficiency = 0;
+                [~, target] = max(action);
+            end
+        end
+    end
+    
+    %% ========== 私有方法 ==========
+    methods (Access = private)
+        
+        function extractConfigParameters(obj, config)
+            %EXTRACTCONFIGPARAMETERS 从ConfigManager结构中提取参数
+            
+            % 系统基础参数（兼容多种配置结构）
+            if isfield(config, 'system') && isfield(config.system, 'n_stations')
+                obj.n_stations = config.system.n_stations;
+                obj.n_components = config.system.n_components_per_station;
+                obj.total_resources = config.system.total_resources;
+            elseif isfield(config, 'n_stations') % 兼容旧格式
+                obj.n_stations = config.n_stations;
+                obj.n_components = config.n_components_per_station;
+                obj.total_resources = config.total_resources;
+            else
+                % 默认值
+                obj.n_stations = 10;
+                obj.n_components = [7, 6, 8, 5, 9, 15, 4, 6, 3, 4];
+                obj.total_resources = 100;
             end
             
-            % 综合防御有效性
-            defense_effectiveness = 0.5 * damage_prevention + 0.3 * attack_prevention + 0.2 * resource_efficiency;
+            obj.total_components = sum(obj.n_components);
             
-            % 限制在[0,1]范围内
-            defense_effectiveness = max(0, min(1, defense_effectiveness));
+            % FSP参数
+            if isfield(config, 'simulation') && isfield(config.simulation, 'alpha_ewma')
+                obj.alpha_ewma = config.simulation.alpha_ewma;
+            elseif isfield(config, 'alpha_ewma')
+                obj.alpha_ewma = config.alpha_ewma;
+            else
+                obj.alpha_ewma = 0.1; % 默认值
+            end
             
-            % 数值稳定性检查
-            if isnan(defense_effectiveness) || isinf(defense_effectiveness)
-                defense_effectiveness = 0.5;
+            % RADI配置
+            if isfield(config, 'radi')
+                obj.radi_config = config.radi;
+            else
+                obj.radi_config = struct();
+                obj.radi_config.optimal_allocation = ones(1, obj.n_stations) / obj.n_stations;
+                obj.radi_config.weights = ones(1, obj.n_stations) / obj.n_stations;
+            end
+            
+            % 检测系统配置
+            if isfield(config, 'security')
+                obj.detection_enabled = true;
+                obj.base_detection_rate = config.security.attack_detection_rate;
+                obj.detection_sensitivity = 0.8; % 默认
+                obj.false_positive_rate = config.security.false_positive_rate;
+            elseif isfield(config, 'detection')
+                obj.detection_enabled = config.detection.enabled;
+                obj.base_detection_rate = config.detection.base_rate;
+                obj.detection_sensitivity = config.detection.sensitivity;
+                obj.false_positive_rate = config.detection.false_positive_rate;
+            else
+                obj.detection_enabled = true;
+                obj.base_detection_rate = 0.3;
+                obj.detection_sensitivity = 0.8;
+                obj.false_positive_rate = 0.1;
+            end
+            
+            % 调试模式
+            if isfield(config, 'debug') && isfield(config.debug, 'enabled')
+                obj.debug_mode = config.debug.enabled;
+            elseif isfield(config, 'debug_mode')
+                obj.debug_mode = config.debug_mode;
+            else
+                obj.debug_mode = false;
+            end
+            
+            % 数值稳定性参数
+            obj.epsilon = 1e-8;
+        end
+        
+        function initializeEnvironmentComponents(obj)
+            %INITIALIZEENVIRONMENTCOMPONENTS 初始化环境组件
+            
+            % 生成站点价值
+            obj.generateStationValues();
+            
+            % 创建动作模板
+            obj.action_templates = obj.createActionTemplates();
+            
+            % 初始化FSP平均策略
+            obj.attacker_avg_strategy = ones(1, obj.n_stations) / obj.n_stations;
+            
+            % 初始化历史记录
+            obj.clearAllHistoryRecords();
+            
+            % 初始化策略跟踪
+            obj.resetStrategyTracking();
+        end
+        
+        function calculateSpaceDimensions(obj)
+            %CALCULATESPACEDIMENSIONS 计算状态和动作空间维度
+            
+            % 状态维度：[攻击者平均策略, 时间归一化, RADI]
+            obj.state_dim = obj.n_stations + 2;
+            
+            % 动作维度
+            obj.action_dim = obj.n_stations; % 兼容性属性
+            obj.action_dim_defender = obj.n_stations;
+            obj.action_dim_attacker = obj.n_stations;
+        end
+        
+        function generateStationValues(obj)
+            %GENERATESTATIONVALUES 生成站点价值
+            
+            % 基于组件数量生成价值
+            component_importance = rand(1, obj.total_components);
+            obj.station_values = zeros(1, obj.n_stations);
+            
+            idx = 1;
+            for i = 1:obj.n_stations
+                n_comp = obj.n_components(i);
+                obj.station_values(i) = sum(component_importance(idx:idx+n_comp-1));
+                idx = idx + n_comp;
+            end
+            
+            % 归一化并减少极端差异
+            obj.station_values = obj.station_values / sum(obj.station_values);
+            obj.station_values = obj.station_values .^ 0.8;
+            obj.station_values = obj.station_values / sum(obj.station_values);
+        end
+        
+        function templates = createActionTemplates(obj)
+            %CREATEACTIONTEMPLATES 创建动作模板
+            
+            n_templates = 5;
+            templates = zeros(n_templates, obj.n_stations);
+            
+            % 均匀分配
+            templates(1, :) = ones(1, obj.n_stations) / obj.n_stations;
+            
+            % 基于价值的分配
+            templates(2, :) = obj.station_values / sum(obj.station_values);
+            
+            % 随机分配
+            for i = 3:n_templates
+                random_weights = rand(1, obj.n_stations);
+                templates(i, :) = random_weights / sum(random_weights);
             end
         end
         
         function clearAllHistoryRecords(obj)
             %CLEARALLHISTORYRECORDS 清空所有历史记录
             
-            % 原有历史记录
+            % 基本历史记录
             obj.attack_success_history = [];
-            obj.attack_target_history = [];
-            obj.defense_deployment_history = [];
             obj.damage_history = [];
             obj.radi_history = [];
             obj.detection_history = [];
-            obj.reward_history = struct('defender', [], 'attacker', []);
             
-            % 清空兼容性历史
-            obj.deployment_history = [];
-            obj.damage_history_alt = [];
-            obj.attack_history = [];
-            obj.defense_history = [];
+            % 矩阵形式历史记录（初始化为0行N列）
+            obj.attack_target_history = zeros(0, obj.n_stations);
+            obj.defense_deployment_history = zeros(0, obj.n_stations);
             
-            % 新增：清空增强指标历史
+            % 增强指标历史
             obj.nash_convergence_history = [];
             obj.attack_coverage_history = [];
             obj.defense_effectiveness_history = [];
-            obj.strategy_change_history = [];
+            obj.strategy_change_history = zeros(0, 2);
         end
         
         function resetStrategyTracking(obj)
@@ -801,182 +544,54 @@ classdef TCSEnvironment < handle
             obj.curr_defense_strategy = [];
         end
         
-        function updateEnvironmentStateEnhanced(obj, attack_success, damage, attacker_target, defender_deployment, detection_result)
-            %UPDATEENVIRONMENTSTATEENHANCED 更新环境状态（增强版）
+        function [defender_deployment, attacker_target] = validateAndFixStepInputs(obj, defender_deployment, attacker_target)
+            %VALIDATEANDFIXSTEPINPUTS 验证和修复输入维度
             
-            % === 原有记录（保持不变） ===
-            obj.attack_success_history(end+1) = double(attack_success);
-            obj.damage_history(end+1) = damage;
-            obj.radi_history(end+1) = obj.radi_score;
-            obj.detection_history(end+1) = detection_result.detected;
-            
-            % 记录攻击目标（one-hot编码）
-            target_vector = zeros(1, obj.n_stations);
-            target_vector(attacker_target) = 1;
-            
-            if isempty(obj.attack_target_history)
-                obj.attack_target_history = target_vector;
-                obj.defense_deployment_history = defender_deployment;
-            else
-                obj.attack_target_history(end+1, :) = target_vector;
-                obj.defense_deployment_history(end+1, :) = defender_deployment;
+            % 修复防御者部署向量
+            if isempty(defender_deployment)
+                defender_deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
             end
             
-            % 更新兼容性历史
-            obj.deployment_history = obj.defense_deployment_history;
-            obj.damage_history_alt = obj.damage_history;
-            obj.attack_history(end+1) = attacker_target;
-            obj.defense_history = obj.defense_deployment_history;
+            defender_deployment = defender_deployment(:)';
             
-            % === 新增：记录增强指标 ===
-            
-            % 1. Nash均衡收敛度记录
-            nash_conv = obj.calculateNashConvergence();
-            obj.nash_convergence_history(end+1) = nash_conv;
-            
-            % 2. 攻击覆盖率记录
-            coverage = obj.calculateAttackCoverage(defender_deployment, attack_success, detection_result);
-            obj.attack_coverage_history(end+1) = coverage;
-            
-            % 3. 防御有效性记录
-            effectiveness = obj.calculateDefenseEffectiveness(defender_deployment, damage, attack_success);
-            obj.defense_effectiveness_history(end+1) = effectiveness;
-            
-            % 4. 策略变化记录
-            if ~isempty(obj.prev_attack_strategy) && ~isempty(obj.prev_defense_strategy)
-                attack_change = norm(obj.curr_attack_strategy - obj.prev_attack_strategy, 2);
-                defense_change = norm(obj.curr_defense_strategy - obj.prev_defense_strategy, 2);
-                obj.strategy_change_history(end+1, :) = [attack_change, defense_change];
-            else
-                obj.strategy_change_history(end+1, :) = [0, 0];
-            end
-            
-            % 更新兼容性策略和RADI
-            obj.radi_defender = obj.radi_score;
-            obj.radi_attacker = 0;
-            
-            % 更新当前策略（兼容性）
-            if sum(defender_deployment) > 0
-                obj.defender_strategy = defender_deployment / sum(defender_deployment);
-            end
-            
-            % 更新攻击者策略（基于最近行为）
-            recent_window = min(10, length(obj.attack_history));
-            if recent_window > 0
-                recent_targets = obj.attack_history(end-recent_window+1:end);
-                strategy_update = zeros(1, obj.n_stations);
-                for target = recent_targets
-                    strategy_update(target) = strategy_update(target) + 1;
-                end
-                if sum(strategy_update) > 0
-                    obj.attacker_strategy = strategy_update / sum(strategy_update);
+            if length(defender_deployment) ~= obj.n_stations
+                if length(defender_deployment) < obj.n_stations
+                    padding = ones(1, obj.n_stations - length(defender_deployment)) * (obj.total_resources / obj.n_stations / 10);
+                    defender_deployment = [defender_deployment, padding];
+                else
+                    defender_deployment = defender_deployment(1:obj.n_stations);
                 end
             end
-        end
-        
-        function info = createEnhancedStepInfo(obj, attack_success, damage, attacker_target, ...
-                                             defender_deployment, detection_result, reward_def, reward_att)
-            % 创建增强的步骤信息结构体
             
-            info = struct();
+            defender_deployment = max(0, defender_deployment);
             
-            % 基本信息
-            info.attack_success = attack_success;
-            info.damage = damage;
-            info.attacker_target = attacker_target;
-            info.defender_deployment = defender_deployment;
-            info.time_step = obj.time_step;
+            if sum(defender_deployment) > obj.total_resources * 1.1
+                defender_deployment = defender_deployment * (obj.total_resources / sum(defender_deployment));
+            end
             
-            % 性能指标
-            info.radi_score = obj.radi_score;
-            info.detection_result = detection_result;
+            % 修复攻击者目标
+            if isempty(attacker_target)
+                attacker_target = randi(obj.n_stations);
+            end
             
-            % 奖励信息
-            info.reward_def = reward_def;
-            info.reward_att = reward_att;
-            
-            % 统计信息
-            info.recent_success_rate = obj.computeRecentSuccessRate();
-            info.recent_detection_rate = obj.computeRecentDetectionRate();
-            info.recent_radi = obj.computeRecentRADI();
-            
-            % 新增：增强指标
-            if ~isempty(obj.nash_convergence_history)
-                info.current_nash_convergence = obj.nash_convergence_history(end);
+            if isscalar(attacker_target)
+                attacker_target = max(1, min(obj.n_stations, round(attacker_target)));
             else
-                info.current_nash_convergence = 1.0;
-            end
-            
-            if ~isempty(obj.attack_coverage_history)
-                info.current_attack_coverage = obj.attack_coverage_history(end);
-            else
-                info.current_attack_coverage = 0.5;
-            end
-            
-            if ~isempty(obj.defense_effectiveness_history)
-                info.current_defense_effectiveness = obj.defense_effectiveness_history(end);
-            else
-                info.current_defense_effectiveness = 0.5;
-            end
-            
-            % 资源分配信息（用于性能监控）
-            info.resource_allocation = defender_deployment / sum(defender_deployment);
-            
-            % 策略信息
-            info.current_attack_strategy = obj.curr_attack_strategy;
-            info.current_defense_strategy = obj.curr_defense_strategy;
-        end
-        
-        %% ========== 数据验证方法 ==========
-        
-        function validateDataIntegrity(obj)
-            % 验证数据完整性
-            
-            if ~obj.data_validation_enabled
-                return;
-            end
-            
-            % 检查历史数据长度一致性
-            if ~isempty(obj.radi_history)
-                expected_length = length(obj.radi_history);
-                
-                % 检查各个历史记录的长度
-                history_fields = {
-                    'nash_convergence_history',
-                    'attack_coverage_history',
-                    'defense_effectiveness_history'
-                };
-                
-                for i = 1:length(history_fields)
-                    field = history_fields{i};
-                    if length(obj.(field)) ~= expected_length
-                        warning('TCSEnvironment:DataInconsistency', ...
-                                '历史数据长度不一致: %s (%d) vs expected (%d)', ...
-                                field, length(obj.(field)), expected_length);
+                if length(attacker_target) ~= obj.n_stations
+                    if length(attacker_target) < obj.n_stations
+                        attacker_target = [attacker_target, zeros(1, obj.n_stations - length(attacker_target))];
+                    else
+                        attacker_target = attacker_target(1:obj.n_stations);
                     end
                 end
-            end
-            
-            % 检查数据范围合理性
-            if ~isempty(obj.attack_coverage_history)
-                coverage_data = obj.attack_coverage_history;
-                if any(coverage_data < 0) || any(coverage_data > 1)
-                    warning('TCSEnvironment:DataOutOfRange', '攻击覆盖率数据超出合理范围[0,1]');
-                end
-            end
-            
-            if ~isempty(obj.nash_convergence_history)
-                nash_data = obj.nash_convergence_history;
-                if any(nash_data < 0) || any(nash_data > 5)
-                    warning('TCSEnvironment:DataOutOfRange', 'Nash收敛度数据超出合理范围[0,5]');
-                end
+                [~, attacker_target] = max(attacker_target);
             end
         end
         
-        %% ========== 原有方法（保持兼容性） ==========
+        %% ========== 核心计算方法 ==========
         
         function updateAttackerAverageStrategy(obj, attacker_target)
-            %UPDATEATTACKERAVERAGESTY 更新攻击者平均策略（FSP）
+            %UPDATEATTACKERAVERAGESTRATEGY 更新攻击者平均策略（FSP核心）
             
             target_onehot = zeros(1, obj.n_stations);
             target_onehot(attacker_target) = 1;
@@ -991,7 +606,7 @@ classdef TCSEnvironment < handle
             target_defense = defender_deployment(attacker_target);
             target_value = obj.station_values(attacker_target);
             
-            % 攻击成功概率（基于防御强度）
+            % 攻击成功概率
             if obj.total_resources > 0
                 defense_ratio = target_defense / obj.total_resources;
             else
@@ -1058,22 +673,22 @@ classdef TCSEnvironment < handle
             if attack_success
                 reward_att = damage;
                 if detection_result.detected && ~detection_result.is_false_positive
-                    reward_att = reward_att * 0.5; % 被检测到时奖励减半
+                    reward_att = reward_att * 0.5;
                 end
             else
-                reward_att = -0.1; % 攻击失败的小惩罚
+                reward_att = -0.1;
             end
             
             % 防御者奖励
-            reward_def = -damage; % 基础：避免损害
+            reward_def = -damage;
             
             if detection_result.detected && ~detection_result.is_false_positive
-                reward_def = reward_def + 0.5; % 成功检测奖励
+                reward_def = reward_def + 0.5;
             elseif detection_result.is_false_positive
-                reward_def = reward_def - 0.2; % 误报惩罚
+                reward_def = reward_def - 0.2;
             end
             
-            % 防御效率奖励
+            % 资源效率奖励
             if obj.total_resources > 0
                 resource_efficiency = 1 - (sum(defender_deployment) / obj.total_resources);
                 reward_def = reward_def + resource_efficiency * 0.1;
@@ -1084,7 +699,7 @@ classdef TCSEnvironment < handle
             %CALCULATERADI 计算RADI指标
             
             if sum(defender_deployment) == 0
-                radi = 1.0; % 最差情况
+                radi = 1.0;
                 return;
             end
             
@@ -1112,17 +727,14 @@ classdef TCSEnvironment < handle
             % RADI分数（0表示完美，1表示最差）
             radi = min(1.0, weighted_deviation);
             
-            % 更新当前RADI分数
-            obj.radi_score = radi;
-            
             % 数值稳定性检查
             if isnan(radi) || isinf(radi)
-                radi = 0;
+                radi = 0.5;
             end
         end
         
         function success_rate = computeRecentSuccessRate(obj)
-            %COMPUTERECENTSUCCESE 计算最近攻击成功率
+            %COMPUTERECENTSUCCESSRATE 计算最近攻击成功率
             
             if isempty(obj.attack_success_history)
                 success_rate = 0;
@@ -1151,7 +763,7 @@ classdef TCSEnvironment < handle
             %COMPUTERECENTRADI 计算最近RADI
             
             if isempty(obj.radi_history)
-                recent_radi = 0;
+                recent_radi = 0.5;
                 return;
             end
             
@@ -1163,7 +775,6 @@ classdef TCSEnvironment < handle
         function state = generateEnvironmentState(obj)
             %GENERATEENVIRONMENTSTATE 生成环境状态向量
             
-            % 状态组成：[攻击者平均策略, 时间归一化, 最近RADI]
             time_norm = min(obj.time_step / 1000, 1.0);
             recent_radi = obj.computeRecentRADI();
             
@@ -1179,498 +790,225 @@ classdef TCSEnvironment < handle
             end
         end
         
-        %% ========== 辅助和兼容性方法 ==========
-        
-        function deployment = parseDefenderAction(obj, action)
-            %PARSEDEFENDERACTION 解析防御者动作（兼容性）
+        function updateEnhancedMetrics(obj, attack_success, damage, attacker_target, defender_deployment, detection_result)
+            %UPDATEENHANCEDMETRICS 更新增强指标
             
-            if isscalar(action)
-                % 使用预定义模板
-                template_idx = min(max(round(action), 1), size(obj.action_templates, 1));
-                deployment = obj.action_templates(template_idx, :) * obj.total_resources;
-            elseif length(action) == obj.n_stations
-                deployment = action;
-                if sum(deployment) > 0
-                    deployment = deployment / sum(deployment) * obj.total_resources;
-                end
+            % Nash均衡收敛度
+            nash_conv = obj.calculateNashConvergence();
+            obj.nash_convergence_history(end+1) = nash_conv;
+            
+            % 攻击覆盖率
+            coverage = obj.calculateAttackCoverage(defender_deployment, attack_success, detection_result);
+            obj.attack_coverage_history(end+1) = coverage;
+            
+            % 防御有效性
+            effectiveness = obj.calculateDefenseEffectiveness(defender_deployment, damage, attack_success);
+            obj.defense_effectiveness_history(end+1) = effectiveness;
+            
+            % 策略变化
+            if ~isempty(obj.prev_attack_strategy) && ~isempty(obj.prev_defense_strategy) && ...
+               ~isempty(obj.curr_attack_strategy) && ~isempty(obj.curr_defense_strategy)
+                attack_change = norm(obj.curr_attack_strategy - obj.prev_attack_strategy, 2);
+                defense_change = norm(obj.curr_defense_strategy - obj.prev_defense_strategy, 2);
+                obj.strategy_change_history(end+1, :) = [attack_change, defense_change];
             else
-                deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
-            end
-            
-            deployment = max(0, deployment);
-        end
-        
-        function target = parseAttackerAction(obj, action)
-            %PARSEATTACKERACTION 解析攻击者动作（兼容性）
-            
-            if isscalar(action)
-                target = min(max(round(action), 1), obj.n_stations);
-            else
-                [~, target] = max(action);
+                obj.strategy_change_history(end+1, :) = [0, 0];
             end
         end
         
-        function info = getEnvironmentInfo(obj)
-            %GETENVIRONMENTINFO 获取环境信息
+        function nash_convergence = calculateNashConvergence(obj)
+            %CALCULATENASHCONVERGENCE 计算Nash均衡收敛度
+            
+            if isempty(obj.prev_attack_strategy) || isempty(obj.prev_defense_strategy) || ...
+               isempty(obj.curr_attack_strategy) || isempty(obj.curr_defense_strategy)
+                nash_convergence = 1.0;
+                return;
+            end
+            
+            attack_change = norm(obj.curr_attack_strategy - obj.prev_attack_strategy, 2);
+            defense_change = norm(obj.curr_defense_strategy - obj.prev_defense_strategy, 2);
+            nash_convergence = min(2.0, (attack_change + defense_change) / 2);
+            
+            if isnan(nash_convergence) || isinf(nash_convergence)
+                nash_convergence = 1.0;
+            end
+        end
+        
+        function attack_coverage = calculateAttackCoverage(obj, defense_deployment, attack_success, detection_result)
+            %CALCULATEATTACKCOVERAGE 计算攻击覆盖率
+            
+            if sum(defense_deployment) > 0
+                defense_strength = defense_deployment / sum(defense_deployment);
+            else
+                defense_strength = zeros(size(defense_deployment));
+            end
+            
+            detection_bonus = 0;
+            if isfield(detection_result, 'detected') && detection_result.detected && ...
+               isfield(detection_result, 'is_false_positive') && ~detection_result.is_false_positive
+                detection_bonus = 0.3;
+            end
+            
+            defense_effectiveness = sum(defense_strength .* obj.station_values);
+            attack_failure_bonus = double(~attack_success) * 0.2;
+            
+            if length(defense_strength) > 1
+                defense_balance = 1 - std(defense_strength);
+            else
+                defense_balance = 1.0;
+            end
+            
+            attack_coverage = min(0.95, max(0.05, ...
+                defense_effectiveness * 0.4 + detection_bonus + attack_failure_bonus + defense_balance * 0.1));
+            
+            if isnan(attack_coverage) || isinf(attack_coverage)
+                attack_coverage = 0.5;
+            end
+        end
+        
+        function defense_effectiveness = calculateDefenseEffectiveness(obj, defense_deployment, damage, attack_success)
+            %CALCULATEDEFENSEEFFECTIVENESS 计算防御有效性
+            
+            max_possible_damage = max(obj.station_values);
+            if max_possible_damage > 0
+                damage_prevention = max(0, (max_possible_damage - damage) / max_possible_damage);
+            else
+                damage_prevention = 0;
+            end
+            
+            attack_prevention = double(~attack_success);
+            
+            if obj.total_resources > 0
+                resource_efficiency = min(1.0, sum(defense_deployment) / obj.total_resources);
+            else
+                resource_efficiency = 0;
+            end
+            
+            defense_effectiveness = 0.5 * damage_prevention + 0.3 * attack_prevention + 0.2 * resource_efficiency;
+            defense_effectiveness = max(0, min(1, defense_effectiveness));
+            
+            if isnan(defense_effectiveness) || isinf(defense_effectiveness)
+                defense_effectiveness = 0.5;
+            end
+        end
+        
+        function info = createStepInfo(obj, attack_success, damage, attacker_target, ...
+                                     defender_deployment, detection_result, reward_def, reward_att)
+            %CREATESTEPINFO 创建步骤信息
             
             info = struct();
-            info.n_stations = obj.n_stations;
-            info.total_resources = obj.total_resources;
+            info.attack_success = attack_success;
+            info.damage = damage;
+            info.attacker_target = attacker_target;
+            info.defender_deployment = defender_deployment;
             info.time_step = obj.time_step;
-            info.current_radi = obj.radi_score;
+            info.radi_score = obj.radi_score;
+            info.detection_result = detection_result;
+            info.reward_def = reward_def;
+            info.reward_att = reward_att;
             
-            % 性能统计
+            % 最近指标
             info.recent_success_rate = obj.computeRecentSuccessRate();
             info.recent_detection_rate = obj.computeRecentDetectionRate();
             info.recent_radi = obj.computeRecentRADI();
             
-            % 新增：增强指标统计
+            % 增强指标
             if ~isempty(obj.nash_convergence_history)
-                info.recent_nash_convergence = mean(obj.nash_convergence_history(max(1, end-19):end));
+                info.current_nash_convergence = obj.nash_convergence_history(end);
             else
-                info.recent_nash_convergence = 1.0;
+                info.current_nash_convergence = 1.0;
             end
             
             if ~isempty(obj.attack_coverage_history)
-                info.recent_attack_coverage = mean(obj.attack_coverage_history(max(1, end-19):end));
+                info.current_attack_coverage = obj.attack_coverage_history(end);
             else
-                info.recent_attack_coverage = 0.5;
+                info.current_attack_coverage = 0.5;
             end
             
             if ~isempty(obj.defense_effectiveness_history)
-                info.recent_defense_effectiveness = mean(obj.defense_effectiveness_history(max(1, end-19):end));
+                info.current_defense_effectiveness = obj.defense_effectiveness_history(end);
             else
-                info.recent_defense_effectiveness = 0.5;
+                info.current_defense_effectiveness = 0.5;
+            end
+            
+            % 资源分配信息
+            if sum(defender_deployment) > 0
+                info.resource_allocation = defender_deployment / sum(defender_deployment);
+            else
+                info.resource_allocation = ones(1, obj.n_stations) / obj.n_stations;
             end
         end
         
-        function summary = getDataSummary(obj)
-            % 获取数据摘要（用于调试和监控）
+        function info = createDefaultInfo(obj)
+            %CREATEDEFAULTINFO 创建默认信息
             
-            summary = struct();
-            summary.total_steps = obj.time_step;
-            
-            % 原有指标
-            summary.radi_data_points = length(obj.radi_history);
-            summary.attack_success_data_points = length(obj.attack_success_history);
-            
-            % 新增指标
-            summary.nash_convergence_data_points = length(obj.nash_convergence_history);
-            summary.attack_coverage_data_points = length(obj.attack_coverage_history);
-            summary.defense_effectiveness_data_points = length(obj.defense_effectiveness_history);
-            summary.strategy_change_data_points = size(obj.strategy_change_history, 1);
-            
-            % 最终值
-            if ~isempty(obj.radi_history)
-                summary.final_radi = obj.radi_history(end);
-            else
-                summary.final_radi = NaN;
-            end
-            
-            if ~isempty(obj.nash_convergence_history)
-                summary.final_nash_convergence = obj.nash_convergence_history(end);
-            else
-                summary.final_nash_convergence = NaN;
-            end
-            
-            if ~isempty(obj.attack_coverage_history)
-                summary.final_attack_coverage = obj.attack_coverage_history(end);
-            else
-                summary.final_attack_coverage = NaN;
-            end
+            info = struct();
+            info.attack_success = false;
+            info.damage = 0;
+            info.attacker_target = 1;
+            info.defender_deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
+            info.detection_result = struct('detected', false, 'detection_prob', 0, 'is_false_positive', false);
+            info.reward_def = 0;
+            info.reward_att = 0;
+            info.radi_score = 0.5;
+            info.time_step = obj.time_step;
+            info.current_nash_convergence = 1.0;
+            info.current_attack_coverage = 0.5;
+            info.current_defense_effectiveness = 0.5;
+            info.resource_allocation = ones(1, obj.n_stations) / obj.n_stations;
+            info.recent_success_rate = 0;
+            info.recent_detection_rate = 0;
+            info.recent_radi = 0.5;
         end
     end
     
-    methods (Access = private)
-        function validateConfig(obj, config)
-            %VALIDATECONFIG 验证配置参数
-            
-            if ~isfield(config, 'n_stations') || config.n_stations <= 0
-                error('TCSEnvironment:InvalidConfig', '需要有效的n_stations参数');
-            end
-            
-            if isfield(config, 'n_components_per_station')
-                if length(config.n_components_per_station) ~= config.n_stations
-                    error('TCSEnvironment:InvalidConfig', 'n_components_per_station长度必须等于n_stations');
-                end
-            end
-        end
-        
-        function initializeBasicParameters(obj, config)
-            %INITIALIZEBASICPARAMETERS 初始化基础参数
-            
-            % 基础系统参数
-            obj.n_stations = config.n_stations;
-            
-            % 组件配置
-            if isfield(config, 'n_components_per_station') && ~isempty(config.n_components_per_station)
-                obj.n_components = config.n_components_per_station(:)';
-                if length(obj.n_components) ~= obj.n_stations
-                    obj.n_components = repmat(3, 1, obj.n_stations);
-                end
-            else
-                obj.n_components = repmat(3, 1, obj.n_stations);
-            end
-            obj.total_components = sum(obj.n_components);
-            
-            % 资源配置
-            obj.total_resources = obj.getConfigValue(config, 'total_resources', 100);
-            obj.n_resource_types = obj.getConfigValue(config, 'n_resource_types', 5);
-            obj.n_attack_types = obj.getConfigValue(config, 'n_attack_types', 6);
-            
-            % 生成站点价值
-            obj.generateStationValues();
-            
-            % 其他参数
-            obj.epsilon = 1e-8;
-            obj.debug_mode = obj.getConfigValue(config, 'debug_mode', false);
-            obj.optimization_method = 'default';
-        end
-        
-        function initializeEnvironmentComponents(obj, config)
-            %INITIALIZEENVIRONMENTCOMPONENTS 初始化环境组件
-            
-            % FSP参数
-            obj.alpha_ewma = obj.getConfigValue(config, 'alpha_ewma', 0.1);
-            obj.attacker_avg_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            
-            % 内部Q-Learning参数
-            obj.attacker_lr = obj.getConfigValue(config, 'attacker_lr', 0.1);
-            obj.attacker_gamma = obj.getConfigValue(config, 'attacker_gamma', 0.95);
-            obj.attacker_epsilon = obj.getConfigValue(config, 'attacker_epsilon', 0.3);
-            obj.attacker_epsilon_decay = obj.getConfigValue(config, 'attacker_epsilon_decay', 0.995);
-            obj.attacker_epsilon_min = obj.getConfigValue(config, 'attacker_epsilon_min', 0.01);
-            obj.max_defense_states = 50;
-            obj.attacker_Q_table = randn(obj.max_defense_states, obj.n_stations) * 0.1;
-            
-            % RADI配置
-            obj.radi_config = struct();
-            if isfield(config, 'radi')
-                obj.radi_config = config.radi;
-            else
-                obj.radi_config.optimal_allocation = ones(1, obj.n_stations) / obj.n_stations;
-                obj.radi_config.weights = ones(1, obj.n_stations) / obj.n_stations;
-            end
-            
-            % 检测系统
-            obj.detection_enabled = obj.getConfigValue(config, 'detection_enabled', true);
-            obj.base_detection_rate = obj.getConfigValue(config, 'base_detection_rate', 0.3);
-            obj.detection_sensitivity = obj.getConfigValue(config, 'detection_sensitivity', 0.8);
-            obj.false_positive_rate = obj.getConfigValue(config, 'false_positive_rate', 0.1);
-            
-            % 创建动作模板
-            obj.action_templates = obj.createActionTemplates();
-            
-            % 兼容性初始化
-            obj.initializeCompatibilityAttributes();
-        end
-        
-        function initializeEnhancedFeatures(obj, config)
-            %INITIALIZEENHANCEDFEATURES 初始化增强功能
-            
-            % 数据验证开关
-            obj.data_validation_enabled = obj.getConfigValue(config, 'enable_data_validation', true);
-            
-            % 初始化策略跟踪
-            obj.resetStrategyTracking();
-            
-            if obj.debug_mode
-                if obj.data_validation_enabled
-                    status_text = '启用';
-                else
-                    status_text = '禁用';
-                end
-                fprintf('[增强功能] 数据验证: %s\n', status_text);
-            end
-        end
-        
-        function initializeCompatibilityAttributes(obj)
-            %INITIALIZECOMPATIBILITYATTRIBUTES 初始化兼容性属性
-            
-            obj.defense_costs = ones(1, obj.n_stations);
-            obj.defense_effectiveness = ones(1, obj.n_stations) * 0.8;
-            obj.radi_defender = 0;
-            obj.radi_attacker = 0;
-            obj.defender_strategy = ones(1, obj.n_stations) / obj.n_stations;
-            obj.attacker_strategy = obj.station_values / sum(obj.station_values);
-            obj.optimal_defender_strategy = obj.defender_strategy;
-            obj.optimal_attacker_strategy = obj.attacker_strategy;
-            obj.attacker_actions = [];
-            obj.defender_actions = [];
-        end
-        
-        function calculateSpaceDimensions(obj)
-            %CALCULATESPACEDIMENSIONS 计算状态和动作空间维度
-            
-            % 状态维度：[攻击者平均策略, 时间归一化, RADI]
-            obj.state_dim = obj.n_stations + 1 + 1;
-            
-            % 动作维度
-            obj.action_dim = obj.n_stations;
-            obj.action_dim_defender = obj.n_stations;
-            obj.action_dim_attacker = obj.n_stations;
-        end
-        
-        function generateStationValues(obj)
-            %GENERATESTATIONVALUES 生成站点价值
-            
-            % 基于组件数量生成价值
-            component_importance = rand(1, obj.total_components);
-            obj.station_values = zeros(1, obj.n_stations);
-            
-            idx = 1;
-            for i = 1:obj.n_stations
-                n_comp = obj.n_components(i);
-                obj.station_values(i) = sum(component_importance(idx:idx+n_comp-1));
-                idx = idx + n_comp;
-            end
-            
-            % 归一化并增加差异性
-            obj.station_values = obj.station_values / sum(obj.station_values);
-            obj.station_values = obj.station_values .^ 0.8; % 减少极端差异
-            obj.station_values = obj.station_values / sum(obj.station_values);
-        end
-        
-        function validateStepInputs(obj, defender_deployment, attacker_target)
-            %VALIDATESTEPINPUTS 验证step方法输入
-            
-            if length(defender_deployment) ~= obj.n_stations
-                error('TCSEnvironment:InvalidInput', '防御部署向量长度必须为%d', obj.n_stations);
-            end
-            
-            if ~isscalar(attacker_target) || attacker_target < 1 || attacker_target > obj.n_stations
-                error('TCSEnvironment:InvalidInput', '攻击目标必须在1到%d之间', obj.n_stations);
-            end
-            
-            if any(defender_deployment < 0)
-                error('TCSEnvironment:InvalidInput', '防御部署不能为负数');
-            end
-        end
-        
-        function templates = createActionTemplates(obj)
-            %CREATEACTIONTEMPLATES 创建动作模板
-            
-            n_templates = 5;
-            templates = zeros(n_templates, obj.n_stations);
-            
-            % 均匀分配
-            templates(1, :) = ones(1, obj.n_stations) / obj.n_stations;
-            
-            % 基于价值的分配
-            templates(2, :) = obj.station_values / sum(obj.station_values);
-            
-            % 随机分配
-            for i = 3:n_templates
-                random_weights = rand(1, obj.n_stations);
-                templates(i, :) = random_weights / sum(random_weights);
-            end
-        end
-        
-        function value = getConfigValue(obj, config, field, default_value)
-            %GETCONFIGVALUE 安全获取配置值
-            
-            if isfield(config, field)
-                value = config.(field);
-            else
-                value = default_value;
-            end
-        end
-    end
-    
+    %% ========== 静态方法（与ConfigManager配合） ==========
     methods (Static)
-        function config = getDefaultConfig()
-            %GETDEFAULTCONFIG 获取默认配置
-            
-            config = struct();
-            
-            % === 基础系统参数 ===
-            config.n_stations = 5;
-            config.n_components_per_station = [3, 3, 3, 3, 3];
-            config.total_resources = 100;
-            config.n_resource_types = 5;
-            config.n_attack_types = 6;
-            
-            % === FSP参数 ===
-            config.alpha_ewma = 0.1;
-            
-            % === 内部Q-Learning参数 ===
-            config.attacker_lr = 0.1;
-            config.attacker_gamma = 0.95;
-            config.attacker_epsilon = 0.3;
-            config.attacker_epsilon_decay = 0.995;
-            config.attacker_epsilon_min = 0.01;
-            
-            % === RADI配置 ===
-            config.radi = struct();
-            config.radi.optimal_allocation = ones(1, 5) / 5;
-            config.radi.weights = ones(1, 5) / 5;
-            
-            % === 检测系统参数 ===
-            config.detection_enabled = true;
-            config.base_detection_rate = 0.3;
-            config.detection_sensitivity = 0.8;
-            config.false_positive_rate = 0.1;
-            
-            % === 增强功能参数 ===
-            config.enable_data_validation = true;
-            config.debug_mode = false;
-        end
-        
-        function config = getOptimizedConfig()
-            %GETOPTIMIZEDCONFIG 获取优化配置
-            
-            config = TCSEnvironment.getDefaultConfig();
-            
-            % === 性能优化参数 ===
-            config.alpha_ewma = 0.05;
-            config.attacker_lr = 0.03;
-            config.attacker_epsilon = 0.5;
-            config.attacker_epsilon_decay = 0.9995;
-            config.attacker_epsilon_min = 0.1;
-            
-            % === 检测系统增强 ===
-            config.base_detection_rate = 0.4;
-            config.detection_sensitivity = 0.85;
-            config.false_positive_rate = 0.08;
-            
-            % === 调试和监控 ===
-            config.debug_mode = true;
-            config.enable_data_validation = true;
-        end
-        
-        function config = getTestConfig()
-            %GETTESTCONFIG 获取测试配置
-            
-            config = TCSEnvironment.getDefaultConfig();
-            
-            % 小规模测试参数
-            config.n_stations = 3;
-            config.n_components_per_station = [2, 2, 2];
-            config.total_resources = 50;
-            config.debug_mode = true;
-            
-            % 快速收敛参数
-            config.alpha_ewma = 0.2;
-            config.attacker_lr = 0.2;
-            config.attacker_epsilon_decay = 0.99;
-            
-            % 启用所有增强功能
-            config.enable_data_validation = true;
-        end
-        
         function demo()
-            %DEMO 演示TCSEnvironment v4.0的使用
+            %DEMO 演示TCSEnvironment的使用
             
-            fprintf('=== TCSEnvironment v4.0 增强版演示 ===\n\n');
+            fprintf('=== TCSEnvironment v4.3 架构优化版演示 ===\n\n');
             
-            % 创建配置
-            config = TCSEnvironment.getTestConfig();
+            % 使用ConfigManager获取配置
+            if exist('ConfigManager', 'class') == 8
+                config = ConfigManager.getDefaultConfig();
+                fprintf('✓ 使用ConfigManager加载配置\n');
+            else
+                % 简单的备用配置
+                config = struct();
+                config.system = struct('n_stations', 3, 'n_components_per_station', [2, 2, 2], 'total_resources', 50);
+                config.debug = struct('debug_mode', true);
+                fprintf('⚠️  ConfigManager不可用，使用简化配置\n');
+            end
             
             % 创建环境
             env = TCSEnvironment(config);
             
-            fprintf('1. 基础功能测试...\n');
+            fprintf('\n1. 基础功能测试...\n');
             state = env.reset();
-            fprintf('   初始状态维度: %d\n', length(state));
+            fprintf('   ✓ 环境重置成功，状态维度: %d\n', length(state));
             
-            fprintf('\n2. 策略记录测试...\n');
-            attack_strategy = [0.4, 0.3, 0.3];
-            defense_strategy = [0.2, 0.5, 0.3];
-            env.updateStrategies(attack_strategy, defense_strategy);
-            fprintf('   策略已更新\n');
-            
-            fprintf('\n3. 环境交互测试...\n');
-            for i = 1:10
-                defender_deployment = [15, 20, 15];
-                attacker_target = randi(3);
+            fprintf('\n2. 环境交互测试...\n');
+            for i = 1:5
+                defender_deployment = rand(1, env.n_stations) * env.total_resources;
+                defender_deployment = defender_deployment / sum(defender_deployment) * env.total_resources;
+                attacker_target = randi(env.n_stations);
                 
                 [next_state, reward_def, reward_att, info] = env.step(defender_deployment, attacker_target);
                 
                 if i == 1
-                    fprintf('   步骤%d: RADI=%.3f, Nash收敛度=%.3f, 攻击覆盖率=%.3f\n', ...
-                            i, info.radi_score, info.current_nash_convergence, info.current_attack_coverage);
+                    fprintf('   ✓ 首次交互: RADI=%.3f, 检测=%s\n', ...
+                            info.radi_score, char(string(info.detection_result.detected)));
                 end
             end
             
-            fprintf('\n4. 数据摘要:\n');
+            fprintf('\n3. 数据摘要:\n');
             summary = env.getDataSummary();
-            fprintf('   总步数: %d\n', summary.total_steps);
-            fprintf('   RADI数据点: %d\n', summary.radi_data_points);
-            fprintf('   Nash收敛度数据点: %d\n', summary.nash_convergence_data_points);
-            fprintf('   攻击覆盖率数据点: %d\n', summary.attack_coverage_data_points);
+            fprintf('   ✓ 总步数: %d\n', summary.total_steps);
+            fprintf('   ✓ RADI数据点: %d\n', summary.radi_data_points);
             
-            fprintf('\n✅ TCSEnvironment v4.0 演示完成！\n');
-        end
-        
-        function runPerformanceTest()
-            %RUNPERFORMANCETEST 运行性能测试
-            
-            fprintf('=== TCSEnvironment v4.0 性能测试 ===\n\n');
-            
-            config = TCSEnvironment.getOptimizedConfig();
-            config.debug_mode = false;
-            
-            fprintf('测试配置: %d站点, %d资源\n', config.n_stations, config.total_resources);
-            
-            env = TCSEnvironment(config);
-            
-            n_episodes = 50;
-            n_steps_per_episode = 100;
-            
-            fprintf('开始性能测试: %d episodes × %d steps\n\n', n_episodes, n_steps_per_episode);
-            
-            total_start = tic;
-            
-            for episode = 1:n_episodes
-                env.reset();
-                
-                for step = 1:n_steps_per_episode
-                    % 智能策略
-                    if step == 1
-                        defender_deployment = ones(1, env.n_stations) * (env.total_resources / env.n_stations);
-                    else
-                        threat_weights = env.attacker_avg_strategy .* env.station_values;
-                        if sum(threat_weights) > 0
-                            defense_weights = threat_weights / sum(threat_weights);
-                        else
-                            defense_weights = ones(1, env.n_stations) / env.n_stations;
-                        end
-                        defender_deployment = defense_weights * env.total_resources;
-                    end
-                    
-                    % 攻击策略
-                    defense_strength = defender_deployment / env.total_resources;
-                    attack_attractiveness = env.station_values ./ (defense_strength + 0.1);
-                    [~, attacker_target] = max(attack_attractiveness);
-                    
-                    % 更新策略记录
-                    attack_strategy = zeros(1, env.n_stations);
-                    attack_strategy(attacker_target) = 1;
-                    defense_strategy = defender_deployment / sum(defender_deployment);
-                    env.updateStrategies(attack_strategy, defense_strategy);
-                    
-                    % 执行交互
-                    [~, ~, ~, info] = env.step(defender_deployment, attacker_target);
-                end
-                
-                if mod(episode, 10) == 0
-                    fprintf('Episode %d/%d completed\n', episode, n_episodes);
-                end
-            end
-            
-            total_time = toc(total_start);
-            
-            fprintf('\n=== 性能测试结果 ===\n');
-            fprintf('总时间: %.2f秒\n', total_time);
-            fprintf('平均每步时间: %.4f秒\n', total_time / (n_episodes * n_steps_per_episode));
-            
-            summary = env.getDataSummary();
-            fprintf('数据记录完整性:\n');
-            fprintf('  RADI数据点: %d\n', summary.radi_data_points);
-            fprintf('  Nash收敛度数据点: %d\n', summary.nash_convergence_data_points);
-            fprintf('  攻击覆盖率数据点: %d\n', summary.attack_coverage_data_points);
-            
-            fprintf('\n✅ 性能测试完成！\n');
+            fprintf('\n✅ TCSEnvironment v4.3 演示完成！\n');
+            fprintf('📋 该版本与ConfigManager和AgentFactory完全兼容\n');
         end
     end
 end
