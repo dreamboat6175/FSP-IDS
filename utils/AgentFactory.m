@@ -63,41 +63,58 @@ classdef AgentFactory
                 config = AgentFactory.configureAttackerParams(config);
             end
             
-            % 创建智能体
-            switch upper(algorithm)
-                case 'QLEARNING'
-                    agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
+            agent = []; % 初始化 agent 为空，以防创建失败
+            try % 添加 try-catch 块来捕获智能体创建过程中的错误
+                switch upper(algorithm)
+                    case 'QLEARNING'
+                        agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
+                        fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
+                        
+                    case 'SARSA'
+                        agent = SARSAAgent(name, agent_type, config, state_dim, action_dim);
+                        fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
+                        
+                    case 'DOUBLEQLEARNING'
+                        % 尝试创建 DoubleQLearningAgent
+                        agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
+                        fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
+                        
+                    otherwise
+                        error('AgentFactory:UnknownAlgorithm', ...
+                              '未知的算法类型: %s', algorithm);
+                end
+                
+                % 只有当智能体成功创建且不是回退智能体时才执行后续配置
+                % 回退逻辑现在直接在 case 块内部处理，所以这里无需额外的 if ~isempty(agent) 检查
+                if ~isempty(agent)
+                    % 配置智能体特定参数
+                    AgentFactory.configureAgentSpecifics(agent, algorithm, config);
                     
-                case 'SARSA'
-                    agent = SARSAAgent(name, agent_type, config, state_dim, action_dim);
+                    % 如果是攻击者，进行额外配置
+                    if strcmpi(agent_type, 'attacker')
+                        AgentFactory.configureAttackerSpecifics(agent, config);
+                    end
                     
-                case 'DOUBLEQLEARNING'
-                    agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
-                    
-                % 移除对 'DQN' 算法的直接处理，因为 ConfigManager 已不再将其视为有效算法
-                % case 'DQN' 
-                %     try
-                %         agent = DQNAgent(name, agent_type, config, state_dim, action_dim);
-                %         fprintf('✓ 创建 %s 智能体: %s (DQN)\n', agent_type, name);
-                %     catch ME
-                %         if strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass')
-                %             warning('AgentFactory:DQNAgentNotFound', ...
-                %                     'DQN 智能体类 (DQNAgent.m) 未找到或定义不正确。将使用 QLearningAgent 作为替代。');
-                %             agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
-                %         else
-                %             rethrow(ME);
-                %         end
-                %     end
-                    
-                otherwise
-                    error('AgentFactory:UnknownAlgorithm', ...
-                          '未知的算法类型: %s', algorithm);
-            end
-            
-            % 只有当智能体不是因错误而回退时才打印此行，或者在回退逻辑中打印
-            % 修正：简化打印逻辑，只在成功创建时打印
-            if exist('agent', 'var') && ~isempty(agent) && ~strcmp(class(agent), 'QLearningAgent') % 避免回退时的重复打印
-                fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
+                    % 验证智能体
+                    AgentFactory.validateAgent(agent);
+                end
+
+            catch ME % 捕获错误
+                fprintf('❌ 创建 %s 智能体 "%s" 失败: %s\n', agent_type, name, ME.message);
+                % 针对 DoubleQLearningAgent 失败的特定回退逻辑
+                if strcmpi(algorithm, 'DOUBLEQLEARNING')
+                    fprintf('⚠️  将使用备用 QLearning 智能体作为 %s。\n', agent_type);
+                    try
+                        agent = QLearningAgent(sprintf('%s_Fallback', name), agent_type, config, state_dim, action_dim);
+                        fprintf('✓ 备用 QLearning 智能体 "%s" 创建成功。\n', agent.name);
+                    catch ME_Fallback
+                        fprintf('❌ 创建备用 QLearning 智能体也失败: %s\n', ME_Fallback.message);
+                        rethrow(ME_Fallback); % 如果备用也失败，则重新抛出
+                    end
+                else
+                    % 对于其他未知算法，重新抛出错误
+                    rethrow(ME);
+                end
             end
         end
         
@@ -274,14 +291,6 @@ classdef AgentFactory
                         agent.q1_weight = 0.5;
                         agent.q2_weight = 0.5;
                     end
-                % 移除对 'DQN' 特定配置的处理
-                % case 'DQN' 
-                %     if isprop(agent, 'memory_size') && isfield(config, 'learning') && isfield(config.learning, 'memory_size')
-                %         agent.memory_size = config.learning.memory_size;
-                %     end
-                %     if isprop(agent, 'batch_size') && isfield(config, 'learning') && isfield(config.learning, 'batch_size')
-                %         agent.batch_size = config.learning.batch_size;
-                %     end
             end
         end
         

@@ -1,34 +1,28 @@
-function episode_results = runSimpleEpisodes(env, defender_agents, attacker_agent, config)
+function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocation_balance] = runSimpleEpisodes(env, attacker_agent, defender_agents, config)
     %% runSimpleEpisodes - 简化的episode运行函数
     % 当FSPSimulator不存在时使用的备用函数
     % 输入:
     %   env - TCS环境对象
-    %   defender_agents - 防御者智能体数组
-    %   attacker_agent - 攻击者智能体
+    %   attacker_agent - 攻击者智能体 (修正: 调整顺序以匹配main_fsp.m的调用)
+    %   defender_agents - 防御者智能体数组 (修正: 调整顺序以匹配main_fsp.m的调用)
     %   config - 配置结构体
     % 输出:
-    %   episode_results - episode运行结果
+    %   iter_rewards - 本次迭代的总奖励 (修正: 增加为输出参数)
+    %   iter_detections - 本次迭代的总检测结果 (修正: 增加为输出参数)
+    %   iter_resource_utilization - 本次迭代的总资源利用率 (修正: 增加为输出参数)
+    %   iter_allocation_balance - 本次迭代的总分配均衡性 (修正: 增加为输出参数)
     
-    n_agents = length(defender_agents);
-    n_episodes = config.n_episodes_per_iter;
+    n_defenders = length(defender_agents); % 修正: 使用n_defenders来表示防御者数量
+    n_episodes = config.simulation.n_episodes_per_iter; % 修正: 从config.simulation中获取
     
-    % 初始化结果结构
-    episode_results = struct();
-    episode_results.avg_radi = zeros(1, n_agents);
-    episode_results.avg_efficiency = zeros(1, n_agents);
-    episode_results.avg_balance = zeros(1, n_agents);
-    episode_results.avg_defender_reward = zeros(1, n_agents);
-    episode_results.avg_attacker_reward = 0;
-    episode_results.attack_info = cell(n_episodes, 1);
-    episode_results.avg_resource_allocation = zeros(n_agents, config.n_stations);
-    
-    % 累积变量
-    radi_sum = zeros(1, n_agents);
-    efficiency_sum = zeros(1, n_agents);
-    balance_sum = zeros(1, n_agents);
-    defender_reward_sum = zeros(1, n_agents);
-    attacker_reward_sum = 0;
-    resource_allocation_sum = zeros(n_agents, config.n_stations);
+    % 初始化累积变量，用于存储每个episode的结果
+    % 这些变量将作为最终的输出
+    total_attacker_rewards = zeros(1, n_episodes);
+    total_defender_rewards = zeros(n_episodes, n_defenders); % 每个episode每个防御者的奖励
+
+    total_detections = zeros(1, n_episodes);
+    total_resource_utilization = zeros(n_episodes, n_defenders);
+    total_allocation_balance = zeros(n_episodes, n_defenders);
     
     % 运行episodes
     for ep = 1:n_episodes
@@ -36,198 +30,121 @@ function episode_results = runSimpleEpisodes(env, defender_agents, attacker_agen
             % 重置环境
             state = env.reset();
             
-            % 存储每个智能体在这个episode中的结果
-            episode_radi = zeros(1, n_agents);
-            episode_efficiency = zeros(1, n_agents);
-            episode_balance = zeros(1, n_agents);
-            episode_defender_rewards = zeros(1, n_agents);
-            episode_resource_allocation = zeros(n_agents, config.n_stations);
-            
-            % 每个防御者选择动作并执行
-            for agent_idx = 1:n_agents
-                % 选择动作
-                defender_action = defender_agents{agent_idx}.selectAction(state);
-                attacker_action = attacker_agent.selectAction(state);
+            % 每个episode的累积奖励和指标
+            episode_defender_rewards_sum = zeros(1, n_defenders);
+            episode_attacker_reward_sum = 0;
+            episode_detection_count = 0;
+            episode_resource_utilization_sum = zeros(1, n_defenders);
+            episode_allocation_balance_sum = zeros(1, n_defenders);
+
+            % 假设每个episode有 max_episode_steps 步
+            max_episode_steps = config.simulation.max_episode_steps;
+            for step = 1:max_episode_steps
+                % 智能体选择动作
+                % 攻击者选择目标站点
+                attacker_target_action = attacker_agent.selectAction(state);
                 
-                % 执行环境步骤
-                [next_state, reward, done, info] = env.step(defender_action, attacker_action);
+                % 防御者选择资源部署
+                defender_deployment_actions = cell(1, n_defenders);
+                for d_idx = 1:n_defenders
+                    defender_deployment_actions{d_idx} = defender_agents{d_idx}.selectAction(state);
+                end
                 
-                % 提取资源分配信息
-                if isfield(info, 'resource_allocation')
-                    allocation = info.resource_allocation;
-                elseif isfield(info, 'defender_allocation')
-                    allocation = info.defender_allocation;
+                % 环境交互 (这里简化为只考虑第一个防御者的部署对环境的影响)
+                % 您可能需要根据实际仿真逻辑，决定哪个防御者的部署影响环境，或者如何聚合多个防御者的部署
+                % 这里为了匹配 TCSEnvironment.step 的单一部署输入，我们假设使用第一个防御者的部署
+                if ~isempty(defender_deployment_actions)
+                    current_defender_deployment = defender_deployment_actions{1};
                 else
-                    % 默认均匀分配
-                    allocation = ones(1, config.n_stations) * (config.total_resources / config.n_stations);
+                    % 如果没有防御者或部署，使用默认值
+                    current_defender_deployment = ones(1, config.system.n_stations) * (config.system.total_resources / config.system.n_stations);
                 end
-                
-                % 确保allocation是正确维度
-                if length(allocation) ~= config.n_stations
-                    allocation = ones(1, config.n_stations) * (sum(allocation) / config.n_stations);
-                end
-                
-                % 计算RADI指标
-                if isfield(config, 'radi') && isfield(config.radi, 'optimal_allocation')
-                    radi = calculateRADI(allocation, config.radi.optimal_allocation, config.radi);
-                else
-                    % 简化的RADI计算
-                    radi = 1 / (1 + std(allocation));
-                end
-                
-                % 计算资源效率
-                if isfield(config, 'total_resources')
-                    efficiency = sum(allocation) / config.total_resources;
-                else
-                    efficiency = mean(allocation) / 100; % 假设总资源为100
-                end
-                
-                % 计算分配均衡性
-                if std(allocation) > 0
-                    balance = 1 - (std(allocation) / mean(allocation));
-                else
-                    balance = 1.0;
-                end
-                balance = max(0, min(1, balance)); % 限制在[0,1]
-                
-                % 存储结果
-                episode_radi(agent_idx) = radi;
-                episode_efficiency(agent_idx) = efficiency;
-                episode_balance(agent_idx) = balance;
-                episode_defender_rewards(agent_idx) = reward;
-                episode_resource_allocation(agent_idx, :) = allocation;
+
+                [next_state, reward_def_env, reward_att_env, info] = env.step(current_defender_deployment, attacker_target_action);
                 
                 % 更新智能体
+                % 攻击者更新
                 try
-                    if hasMethod(defender_agents{agent_idx}, 'update')
-                        % 尝试不同的参数组合
-                        try
-                            defender_agents{agent_idx}.update(state, defender_action, reward, next_state, []);
-                        catch
-                            try
-                                defender_agents{agent_idx}.update(state, defender_action, reward, next_state);
-                            catch
-                                % 最简化调用
-                                defender_agents{agent_idx}.update(reward);
-                            end
-                        end
-                    elseif hasMethod(defender_agents{agent_idx}, 'updateQTable')
-                        try
-                            defender_agents{agent_idx}.updateQTable(state, defender_action, reward, next_state);
-                        catch
-                            defender_agents{agent_idx}.updateQTable(reward);
-                        end
-                    else
-                        % 如果都没有，尝试基本的Q值更新
-                        if isprop(defender_agents{agent_idx}, 'Q_table') || isfield(defender_agents{agent_idx}, 'Q_table')
-                            defender_agents{agent_idx}.Q_table(1, 1) = defender_agents{agent_idx}.Q_table(1, 1) + 0.01 * reward;
-                        end
+                    if hasMethod(attacker_agent, 'update')
+                        attacker_agent.update(state, attacker_target_action, reward_att_env, next_state);
                     end
                 catch ME
-                    % 静默处理错误，记录但不中断
-                    if mod(ep, 50) == 0  % 偶尔显示错误信息
-                        warning('防御者智能体 %d 更新失败: %s', agent_idx, ME.message);
+                    if mod(ep, 50) == 0 || config.debug.debug_mode
+                        warning('攻击者智能体更新失败 (Episode %d, Step %d): %s', ep, step, ME.message);
+                    end
+                end
+
+                % 防御者更新
+                for d_idx = 1:n_defenders
+                    try
+                        if hasMethod(defender_agents{d_idx}, 'update')
+                            % 假设每个防御者接收其自身的奖励（这里简化为环境返回的reward_def_env）
+                            % 在更复杂的博弈中，每个防御者可能有独立的奖励
+                            defender_agents{d_idx}.update(state, defender_deployment_actions{d_idx}, reward_def_env, next_state);
+                        end
+                    catch ME
+                        if mod(ep, 50) == 0 || config.debug.debug_mode
+                            warning('防御者智能体 %d 更新失败 (Episode %d, Step %d): %s', d_idx, ep, step, ME.message);
+                        end
                     end
                 end
                 
-                % 更新状态
-                state = next_state;
-            end
-            
-            % 攻击者奖励和更新
-            attacker_reward = -mean(episode_defender_rewards); % 攻击者奖励与防御者相反
-            try
-                if hasMethod(attacker_agent, 'update')
-                    % 尝试不同的参数组合
-                    try
-                        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
-                    catch
-                        try
-                            attacker_agent.update(state, attacker_action, attacker_reward, next_state);
-                        catch
-                            attacker_agent.update(attacker_reward);
-                        end
-                    end
-                elseif hasMethod(attacker_agent, 'updateQTable')
-                    try
-                        attacker_agent.updateQTable(state, attacker_action, attacker_reward, next_state);
-                    catch
-                        attacker_agent.updateQTable(attacker_reward);
-                    end
-                else
-                    % 尝试基本更新
-                    if isprop(attacker_agent, 'Q_table') || isfield(attacker_agent, 'Q_table')
-                        attacker_agent.Q_table(1, 1) = attacker_agent.Q_table(1, 1) + 0.01 * attacker_reward;
+                % 累积本episode的奖励和指标
+                episode_defender_rewards_sum = episode_defender_rewards_sum + reward_def_env;
+                episode_attacker_reward_sum = episode_attacker_reward_sum + reward_att_env;
+                
+                if isfield(info, 'detection_result') && isfield(info.detection_result, 'detected') && info.detection_result.detected
+                    episode_detection_count = episode_detection_count + 1;
+                end
+
+                % 累积资源利用率和分配均衡性 (这里简化为只记录第一个防御者的)
+                if isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
+                    % 确保 resource_allocation 是行向量
+                    current_resource_allocation = reshape(info.resource_allocation, 1, []);
+                    if sum(current_resource_allocation) > 0
+                        episode_resource_utilization_sum = episode_resource_utilization_sum + sum(current_resource_allocation) / config.system.total_resources;
                     end
                 end
-            catch ME
-                if mod(ep, 50) == 0
-                    warning('攻击者智能体更新失败: %s', ME.message);
+                if isfield(info, 'current_allocation_balance')
+                    episode_allocation_balance_sum = episode_allocation_balance_sum + info.current_allocation_balance;
+                elseif isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
+                    % 如果没有直接的 balance 字段，从 resource_allocation 计算一个简化的
+                    if std(info.resource_allocation) > 0
+                        balance_val = 1 - (std(info.resource_allocation) / mean(info.resource_allocation));
+                    else
+                        balance_val = 1.0;
+                    end
+                    episode_allocation_balance_sum = episode_allocation_balance_sum + max(0, min(1, balance_val));
                 end
-            end
-            
-            % 累积结果
-            radi_sum = radi_sum + episode_radi;
-            efficiency_sum = efficiency_sum + episode_efficiency;
-            balance_sum = balance_sum + episode_balance;
-            defender_reward_sum = defender_reward_sum + episode_defender_rewards;
-            attacker_reward_sum = attacker_reward_sum + attacker_reward;
-            resource_allocation_sum = resource_allocation_sum + episode_resource_allocation;
-            
-            % 攻击成功信息（简化模拟）
-            attack_success = rand() < 0.3; % 30%的攻击成功率
-            episode_results.attack_info{ep} = attack_success;
+
+                state = next_state; % 更新状态
+            end % End of steps loop
+
+            % 记录每个episode的总奖励和指标
+            total_attacker_rewards(ep) = episode_attacker_reward_sum;
+            total_defender_rewards(ep, :) = episode_defender_rewards_sum;
+            total_detections(ep) = episode_detection_count / max_episode_steps; % 平均检测率
+            total_resource_utilization(ep, :) = episode_resource_utilization_sum / max_episode_steps; % 平均资源利用率
+            total_allocation_balance(ep, :) = episode_allocation_balance_sum / max_episode_steps; % 平均分配均衡性
             
         catch ME
             warning('Episode %d 运行出错: %s', ep, ME.message);
-            % 使用默认值
-            episode_results.attack_info{ep} = false;
+            % 如果episode出错，用零填充该episode的结果，以避免中断仿真
+            total_attacker_rewards(ep) = 0;
+            total_defender_rewards(ep, :) = zeros(1, n_defenders);
+            total_detections(ep) = 0;
+            total_resource_utilization(ep, :) = zeros(1, n_defenders);
+            total_allocation_balance(ep, :) = zeros(1, n_defenders);
         end
-    end
+    end % End of episodes loop
     
-    % 计算平均值
-    episode_results.avg_radi = radi_sum / n_episodes;
-    episode_results.avg_efficiency = efficiency_sum / n_episodes;
-    episode_results.avg_balance = balance_sum / n_episodes;
-    episode_results.avg_defender_reward = defender_reward_sum / n_episodes;
-    episode_results.avg_attacker_reward = attacker_reward_sum / n_episodes;
-    episode_results.avg_resource_allocation = resource_allocation_sum / n_episodes;
-    
-    % 添加策略信息（如果可用）
-    try
-        if hasMethod(attacker_agent, 'getStrategy')
-            episode_results.attacker_strategy = attacker_agent.getStrategy();
-        elseif hasMethod(attacker_agent, 'getPolicy')
-            episode_results.attacker_strategy = attacker_agent.getPolicy();
-        elseif isprop(attacker_agent, 'strategy') || isfield(attacker_agent, 'strategy')
-            episode_results.attacker_strategy = attacker_agent.strategy;
-        else
-            episode_results.attacker_strategy = ones(1, config.n_stations) / config.n_stations;
-        end
-        
-        episode_results.defender_strategies = cell(n_agents, 1);
-        for i = 1:n_agents
-            if hasMethod(defender_agents{i}, 'getStrategy')
-                episode_results.defender_strategies{i} = defender_agents{i}.getStrategy();
-            elseif hasMethod(defender_agents{i}, 'getPolicy')
-                episode_results.defender_strategies{i} = defender_agents{i}.getPolicy();
-            elseif isprop(defender_agents{i}, 'strategy') || isfield(defender_agents{i}, 'strategy')
-                episode_results.defender_strategies{i} = defender_agents{i}.strategy;
-            else
-                episode_results.defender_strategies{i} = ones(1, config.n_stations) / config.n_stations;
-            end
-        end
-    catch ME
-        % 如果获取策略失败，使用默认值
-        episode_results.attacker_strategy = ones(1, config.n_stations) / config.n_stations;
-        episode_results.defender_strategies = cell(n_agents, 1);
-        for i = 1:n_agents
-            episode_results.defender_strategies{i} = ones(1, config.n_stations) / config.n_stations;
-        end
-        if mod(randi(100), 20) == 0  % 偶尔显示警告
-            warning('获取策略信息失败: %s', ME.message);
-        end
-    end
+    % 聚合整个迭代的奖励和指标
+    iter_rewards.attacker_total = total_attacker_rewards;
+    iter_rewards.defender_total = total_defender_rewards; % 矩阵: episodes x defenders
+
+    iter_detections = mean(total_detections); % 整个迭代的平均检测率
+    iter_resource_utilization = mean(total_resource_utilization, 1); % 整个迭代每个防御者的平均资源利用率
+    iter_allocation_balance = mean(total_allocation_balance, 1); % 整个迭代每个防御者的平均分配均衡性
     
     fprintf('✓ 简化episodes运行完成 (%d个episodes)\n', n_episodes);
 end
