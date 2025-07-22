@@ -26,10 +26,12 @@ classdef FSPSimulator < handle
             obj.debug_mode = obj.getConfigValue(config, 'debug_mode', false);
             obj.strategy_tracking_enabled = obj.getConfigValue(config, 'enable_strategy_tracking', true);
             
-            if obj.debug_mode
-                fprintf('[FSPSimulator v3.0] 初始化完成 - 策略跟踪: %s\n', ...
-                        obj.strategy_tracking_enabled ? '启用' : '禁用');
+            if obj.strategy_tracking_enabled
+                status_string = '启用';
+            else
+                status_string = '禁用';
             end
+            fprintf('[FSPSimulator v3.0] 初始化完成 - 策略跟踪: %s\n', status_string);
         end
         
         function episode_results = runEpisodes(obj, env, defender_agents, attacker_agent, config)
