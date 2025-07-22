@@ -1,361 +1,430 @@
-%% AgentFactory.m - 智能体工厂类 (改进版)
-% =========================================================================
-% 描述: 负责创建和配置各种类型的强化学习智能体
-% 改进版本：支持新的配置结构和探索策略
-% =========================================================================
-
-classdef AgentFactory
+classdef DoubleQLearningAgent < RLAgent
+    properties
+        Q_table_A        % 第一个Q值表
+        Q_table_B        % 第二个Q值表
+        Q_table          % 兼容性Q表（两个Q表的平均）
+        visit_count      % 状态-动作访问计数 
+        lr_scheduler     % 学习率调度器
+        strategy_history     % 策略历史记录
+        performance_history  % 性能历史记录
+        parameter_history    % 参数历史记录
+    end
     
-    methods (Static)
-        function agents = createDefenderAgents(config, environment)
-            % 创建防御者智能体数组（兼容旧接口）
+    methods
+        function obj = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim)
+            % 构造函数
+            obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
-            % 获取算法列表
-            if isfield(config, 'algorithms')
-                algorithms = config.algorithms;
+            % 初始化两个Q表
+            initial_value = 5.0;
+            noise_level = 0.5;
+            obj.Q_table_A = ones(state_dim, action_dim) * initial_value + ...
+                           randn(state_dim, action_dim) * noise_level;
+            obj.Q_table_B = ones(state_dim, action_dim) * initial_value + ...
+                           randn(state_dim, action_dim) * noise_level;
+            
+            % 初始化兼容性Q表
+            obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
+            
+            % 初始化访问计数
+            obj.visit_count = zeros(state_dim, action_dim);
+            
+            % 初始化学习率调度器
+            obj.lr_scheduler = struct();
+            if isfield(config, 'learning_rate')
+                obj.lr_scheduler.initial_lr = config.learning_rate;
+                obj.lr_scheduler.current_lr = config.learning_rate;
             else
-                algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
+                obj.lr_scheduler.initial_lr = 0.15;
+                obj.lr_scheduler.current_lr = 0.15;
             end
+            obj.lr_scheduler.min_lr = 0.001;
+            obj.lr_scheduler.decay_steps = 1000;
+            obj.lr_scheduler.step_count = 0;
+            obj.lr_scheduler.decay_rate = 0.99;
             
-            % 获取维度
-            state_dim = environment.state_dim;
-            action_dim = environment.action_dim_defender;
+            % ===== 重要修复：移除 use_softmax 属性定义 =====
+            % 现在使用基类的 exploration_strategy 属性
+            % obj.use_softmax = false; % 删除这行，改用基类属性
             
-            % 使用新的批量创建方法
-            agents = AgentFactory.createMultipleAgents(algorithms, 'defender', config, state_dim, action_dim);
+            % 确保基类属性有默认值
+            obj.strategy_history = [];
+            obj.performance_history = struct();
+            obj.parameter_history = struct();
+            obj.parameter_history.learning_rate = [];
+            obj.parameter_history.epsilon = [];
+            obj.parameter_history.q_values = [];
         end
         
-        function agent = createAttackerAgent(config, environment)
-            % 创建攻击者智能体（兼容旧接口）
+        function action_vec = selectAction(obj, state_vec)
+            % 动作选择
             
-            % 获取算法
-            if isfield(config, 'attacker_algorithm')
-                algorithm = config.attacker_algorithm;
+            % 更新兼容性Q表
+            obj.updateQTableProperty();
+            
+            % 健壮性检查
+            if isempty(state_vec)
+                state_vec = ones(1, obj.state_dim);
+            end
+            state_vec = reshape(state_vec, 1, []);
+            
+            % 获取状态索引
+            state_idx = obj.encodeState(mean(state_vec));
+            state_idx = max(1, min(state_idx, size(obj.Q_table, 1)));
+            
+            % 获取组合Q值
+            q_values = obj.Q_table(state_idx, :);
+            
+            % 确保Q值有效
+            if any(isnan(q_values)) || any(isinf(q_values))
+                q_values = randn(size(q_values)) * 0.1;
+            end
+            
+            % 动态调整参数
+            if obj.epsilon_decay < 1
+                obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+            end
+            
+            % ===== 修复：使用 exploration_strategy 而不是 use_softmax =====
+            if strcmp(obj.exploration_strategy, 'softmax') && obj.temperature_decay < 1
+                obj.temperature = max(0.1, obj.temperature * obj.temperature_decay);
+            end
+            
+            % ===== 区分防御者和攻击者的动作生成 =====
+            if contains(obj.agent_type, 'attacker') || contains(obj.name, 'attacker')
+                % ===== 攻击者：返回单个站点索引 =====
+                
+                % 确定站点数量
+                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
+                    n_stations = obj.config.n_stations;
+                else
+                    n_stations = min(obj.action_dim, 10);
+                end
+                
+                % ===== 修复：使用 exploration_strategy 判断 =====
+                if strcmp(obj.exploration_strategy, 'softmax')
+                    % Softmax选择
+                    temperature = max(0.1, obj.temperature);
+                    q_normalized = q_values(1:min(n_stations, length(q_values))) - max(q_values(1:min(n_stations, length(q_values))));
+                    exp_values = exp(q_normalized / temperature);
+                    probabilities = exp_values / sum(exp_values);
+                    
+                    % 基于概率选择动作
+                    cumsum_probs = cumsum(probabilities);
+                    rand_val = rand();
+                    action_vec = find(cumsum_probs >= rand_val, 1);
+                    if isempty(action_vec)
+                        action_vec = 1;
+                    end
+                else
+                    % Epsilon-贪婪选择
+                    if rand() < obj.epsilon
+                        % 探索：随机选择站点
+                        action_vec = randi(n_stations);
+                    else
+                        % 利用：选择Q值最高的站点
+                        valid_q_values = q_values(1:min(n_stations, length(q_values)));
+                        [~, action_vec] = max(valid_q_values);
+                    end
+                end
+                
+                % 确保攻击者动作在有效范围内
+                action_vec = max(1, min(n_stations, round(action_vec)));
+                
             else
-                algorithm = 'QLearning';
-            end
-            
-            % 获取维度
-            state_dim = environment.state_dim;
-            action_dim = environment.action_dim_attacker;
-            
-            % 使用新的创建方法
-            agent = AgentFactory.createAgent(algorithm, 'Attacker', 'attacker', config, state_dim, action_dim);
-        end
-        
-        function agent = createAgent(algorithm, name, agent_type, config, state_dim, action_dim)
-            % 创建智能体
-            % 输入:
-            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning')
-            %   name - 智能体名称
-            %   agent_type - 智能体类型 ('defender' 或 'attacker')
-            %   config - 配置参数
-            %   state_dim - 状态空间维度
-            %   action_dim - 动作空间维度
-            
-            % --- This comment serves no functional purpose but helps refresh MATLAB's class definition. ---
-            
-            % 确保配置完整性
-            config = AgentFactory.ensureConfigCompleteness(config);
-            
-            % 根据智能体类型调整配置
-            if strcmpi(agent_type, 'attacker')
-                config = AgentFactory.configureAttackerParams(config);
-            end
-            
-            agent = []; % 初始化 agent 为空，以防创建失败
-            try % 添加 try-catch 块来捕获智能体创建过程中的错误
-                switch upper(algorithm)
-                    case 'QLEARNING'
-                        agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
-                        
-                    case 'SARSA'
-                        agent = SARSAAgent(name, agent_type, config, state_dim, action_dim);
-                        
-                    case 'DOUBLEQLEARNING'
-                        agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
-                        
-                    otherwise
-                        error('AgentFactory:UnknownAlgorithm', ...
-                              '未知的算法类型: %s', algorithm);
+                % ===== 防御者：返回资源分配向量 =====
+                
+                % 确定站点数量
+                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
+                    n_stations = obj.config.n_stations;
+                else
+                    n_stations = min(obj.action_dim, 10);
                 end
                 
-                % 只有当智能体成功创建时才执行后续配置和打印
-                if ~isempty(agent)
-                    % 配置智能体特定参数
-                    AgentFactory.configureAgentSpecifics(agent, algorithm, config);
+                % 生成资源分配向量
+                action_vec = zeros(1, n_stations);
+                
+                % ===== 修复：使用 exploration_strategy 判断 =====
+                if strcmp(obj.exploration_strategy, 'softmax')
+                    % Softmax策略选择
+                    temperature = max(0.1, obj.temperature);
+                    q_normalized = q_values - max(q_values);
+                    exp_values = exp(q_normalized / temperature);
+                    probabilities = exp_values / sum(exp_values);
                     
-                    % 如果是攻击者，进行额外配置
-                    if strcmpi(agent_type, 'attacker')
-                        AgentFactory.configureAttackerSpecifics(agent, config);
+                    % 转换为站点级资源分配
+                    for i = 1:n_stations
+                        q_start = (i-1) * obj.action_dim / n_stations + 1;
+                        q_end = i * obj.action_dim / n_stations;
+                        q_start = max(1, round(q_start));
+                        q_end = min(obj.action_dim, round(q_end));
+                        
+                        if q_start <= q_end
+                            station_probs = probabilities(q_start:q_end);
+                            action_vec(i) = sum(station_probs);
+                        end
                     end
                     
-                    % 验证智能体
-                    AgentFactory.validateAgent(agent);
+                    % 归一化
+                    action_vec = action_vec / max(sum(action_vec), 1e-6);
                     
-                    fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
-                end
-            catch ME % 捕获错误
-                fprintf('❌ 创建 %s 智能体 "%s" 失败: %s\n', agent_type, name, ME.message);
-                % 如果是 DoubleQLearningAgent 创建失败，这里会打印错误信息
-                % 如果需要回退到 QLearningAgent，可以在这里添加类似之前的逻辑
-                % 例如：
-                % if strcmpi(algorithm, 'DOUBLEQLEARNING')
-                %     fprintf('⚠️  将使用备用 QLearning 智能体作为 %s。\n', agent_type);
-                %     try
-                %         agent = QLearningAgent(sprintf('%s_Fallback', name), agent_type, config, state_dim, action_dim);
-                %         fprintf('✓ 备用 QLearning 智能体 "%s" 创建成功。\n', agent.name);
-                %     catch ME_Fallback
-                %         fprintf('❌ 创建备用 QLearning 智能体也失败: %s\n', ME_Fallback.message);
-                %         rethrow(ME_Fallback); % 如果备用也失败，则重新抛出
-                %     end
-                % end
-            end
-        end
-        
-        function agents = createMultipleAgents(algorithms, agent_type, config, state_dim, action_dim)
-            % 批量创建智能体
-            
-            n_agents = length(algorithms);
-            agents = cell(1, n_agents);
-            
-            for i = 1:n_agents
-                name = sprintf('%s_%d_%s', agent_type, i, algorithms{i});
-                agents{i} = AgentFactory.createAgent(algorithms{i}, name, agent_type, ...
-                                                   config, state_dim, action_dim);
-            end
-        end
-        
-        function validateAgent(agent)
-            % 验证智能体配置是否正确
-            
-            % 检查必要属性
-            required_properties = {'name', 'agent_type', 'state_dim', 'action_dim', ...
-                                 'learning_rate', 'discount_factor'};
-            
-            for i = 1:length(required_properties)
-                prop = required_properties{i};
-                if ~isprop(agent, prop) || isempty(agent.(prop))
-                    error('AgentFactory:InvalidAgent', ...
-                          '智能体缺少必要属性: %s', prop);
-                end
-            end
-            
-            % 检查探索策略相关属性
-            if isprop(agent, 'exploration_strategy')
-                switch agent.exploration_strategy
-                    case 'epsilon-greedy'
-                        assert(isprop(agent, 'epsilon'), '缺少epsilon属性');
-                        assert(agent.epsilon >= 0 && agent.epsilon <= 1, ...
-                               'epsilon必须在[0,1]范围内');
+                else
+                    % Epsilon-贪婪策略选择
+                    if rand() < obj.epsilon
+                        % 探索：随机分配资源
+                        action_vec = rand(1, n_stations);
+                        action_vec = action_vec / sum(action_vec);
+                    else
+                        % 利用：基于Q值分配资源
+                        for i = 1:n_stations
+                            q_start = (i-1) * obj.action_dim / n_stations + 1;
+                            q_end = i * obj.action_dim / n_stations;
+                            q_start = max(1, round(q_start));
+                            q_end = min(obj.action_dim, round(q_end));
+                            
+                            if q_start <= q_end
+                                action_vec(i) = mean(q_values(q_start:q_end));
+                            end
+                        end
                         
-                    case 'softmax'
-                        assert(isprop(agent, 'temperature'), '缺少temperature属性');
-                        assert(agent.temperature > 0, 'temperature必须大于0');
+                        % 将Q值转换为资源分配概率
+                        action_vec = action_vec - min(action_vec) + 0.1;
+                        action_vec = action_vec / sum(action_vec);
+                    end
                 end
             end
-            
-            % 检查数值范围
-            assert(agent.learning_rate > 0 && agent.learning_rate <= 1, ...
-                   '学习率必须在(0,1]范围内');
-            assert(agent.discount_factor >= 0 && agent.discount_factor <= 1, ...
-                   '折扣因子必须在[0,1]范围内');
         end
         
-        function config = ensureConfigCompleteness(config)
-            % 确保配置包含所有必要参数
+        function update(obj, state_vec, action, reward, next_state_vec, next_action)
+            % Double Q-Learning算法更新
             
-            % 如果有新格式的rl_defaults，使用它
-            if isfield(config, 'rl_defaults')
-                rl_defaults = config.rl_defaults;
-                
-                % 基本参数
-                if ~isfield(config, 'learning_rate')
-                    config.learning_rate = rl_defaults.learning_rate;
-                end
-                if ~isfield(config, 'discount_factor')
-                    config.discount_factor = rl_defaults.discount_factor;
-                end
-                
-                % 探索策略
-                if ~isfield(config, 'exploration_strategy')
-                    config.exploration_strategy = rl_defaults.exploration_strategy;
-                end
-                
-                % 根据探索策略设置相应参数
-                if strcmp(config.exploration_strategy, 'epsilon-greedy')
-                    eps_params = rl_defaults.epsilon_greedy;
-                    if ~isfield(config, 'epsilon')
-                        config.epsilon = eps_params.epsilon;
-                    end
-                    if ~isfield(config, 'epsilon_decay')
-                        config.epsilon_decay = eps_params.epsilon_decay;
-                    end
-                    if ~isfield(config, 'epsilon_min')
-                        config.epsilon_min = eps_params.epsilon_min;
-                    end
-                elseif strcmp(config.exploration_strategy, 'softmax')
-                    temp_params = rl_defaults.softmax_exploration;
-                    if ~isfield(config, 'temperature')
-                        config.temperature = temp_params.temperature;
-                    end
-                    if ~isfield(config, 'temperature_decay')
-                        config.temperature_decay = temp_params.temperature_decay;
-                    end
-                    if ~isfield(config, 'temperature_min')
-                        config.temperature_min = temp_params.temperature_min;
-                    end
-                end
+            % 健壮性检查
+            if isempty(state_vec) || isempty(next_state_vec)
+                return;
+            end
+            
+            % 获取状态索引
+            state_idx = obj.encodeState(mean(state_vec));
+            next_state_idx = obj.encodeState(mean(next_state_vec));
+            
+            % 处理动作索引
+            if isvector(action) && length(action) > 1
+                action_idx = obj.encodeAction(action);
             else
-                % 使用传统默认值
-                config = AgentFactory.applyLegacyDefaults(config);
+                action_idx = round(action);
             end
             
-            % 学习率调度参数
-            if ~isfield(config, 'learning_rate_decay')
-                config.learning_rate_decay = 0.9995;
+            % 边界检查
+            action_idx = max(1, min(obj.action_dim, action_idx));
+            
+            % 更新访问计数
+            obj.visit_count(state_idx, action_idx) = obj.visit_count(state_idx, action_idx) + 1;
+            
+            % 动态学习率
+            visit_count = obj.visit_count(state_idx, action_idx);
+            adaptive_lr = obj.lr_scheduler.current_lr / (1 + visit_count * 0.01);
+            
+            % Double Q-Learning更新：随机选择更新哪个Q表
+            if rand() < 0.5
+                % 更新Q_table_A，使用Q_table_B来选择动作
+                [~, best_action] = max(obj.Q_table_A(next_state_idx, :));
+                best_action = max(1, min(best_action, size(obj.Q_table_B, 2)));
+                target = reward + obj.discount_factor * obj.Q_table_B(next_state_idx, best_action);
+                td_error = target - obj.Q_table_A(state_idx, action_idx);
+                obj.Q_table_A(state_idx, action_idx) = obj.Q_table_A(state_idx, action_idx) + adaptive_lr * td_error;
+            else
+                % 更新Q_table_B，使用Q_table_A来选择动作
+                [~, best_action] = max(obj.Q_table_B(next_state_idx, :));
+                best_action = max(1, min(best_action, size(obj.Q_table_A, 2)));
+                target = reward + obj.discount_factor * obj.Q_table_A(next_state_idx, best_action);
+                td_error = target - obj.Q_table_B(state_idx, action_idx);
+                obj.Q_table_B(state_idx, action_idx) = obj.Q_table_B(state_idx, action_idx) + adaptive_lr * td_error;
             end
-            if ~isfield(config, 'learning_rate_min')
-                config.learning_rate_min = 0.001;
-            end
+            
+            % 更新兼容性Q表
+            obj.updateQTableProperty();
+            
+            % 更新学习率
+            obj.updateLearningRate();
+            
+            % 增加更新计数
+            obj.update_count = obj.update_count + 1;
+            obj.total_reward = obj.total_reward + reward;
+            
+            % 记录性能历史
+            obj.recordPerformance(reward, td_error);
         end
         
-        function config = applyLegacyDefaults(config)
-            % 应用传统默认值（向后兼容）
-            
-            % 基本参数
-            if ~isfield(config, 'learning_rate')
-                config.learning_rate = 0.1;
-            end
-            if ~isfield(config, 'discount_factor')
-                config.discount_factor = 0.95;
-            end
-            
-            % 默认使用epsilon-greedy
-            if ~isfield(config, 'exploration_strategy')
-                config.exploration_strategy = 'epsilon-greedy';
-            end
-            
-            % Epsilon-Greedy参数
-            if ~isfield(config, 'epsilon')
-                config.epsilon = 0.3;
-            end
-            if ~isfield(config, 'epsilon_decay')
-                config.epsilon_decay = 0.995;
-            end
-            if ~isfield(config, 'epsilon_min')
-                config.epsilon_min = 0.01;
-            end
-            
-            % Softmax参数
-            if ~isfield(config, 'temperature')
-                config.temperature = 1.0;
-            end
-            if ~isfield(config, 'temperature_decay')
-                config.temperature_decay = 0.995;
-            end
-            if ~isfield(config, 'temperature_min')
-                config.temperature_min = 0.1;
-            end
-        end
-        
-        function configureAgentSpecifics(agent, algorithm, config)
-            % 配置智能体特定参数
-            
-            switch upper(algorithm)
-                case 'QLEARNING'
-                    % Q-Learning特定配置
-                    if isprop(agent, 'use_double_q')
-                        agent.use_double_q = false;
-                    end
-                    
-                case 'SARSA'
-                    % SARSA特定配置 - 更保守的探索
-                    if strcmp(agent.exploration_strategy, 'epsilon-greedy')
-                        agent.epsilon = agent.epsilon * 0.8;  % 降低探索率
-                    elseif strcmp(agent.exploration_strategy, 'softmax')
-                        agent.temperature = agent.temperature * 1.2;  % 提高温度
-                    end
-                    
-                case 'DOUBLEQLEARNING'
-                    % Double Q-Learning特定配置
-                    if isprop(agent, 'use_double_q')
-                        agent.use_double_q = true;
-                    end
-                    if isprop(agent, 'q1_weight')
-                        agent.q1_weight = 0.5;
-                        agent.q2_weight = 0.5;
-                    end
-            end
-        end
-        
-        function attacker_config = configureAttackerParams(config)
-            % 为攻击者配置特殊参数
-            attacker_config = config;
-            
-            % 攻击者通常需要更高的探索率
-            if strcmp(attacker_config.exploration_strategy, 'epsilon-greedy')
-                if isfield(attacker_config, 'epsilon')
-                    attacker_config.epsilon = min(0.8, attacker_config.epsilon * 1.5);
+        function updateQTableProperty(obj)
+            % 更新兼容性Q_table属性
+            try
+                if ~isempty(obj.Q_table_A) && ~isempty(obj.Q_table_B)
+                    obj.Q_table = (obj.Q_table_A + obj.Q_table_B) / 2;
+                elseif ~isempty(obj.Q_table_A)
+                    obj.Q_table = obj.Q_table_A;
+                elseif ~isempty(obj.Q_table_B)
+                    obj.Q_table = obj.Q_table_B;
+                else
+                    obj.Q_table = zeros(obj.state_dim, obj.action_dim);
                 end
-            elseif strcmp(attacker_config.exploration_strategy, 'softmax')
-                if isfield(attacker_config, 'temperature')
-                    attacker_config.temperature = attacker_config.temperature * 1.2;
+            catch
+                obj.Q_table = zeros(obj.state_dim, obj.action_dim);
+            end
+        end
+        
+        function state_idx = encodeState(obj, state_scalar)
+            % 状态编码方法
+            try
+                if isempty(state_scalar) || ~isnumeric(state_scalar)
+                    state_idx = 1;
+                    return;
                 end
-            end
-            
-            % 攻击者可能需要不同的学习率
-            if isfield(attacker_config, 'learning_rate')
-                attacker_config.learning_rate = attacker_config.learning_rate * 1.2;
-            end
-        end
-        
-        function configureAttackerSpecifics(agent, config)
-            % 配置攻击者特定属性
-            
-            if isprop(agent, 'exploration_bonus')
-                agent.exploration_bonus = 0.1;  % 攻击者获得探索奖励
-            end
-            
-            if isprop(agent, 'risk_tolerance')
-                agent.risk_tolerance = 0.8;  % 攻击者风险容忍度更高
-            end
-            
-            % 攻击者可能使用不同的动作选择策略
-            if isprop(agent, 'action_selection_mode')
-                agent.action_selection_mode = 'aggressive';
+                state_scalar = double(state_scalar);
+                if isnan(state_scalar) || isinf(state_scalar)
+                    state_scalar = 0;
+                end
+                state_idx = max(1, min(obj.state_dim, round(state_scalar * obj.state_dim)));
+                if state_idx <= 0
+                    state_idx = 1;
+                end
+            catch
+                state_idx = 1;
             end
         end
         
-        function displayAgentInfo(agent)
-            % 显示智能体信息
+        function action_idx = encodeAction(obj, action_vec)
+            % 动作编码方法（将动作向量转换为索引）
+            if length(action_vec) == 1
+                action_idx = round(action_vec);
+            else
+                % 使用加权求和方式编码
+                weights = (1:length(action_vec)) / length(action_vec);
+                action_idx = round(sum(action_vec .* weights) * obj.action_dim);
+            end
+            action_idx = max(1, min(obj.action_dim, action_idx));
+        end
+        
+        function updateLearningRate(obj)
+            % 更新学习率
+            obj.lr_scheduler.step_count = obj.lr_scheduler.step_count + 1;
             
-            fprintf('\n智能体信息:\n');
-            fprintf('  名称: %s\n', agent.name);
-            fprintf('  类型: %s\n', agent.agent_type);
-            fprintf('  算法: %s\n', class(agent));
-            fprintf('  状态维度: %d\n', agent.state_dim);
-            fprintf('  动作维度: %d\n', agent.action_dim);
-            fprintf('  学习率: %.4f\n', agent.learning_rate);
-            fprintf('  折扣因子: %.4f\n', agent.discount_factor);
-            
-            if isprop(agent, 'exploration_strategy')
-                fprintf('  探索策略: %s\n', agent.exploration_strategy);
+            if mod(obj.lr_scheduler.step_count, obj.lr_scheduler.decay_steps) == 0
+                obj.lr_scheduler.current_lr = max(obj.lr_scheduler.min_lr, ...
+                    obj.lr_scheduler.current_lr * obj.lr_scheduler.decay_rate);
+            end
+        end
+        
+        function recordPerformance(obj, reward, td_error)
+            % 记录性能数据
+            if mod(obj.update_count, 100) == 0
+                obj.parameter_history.learning_rate(end+1) = obj.lr_scheduler.current_lr;
+                obj.parameter_history.epsilon(end+1) = obj.epsilon;
+                obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
                 
-                switch agent.exploration_strategy
-                    case 'epsilon-greedy'
-                        fprintf('    Epsilon: %.4f\n', agent.epsilon);
-                        fprintf('    Epsilon衰减: %.4f\n', agent.epsilon_decay);
-                        fprintf('    最小Epsilon: %.4f\n', agent.epsilon_min);
-                        
-                    case 'softmax'
-                        fprintf('    温度: %.4f\n', agent.temperature);
-                        fprintf('    温度衰减: %.4f\n', agent.temperature_decay);
-                        fprintf('    最小温度: %.4f\n', agent.temperature_min);
-                end
+                obj.performance_history.reward_100(end+1) = obj.total_reward / max(1, obj.update_count);
+                obj.performance_history.td_error_100(end+1) = abs(td_error);
             end
-            
-            fprintf('\n');
+        end
+        
+        function policy = getPolicy(obj)
+            % 获取当前策略
+            try
+                % 更新Q_table属性
+                obj.updateQTableProperty();
+                
+                % 检查Q表是否为空
+                if isempty(obj.Q_table) || size(obj.Q_table, 1) == 0
+                    policy = ones(1, obj.action_dim) / obj.action_dim;
+                    return;
+                end
+                
+                % 基于平均Q值的策略
+                avg_q_values = mean(obj.Q_table, 1);
+                
+                % ===== 修复：使用 exploration_strategy 判断 =====
+                if strcmp(obj.exploration_strategy, 'softmax')
+                    % Softmax策略
+                    temperature = max(0.1, obj.temperature);
+                    exp_values = exp(avg_q_values / temperature);
+                    policy = exp_values / sum(exp_values);
+                else
+                    % Epsilon-贪婪策略
+                    policy = ones(1, obj.action_dim) * obj.epsilon / obj.action_dim;
+                    [~, best_action] = max(avg_q_values);
+                    policy(best_action) = policy(best_action) + (1 - obj.epsilon);
+                end
+                
+            catch ME
+                warning('DoubleQLearningAgent.getPolicy 出错: %s', ME.message);
+                policy = ones(1, obj.action_dim) / obj.action_dim;
+            end
+        end
+        
+        function strategy = getStrategy(obj)
+            % 获取策略（与getPolicy相同）
+            strategy = obj.getPolicy();
+        end
+        
+        function stats = getStatistics(obj)
+            % 获取详细统计信息
+            try
+                stats = struct();
+                stats.name = obj.name;
+                stats.agent_type = obj.agent_type;
+                stats.update_count = obj.update_count;
+                stats.total_reward = obj.total_reward;
+                
+                % Q值统计
+                if ~isempty(obj.Q_table)
+                    stats.avg_q_value = mean(obj.Q_table(:));
+                    stats.max_q_value = max(obj.Q_table(:));
+                    stats.min_q_value = min(obj.Q_table(:));
+                    stats.q_value_std = std(obj.Q_table(:));
+                else
+                    stats.avg_q_value = 0;
+                    stats.max_q_value = 0;
+                    stats.min_q_value = 0;
+                    stats.q_value_std = 0;
+                end
+                
+                % Double Q特有统计
+                if ~isempty(obj.Q_table_A) && ~isempty(obj.Q_table_B)
+                    stats.q1_avg = mean(obj.Q_table_A(:));
+                    stats.q2_avg = mean(obj.Q_table_B(:));
+                    stats.q_difference = mean(abs(obj.Q_table_A(:) - obj.Q_table_B(:)));
+                end
+                
+                % 学习参数
+                stats.current_learning_rate = obj.learning_rate;
+                stats.current_epsilon = obj.epsilon;
+                
+                % 探索统计
+                if ~isempty(obj.visit_count)
+                    stats.total_state_visits = sum(obj.visit_count(:));
+                    stats.explored_states = sum(sum(obj.visit_count > 0));
+                    stats.exploration_ratio = stats.explored_states / numel(obj.visit_count);
+                else
+                    stats.total_state_visits = 0;
+                    stats.explored_states = 0;
+                    stats.exploration_ratio = 0;
+                end
+                
+            catch ME
+                warning(ME.identifier, 'DoubleQLearningAgent.getStatistics 出错: %s', ME.message);
+                stats = struct('name', obj.name, 'agent_type', obj.agent_type, 'update_count', 0);
+            end
+        end
+        
+        function reset(obj)
+            % 重置智能体状态
+            obj.update_count = 0;
+            obj.total_reward = 0;
+            obj.strategy_history = [];
+            obj.performance_history = struct();
+            obj.parameter_history = struct();
+            obj.parameter_history.learning_rate = [];
+            obj.parameter_history.epsilon = [];
+            obj.parameter_history.q_values = [];
         end
     end
 end

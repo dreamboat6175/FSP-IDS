@@ -63,7 +63,7 @@ try
     log_level = ConfigManager.getConfigValue(config, 'debug.log_level', 'INFO');
     
     Logger.init(log_file_path, log_level);
-    Logger.info('日志系统初始化完成');
+    Logger.info('日志系统初始化完成。');
     fprintf('✓ 日志系统初始化: %s\n', log_file_path);
 catch ME
     fprintf('❌ 日志系统初始化失败: %s\n', ME.message);
@@ -72,7 +72,7 @@ catch ME
     Logger.init('simulation.log', 'INFO');
     Logger.warning('日志系统初始化失败，已切换到备用日志配置。');
 end
-Logger.info('FSP-TCS仿真系统启动');
+Logger.info('FSP-TCS仿真系统启动。');
 
 %% 4. 创建环境和智能体
 % =========================================================================
@@ -84,24 +84,24 @@ attacker_agent = [];
 defender_agents = {};
 
 try
-    % --- 修正: TCSEnvironment 构造函数现在只接受一个 config 参数 ---
+    % TCSEnvironment 构造函数现在只接受一个 config 参数
     % TCSEnvironment 会在内部从 config 中提取所有必要的参数
     env = TCSEnvironment(config); % 传递整个配置结构体
     Logger.info('TCS 环境创建成功。');
 
-    % --- 从已创建的环境对象中获取状态和动作空间大小 ---
+    % 从已创建的环境对象中获取状态和动作空间大小
     % 这些值现在由 TCSEnvironment 内部计算并提供
     state_space_size = env.state_dim;
     action_space_size = env.action_dim;
 
-    % --- 关键检查：确保状态和动作空间大小有效 ---
+    % 关键检查：确保状态和动作空间大小有效
     if ~isnumeric(state_space_size) || state_space_size <= 0
         error('环境创建后 state_space_size 无效或缺失 (%s)。请检查 TCSEnvironment 内部计算逻辑。', num2str(state_space_size));
     end
     if ~isnumeric(action_space_size) || action_space_size <= 0
         error('环境创建后 action_space_size 无效或缺失 (%s)。请检查 TCSEnvironment 内部计算逻辑。', num2str(action_space_size));
     end
-    % --- 结束关键检查 ---
+    % 结束关键检查
 
     % 创建攻击者智能体
     attacker_type = ConfigManager.getConfigValue(config, 'algorithms.attacker', 'QLearning');
@@ -112,7 +112,6 @@ try
     catch ME_Attacker
         Logger.error(sprintf('创建攻击者智能体 "%s" 失败: %s', attacker_type, ME_Attacker.message));
         fprintf('❌ 创建攻击者智能体失败: %s\n', ME_Attacker.message);
-        % 这里不再有备用逻辑，因为 AgentFactory 内部已处理回退
         rethrow(ME_Attacker); % 如果 AgentFactory 内部回退也失败，则重新抛出错误
     end
 
@@ -133,7 +132,6 @@ try
         catch ME_Defender
             Logger.error(sprintf('创建防御者智能体 "%s" 失败: %s', current_defender_type, ME_Defender.message));
             fprintf('❌ 创建防御者智能体 "%s" 失败: %s\n', current_defender_type, ME_Defender.message);
-            % 这里不再有备用逻辑，因为 AgentFactory 内部已处理回退
             rethrow(ME_Defender); % 如果 AgentFactory 内部回退也失败，则重新抛出错误
         end
     end
@@ -164,10 +162,10 @@ end
 % ResultsCollector 负责数据的持久化，PerformanceMonitor 负责实时性能跟踪。
 % =========================================================================
 Logger.info('初始化结果收集器和性能监控器。');
-% 修正: ResultsCollector 构造函数现在需要 all_agents 和 config
+% ResultsCollector 构造函数现在需要 all_agents 和 config
 all_agents = [{attacker_agent}, defender_agents]; % 创建所有智能体的列表
 results_collector = ResultsCollector(all_agents, config); 
-% 修复：PerformanceMonitor 构造函数参数顺序和类型
+% PerformanceMonitor 构造函数参数顺序和类型
 performance_monitor = PerformanceMonitor(config.simulation.n_iterations, ...
                                          length(defender_agents), ... % 传入防御者数量作为 n_agents
                                          config); % 传入 config 结构体
@@ -300,3 +298,4 @@ end
 
 Logger.info('FSP-TCS仿真系统运行结束。');
 fprintf('✅ FSP-TCS仿真系统运行结束。\n');
+
