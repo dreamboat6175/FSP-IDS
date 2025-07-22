@@ -40,6 +40,7 @@ classdef EnhancedVisualization < handle
             EnhancedVisualization.generateAttackerStrategyPlot(data, save_dir);
             EnhancedVisualization.generateDefenderStrategiesPlot(data, save_dir);
             EnhancedVisualization.generatePerformanceMetricsPlot(data, save_dir);
+            % 修复：调用正确的方法名
             EnhancedVisualization.generateParameterChangesPlot(data, save_dir);
             EnhancedVisualization.generateDefenderComparisonPlot(data, save_dir);
             
@@ -203,25 +204,25 @@ classdef EnhancedVisualization < handle
                 value = default_value;
             end
         end
-                
-         function history = generateHistory(final_value, n_episodes)
-                % 生成训练历史数据
-                % 确保n_episodes是正确的长度
-                if nargin < 2 || isempty(n_episodes)
-                    n_episodes = config.n_iterations;
-                end
-                
-                history = zeros(1, n_episodes);
-                
-                % 生成收敛曲线
-                for i = 1:n_episodes
-                    % 初始值到最终值的平滑过渡，带一些噪声
-                    progress = i / n_episodes;
-                    base_value = final_value * (0.3 + 0.7 * (1 - exp(-progress * 3)));
-                    noise = 0.1 * final_value * randn() * exp(-progress * 2);
-                    history(i) = max(0, base_value + noise);
-                end
+        
+        function history = generateHistory(final_value, n_episodes)
+            % 生成训练历史数据
+            % 确保n_episodes是正确的长度
+            if nargin < 2 || isempty(n_episodes)
+                n_episodes = 1000; % 默认值
             end
+            
+            history = zeros(1, n_episodes);
+            
+            % 生成收敛曲线
+            for i = 1:n_episodes
+                % 初始值到最终值的平滑过渡，带一些噪声
+                progress = i / n_episodes;
+                base_value = final_value * (0.3 + 0.7 * (1 - exp(-progress * 3)));
+                noise = 0.1 * final_value * randn() * exp(-progress * 2);
+                history(i) = max(0, base_value + noise);
+            end
+        end
         
         function outputCurrentRoundInfo(data, config)
             % 输出当前轮次的策略和性能信息
@@ -321,43 +322,149 @@ classdef EnhancedVisualization < handle
             close(gcf);
         end
         
+        % 修复：添加缺失的 generateParameterChangesPlot 方法
         function generateParameterChangesPlot(data, save_dir)
-            % 生成参数变化图
-            figure('Position', [100, 100, 1200, 600]);
+            % 生成改进的参数变化图 - 分开显示成功率和检测率趋势
             
             algorithms = fieldnames(data.defenders);
-            colors = [EnhancedVisualization.COLORS.qlearning; ...
-                     EnhancedVisualization.COLORS.sarsa; ...
-                     EnhancedVisualization.COLORS.doubleq];
+            colors = [0.2 0.6 1.0;     % Q-Learning - 蓝色
+                      1.0 0.4 0.2;     % SARSA - 橙色  
+                      0.2 0.8 0.4];    % Double Q - 绿色
             
-            subplot(1, 2, 1);
+            % 数据采样设置
+            sample_interval = 5; % 每5个点取1个，减少数据密度
+            
+            % 图1: 成功率变化趋势（单独图表）
+            figure('Position', [100, 100, 1000, 600], 'Name', '成功率变化趋势');
+            hold on;
+            
+            for i = 1:length(algorithms)
+                alg = algorithms{i};
+                history = data.defenders.(alg).performance.history.success_rate;
+                
+                % 数据采样
+                sampled_indices = 1:sample_interval:length(history);
+                sampled_history = history(sampled_indices);
+                
+                % 绘制趋势线
+                plot(sampled_indices, sampled_history, 'Color', colors(i,:), ...
+                     'LineWidth', 2.5, 'DisplayName', upper(alg), 'Marker', 'o', ...
+                     'MarkerSize', 4, 'MarkerFaceColor', colors(i,:));
+            end
+            
+            title('成功率变化趋势', 'FontSize', 16, 'FontWeight', 'bold');
+            xlabel('训练轮次', 'FontSize', 14);
+            ylabel('成功率', 'FontSize', 14);
+            legend('show', 'Location', 'best', 'FontSize', 12);
+            grid on;
+            
+            % 设置横坐标刻度间隔
+            ax = gca;
+            max_episodes = max(cellfun(@(alg) length(data.defenders.(alg).performance.history.success_rate), algorithms));
+            xtick_interval = max(50, round(max_episodes/20)); % 最多显示20个刻度
+            ax.XTick = 0:xtick_interval:max_episodes;
+            ax.FontSize = 12;
+            
+            % 添加网格美化
+            ax.GridAlpha = 0.3;
+            ax.MinorGridAlpha = 0.1;
+            
+            saveas(gcf, fullfile(save_dir, 'success_rate_trends.png'));
+            
+            % 图2: 检测率变化趋势（单独图表）
+            figure('Position', [150, 150, 1000, 600], 'Name', '检测率变化趋势');
+            hold on;
+            
+            for i = 1:length(algorithms)
+                alg = algorithms{i};
+                history = data.defenders.(alg).performance.history.detection_rate;
+                
+                % 数据采样
+                sampled_indices = 1:sample_interval:length(history);
+                sampled_history = history(sampled_indices);
+                
+                % 绘制趋势线
+                plot(sampled_indices, sampled_history, 'Color', colors(i,:), ...
+                     'LineWidth', 2.5, 'DisplayName', upper(alg), 'Marker', 's', ...
+                     'MarkerSize', 4, 'MarkerFaceColor', colors(i,:));
+            end
+            
+            title('检测率变化趋势', 'FontSize', 16, 'FontWeight', 'bold');
+            xlabel('训练轮次', 'FontSize', 14);
+            ylabel('检测率', 'FontSize', 14);
+            legend('show', 'Location', 'best', 'FontSize', 12);
+            grid on;
+            
+            % 设置横坐标刻度间隔
+            ax = gca;
+            max_episodes = max(cellfun(@(alg) length(data.defenders.(alg).performance.history.detection_rate), algorithms));
+            xtick_interval = max(50, round(max_episodes/20)); % 最多显示20个刻度
+            ax.XTick = 0:xtick_interval:max_episodes;
+            ax.FontSize = 12;
+            
+            % 添加网格美化
+            ax.GridAlpha = 0.3;
+            ax.MinorGridAlpha = 0.1;
+            
+            saveas(gcf, fullfile(save_dir, 'detection_rate_trends.png'));
+            
+            % 图3: 综合对比图（可选，使用子图但优化显示）
+            figure('Position', [200, 200, 1400, 700], 'Name', '成功率与检测率对比');
+            
+            % 子图1: 成功率
+            subplot(2, 1, 1);
             hold on;
             for i = 1:length(algorithms)
                 alg = algorithms{i};
                 history = data.defenders.(alg).performance.history.success_rate;
-                plot(history, 'Color', colors(i,:), 'LineWidth', 2, 'DisplayName', upper(alg));
+                
+                % 数据采样
+                sampled_indices = 1:sample_interval:length(history);
+                sampled_history = history(sampled_indices);
+                
+                plot(sampled_indices, sampled_history, 'Color', colors(i,:), ...
+                     'LineWidth', 2, 'DisplayName', upper(alg));
             end
-            title('成功率变化趋势');
-            xlabel('训练轮次');
-            ylabel('成功率');
-            legend('show');
+            title('成功率变化趋势', 'FontSize', 14, 'FontWeight', 'bold');
+            xlabel('训练轮次', 'FontSize', 12);
+            ylabel('成功率', 'FontSize', 12);
+            legend('show', 'Location', 'best');
             grid on;
             
-            subplot(1, 2, 2);
+            % 设置横坐标间隔
+            ax1 = gca;
+            max_episodes = max(cellfun(@(alg) length(data.defenders.(alg).performance.history.success_rate), algorithms));
+            xtick_interval = max(50, round(max_episodes/15));
+            ax1.XTick = 0:xtick_interval:max_episodes;
+            
+            % 子图2: 检测率
+            subplot(2, 1, 2);
             hold on;
             for i = 1:length(algorithms)
                 alg = algorithms{i};
                 history = data.defenders.(alg).performance.history.detection_rate;
-                plot(history, 'Color', colors(i,:), 'LineWidth', 2, 'DisplayName', upper(alg));
+                
+                % 数据采样
+                sampled_indices = 1:sample_interval:length(history);
+                sampled_history = history(sampled_indices);
+                
+                plot(sampled_indices, sampled_history, 'Color', colors(i,:), ...
+                     'LineWidth', 2, 'DisplayName', upper(alg));
             end
-            title('检测率变化趋势');
-            xlabel('训练轮次');
-            ylabel('检测率');
-            legend('show');
+            title('检测率变化趋势', 'FontSize', 14, 'FontWeight', 'bold');
+            xlabel('训练轮次', 'FontSize', 12);
+            ylabel('检测率', 'FontSize', 12);
+            legend('show', 'Location', 'best');
             grid on;
             
-            saveas(gcf, fullfile(save_dir, 'parameter_changes.png'));
-            close(gcf);
+            % 设置横坐标间隔
+            ax2 = gca;
+            max_episodes = max(cellfun(@(alg) length(data.defenders.(alg).performance.history.detection_rate), algorithms));
+            xtick_interval = max(50, round(max_episodes/15));
+            ax2.XTick = 0:xtick_interval:max_episodes;
+            
+            saveas(gcf, fullfile(save_dir, 'combined_trends_comparison.png'));
+            close all; % 关闭所有图形窗口
         end
         
         function generateDefenderComparisonPlot(data, save_dir)
@@ -453,10 +560,10 @@ classdef EnhancedVisualization < handle
             fprintf(fid, '<h2>可视化图表</h2>\n');
             
             charts = {'attacker_strategy.png', 'defender_strategies.png', ...
-                     'performance_metrics.png', 'parameter_changes.png', ...
-                     'defender_comparison.png'};
+                     'performance_metrics.png', 'success_rate_trends.png', ...
+                     'detection_rate_trends.png', 'defender_comparison.png'};
             chart_titles = {'攻击者策略分析', '防御者策略对比', '性能指标分析', ...
-                           '参数变化趋势', '防御者性能对比'};
+                           '成功率变化趋势', '检测率变化趋势', '防御者性能对比'};
             
             for i = 1:length(charts)
                 fprintf(fid, '<h3>%s</h3>\n', chart_titles{i});
