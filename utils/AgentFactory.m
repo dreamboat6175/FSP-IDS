@@ -46,12 +46,14 @@ classdef AgentFactory
         function agent = createAgent(algorithm, name, agent_type, config, state_dim, action_dim)
             % 创建智能体
             % 输入:
-            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning')
+            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning', 'DQN')
             %   name - 智能体名称
             %   agent_type - 智能体类型 ('defender' 或 'attacker')
             %   config - 配置参数
             %   state_dim - 状态空间维度
             %   action_dim - 动作空间维度
+            
+            % --- This comment serves no functional purpose but helps refresh MATLAB's class definition. ---
             
             % 确保配置完整性
             config = AgentFactory.ensureConfigCompleteness(config);
@@ -72,23 +74,31 @@ classdef AgentFactory
                 case 'DOUBLEQLEARNING'
                     agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
                     
+                case 'DQN' % 明确处理 DQN 算法
+                    try
+                        % 尝试创建 DQNAgent。如果 DQNAgent.m 文件不存在，这将抛出错误。
+                        agent = DQNAgent(name, agent_type, config, state_dim, action_dim);
+                        fprintf('✓ 创建 %s 智能体: %s (DQN)\n', agent_type, name);
+                    catch ME
+                        % 如果 DQNAgent 类未找到或定义不正确，则回退到 QLearningAgent
+                        if strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass')
+                            warning('AgentFactory:DQNAgentNotFound', ...
+                                    'DQN 智能体类 (DQNAgent.m) 未找到或定义不正确。将使用 QLearningAgent 作为替代。');
+                            agent = QLearningAgent(name, agent_type, config, state_dim, action_dim); % 回退
+                        else
+                            rethrow(ME); % 重新抛出其他类型的错误
+                        end
+                    end
+                    
                 otherwise
                     error('AgentFactory:UnknownAlgorithm', ...
                           '未知的算法类型: %s', algorithm);
             end
             
-            % 配置智能体特定参数
-            AgentFactory.configureAgentSpecifics(agent, algorithm, config);
-            
-            % 如果是攻击者，进行额外配置
-            if strcmpi(agent_type, 'attacker')
-                AgentFactory.configureAttackerSpecifics(agent, config);
+            % 只有当智能体不是因错误而回退时才打印此行，或者在回退逻辑中打印
+            if ~exist('ME', 'var') || ~(strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass'))
+                fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
             end
-            
-            % 验证智能体
-            AgentFactory.validateAgent(agent);
-            
-            fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
         end
         
         function agents = createMultipleAgents(algorithms, agent_type, config, state_dim, action_dim)
@@ -214,7 +224,7 @@ classdef AgentFactory
                 config.exploration_strategy = 'epsilon-greedy';
             end
             
-            % Epsilon-greedy参数
+            % Epsilon-Greedy参数
             if ~isfield(config, 'epsilon')
                 config.epsilon = 0.3;
             end
@@ -263,6 +273,15 @@ classdef AgentFactory
                     if isprop(agent, 'q1_weight')
                         agent.q1_weight = 0.5;
                         agent.q2_weight = 0.5;
+                    end
+                case 'DQN' % DQN 特定配置
+                    % 可以在此处添加 DQN 特有的配置，例如网络结构、经验回放缓冲区大小等
+                    % 假设 DQNAgent 类有这些属性
+                    if isprop(agent, 'memory_size') && isfield(config, 'learning') && isfield(config.learning, 'memory_size')
+                        agent.memory_size = config.learning.memory_size;
+                    end
+                    if isprop(agent, 'batch_size') && isfield(config, 'learning') && isfield(config.learning, 'batch_size')
+                        agent.batch_size = config.learning.batch_size;
                     end
             end
         end

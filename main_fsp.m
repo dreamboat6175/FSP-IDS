@@ -15,6 +15,7 @@ close all;
 % 确保所有子文件夹都在MATLAB路径中，以便系统能够找到所有类和函数文件。
 % =========================================================================
 addpath(genpath(pwd));
+rehash toolboxcache; % 刷新MATLAB的路径缓存
 fprintf('🚀 FSP-TCS仿真系统启动\n');
 
 %% 2. 加载配置
@@ -82,27 +83,24 @@ attacker_agent = [];
 defender_agents = {};
 
 try
-    % 从配置中获取环境和智能体所需的关键参数
-    n_stations = ConfigManager.getConfigValue(config, 'system.n_stations', 10);
-    n_components_per_station = ConfigManager.getConfigValue(config, 'system.n_components_per_station', repmat(3, 1, n_stations));
-    total_resources = ConfigManager.getConfigValue(config, 'system.total_resources', 100);
-    state_space_size = ConfigManager.getConfigValue(config, 'system.state_space_size', 77);
-    action_space_size = ConfigManager.getConfigValue(config, 'system.action_space_size', 15);
-    
+    % --- 修正: TCSEnvironment 构造函数现在只接受一个 config 参数 ---
+    % TCSEnvironment 会在内部从 config 中提取所有必要的参数
+    env = TCSEnvironment(config); % 传递整个配置结构体
+    Logger.info('TCS 环境创建成功。');
+
+    % --- 从已创建的环境对象中获取状态和动作空间大小 ---
+    % 这些值现在由 TCSEnvironment 内部计算并提供
+    state_space_size = env.state_dim;
+    action_space_size = env.action_dim;
+
     % --- 关键检查：确保状态和动作空间大小有效 ---
     if ~isnumeric(state_space_size) || state_space_size <= 0
-        error('配置中 state_space_size 无效或缺失 (%s)。请检查 config.system.state_space_size。', num2str(state_space_size));
+        error('环境创建后 state_space_size 无效或缺失 (%s)。请检查 TCSEnvironment 内部计算逻辑。', num2str(state_space_size));
     end
     if ~isnumeric(action_space_size) || action_space_size <= 0
-        error('配置中 action_space_size 无效或缺失 (%s)。请检查 config.system.action_space_size。', num2str(action_space_size));
+        error('环境创建后 action_space_size 无效或缺失 (%s)。请检查 TCSEnvironment 内部计算逻辑。', num2str(action_space_size));
     end
     % --- 结束关键检查 ---
-
-    % 创建TCS环境
-    env = TCSEnvironment(n_stations, n_components_per_station, ...
-                         total_resources, state_space_size, action_space_size, ...
-                         config.environment); % 传递环境相关配置
-    Logger.info('TCS 环境创建成功。');
 
     % 创建攻击者智能体
     attacker_type = ConfigManager.getConfigValue(config, 'algorithms.attacker', 'QLearning');
@@ -116,7 +114,7 @@ try
         fprintf('⚠️  将使用备用 QLearning 智能体作为攻击者。\n');
         % 备用方案：使用硬编码的 QLearningAgent
         try
-            attacker_agent = QLearningAgent('Attacker_Fallback', config, state_space_size, action_space_size);
+            attacker_agent = QLearningAgent('Attacker_Fallback', 'attacker', config, state_space_size, action_space_size);
             Logger.info('备用 QLearning 攻击者智能体创建成功。');
         catch ME_FallbackAttacker
             Logger.error(sprintf('创建备用 QLearning 攻击者智能体也失败: %s', ME_FallbackAttacker.message));
@@ -135,7 +133,6 @@ try
         current_defender_type = defender_types{i};
         try
             % 尝试使用 AgentFactory 创建防御者智能体
-            % 修正：添加 'defender' 作为 agent_type 参数
             defender_agents{i} = AgentFactory.createAgent(current_defender_type, ...
                                                           sprintf('Defender_%s', current_defender_type), ...
                                                           'defender', config, state_space_size, action_space_size);
@@ -147,7 +144,7 @@ try
             % 备用方案：使用硬编码的 QLearningAgent
             try
                 defender_agents{i} = QLearningAgent(sprintf('Defender_%s_Fallback', current_defender_type), ...
-                                                    config, state_space_size, action_space_size);
+                                                    'defender', config, state_space_size, action_space_size);
                 Logger.info(sprintf('备用 QLearning 防御者智能体 "%s" 创建成功。', defender_agents{i}.name));
             catch ME_FallbackDefender
                 Logger.error(sprintf('创建备用 QLearning 防御者智能体也失败: %s', ME_FallbackDefender.message));
@@ -183,7 +180,9 @@ end
 % ResultsCollector 负责数据的持久化，PerformanceMonitor 负责实时性能跟踪。
 % =========================================================================
 Logger.info('初始化结果收集器和性能监控器。');
-results_collector = ResultsCollector(config);
+% 修正: ResultsCollector 构造函数现在需要 agents_list 和 config
+all_agents = [{attacker_agent}, defender_agents]; % 创建所有智能体的列表
+results_collector = ResultsCollector(all_agents, config); 
 performance_monitor = PerformanceMonitor(config.simulation.n_iterations, ...
                                          config.simulation.n_episodes_per_iter, ...
                                          length(defender_agents)); % 传入防御者数量
