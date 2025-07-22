@@ -1,0 +1,5 @@
+[2025-07-22 16:30:45] [INFO] 日志系统初始化完成
+[2025-07-22 16:30:45] [INFO] FSP-TCS仿真系统启动
+[2025-07-22 16:30:45] [ERROR] 仿真出错: 错误: <a href="matlab: opentoline('D:\CODE\FSP-IDS\core\FSPSimulator.m',1,10)">文件: FSPSimulator.m 行: 1 列: 10</a>
+类名和文件名必须匹配。
+[2025-07-22 16:30:45] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_fsp.m, 行号: 28

@@ -1,0 +1,127 @@
+{
+  "system": {
+    "n_stations": 10,
+    "n_components_per_station": [
+      7,
+      6,
+      8,
+      5,
+      9,
+      15,
+      4,
+      6,
+      3,
+      4
+    ],
+    "total_components": 67,
+    "total_resources": 100,
+    "n_resource_types": 5,
+    "n_attack_types": 6,
+    "state_space_size": 77,
+    "action_space_size": 20
+  },
+  "simulation": {
+    "n_iterations": 1000,
+    "n_episodes_per_iter": 50,
+    "max_episode_steps": 50,
+    "pool_size_limit": 50,
+    "pool_update_interval": 10,
+    "alpha_ewma": 0.1,
+    "convergence_threshold": 0.001,
+    "patience": 100
+  },
+  "learning": {
+    "learning_rate": 0.1,
+    "discount_factor": 0.95,
+    "epsilon": 0.3,
+    "epsilon_decay": 0.995,
+    "epsilon_min": 0.01,
+    "target_update_frequency": 100,
+    "replay_buffer_size": 10000,
+    "batch_size": 32,
+    "tau": 0.001
+  },
+  "algorithms": {
+    "defender": [
+      "QLearning",
+      "SARSA",
+      "DQN"
+    ],
+    "attacker": "QLearning",
+    "available": [
+      "QLearning",
+      "SARSA",
+      "DQN",
+      "PolicyGradient"
+    ]
+  },
+  "environment": {
+    "reward_scaling": 1,
+    "noise_level": 0,
+    "dynamic_environment": false,
+    "failure_probability": 0.05,
+    "repair_probability": 0.8,
+    "attack_success_rate": 0.3,
+    "defense_success_rate": 0.7
+  },
+  "network": {
+    "topology_type": "hierarchical",
+    "connectivity_probability": 0.3,
+    "max_connections_per_node": 3,
+    "communication_delay": 0.1,
+    "packet_loss_rate": 0.01
+  },
+  "security": {
+    "attack_detection_rate": 0.8,
+    "false_positive_rate": 0.1,
+    "encryption_enabled": true,
+    "authentication_required": true,
+    "vulnerability_scan_interval": 100
+  },
+  "monitoring": {
+    "enable_performance_tracking": true,
+    "metrics_collection_interval": 10,
+    "memory_usage_limit": 8192,
+    "cpu_usage_threshold": 80,
+    "enable_profiling": false
+  },
+  "output": {
+    "enable_logging": true,
+    "log_level": "INFO",
+    "log_file": "",
+    "save_results": true,
+    "results_dir": "results",
+    "show_iteration_details": false,
+    "progress_interval": 100,
+    "generate_plots": false,
+    "save_plots": true,
+    "plot_format": "png"
+  },
+  "visualization": {
+    "enable": false,
+    "real_time": false,
+    "update_interval": 50,
+    "save_animation": false,
+    "figure_size": [
+      1200,
+      800
+    ],
+    "color_scheme": "default"
+  },
+  "debug": {
+    "enabled": false,
+    "verbose": false,
+    "breakpoints": [],
+    "save_intermediate_results": false,
+    "validate_states": false,
+    "check_convergence": true
+  },
+  "experiment": {
+    "name": "FSP_Experiment_20250722_162002",
+    "description": "FSP-TCS仿真实验",
+    "random_seed": 42,
+    "repeat_count": 1,
+    "parallel_execution": false,
+    "max_workers": 4
+  }
+}

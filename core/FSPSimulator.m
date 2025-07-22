@@ -255,3 +255,5 @@ classdef FSPSimulator < handle
             % 确保RADI在合理范围内
             radi = max(0.01, min(1.0, radi));
         end
+    end
+end

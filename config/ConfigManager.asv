@@ -339,48 +339,62 @@ classdef ConfigManager < handle
             %       config - 配置结构体
             
             try
-                % 使用智能体自己的 getConfigValue 方法（注意参数顺序）
-                agent.learning_rate = agent.getConfigValue(config, 'learning_rate', 0.1);
-                agent.discount_factor = agent.getConfigValue(config, 'discount_factor', 0.95);
+                % 安全的配置值获取函数
+                function value = safeGetConfigValue(conf, field, default_val)
+                    if isfield(conf, field) && ~isempty(conf.(field))
+                        value = conf.(field);
+                    else
+                        value = default_val;
+                    end
+                end
+                
+                % 基本学习参数
+                agent.learning_rate = safeGetConfigValue(config, 'learning_rate', 0.1);
+                agent.discount_factor = safeGetConfigValue(config, 'discount_factor', 0.95);
                 
                 % 探索策略
-                agent.exploration_strategy = agent.getConfigValue(config, 'exploration_strategy', 'epsilon-greedy');
+                agent.exploration_strategy = safeGetConfigValue(config, 'exploration_strategy', 'epsilon-greedy');
                 
                 % Epsilon-Greedy 参数
-                agent.epsilon = agent.getConfigValue(config, 'epsilon', 0.3);
-                agent.epsilon_min = agent.getConfigValue(config, 'epsilon_min', 0.01);
-                agent.epsilon_decay = agent.getConfigValue(config, 'epsilon_decay', 0.995);
+                agent.epsilon = safeGetConfigValue(config, 'epsilon', 0.3);
+                agent.epsilon_min = safeGetConfigValue(config, 'epsilon_min', 0.01);
+                agent.epsilon_decay = safeGetConfigValue(config, 'epsilon_decay', 0.995);
                 
                 % Softmax 参数
-                agent.temperature = agent.getConfigValue(config, 'temperature', 1.0);
-                agent.temperature_decay = agent.getConfigValue(config, 'temperature_decay', 0.995);
-                agent.temperature_min = agent.getConfigValue(config, 'temperature_min', 0.1);
+                agent.temperature = safeGetConfigValue(config, 'temperature', 1.0);
+                agent.temperature_decay = safeGetConfigValue(config, 'temperature_decay', 0.995);
+                agent.temperature_min = safeGetConfigValue(config, 'temperature_min', 0.1);
                 
                 % 学习率调度
-                agent.learning_rate_min = agent.getConfigValue(config, 'learning_rate_min', 0.01);
-                agent.learning_rate_decay = agent.getConfigValue(config, 'learning_rate_decay', 0.9995);
+                agent.learning_rate_min = safeGetConfigValue(config, 'learning_rate_min', 0.01);
+                agent.learning_rate_decay = safeGetConfigValue(config, 'learning_rate_decay', 0.9995);
                 
                 % 策略池参数
-                agent.pool_size_limit = agent.getConfigValue(config, 'pool_size_limit', 50);
+                agent.pool_size_limit = safeGetConfigValue(config, 'pool_size_limit', 50);
                 
                 fprintf('✓ 智能体配置合并完成: %s\n', agent.name);
                 
             catch ME
                 fprintf('⚠️ 智能体配置合并失败: %s，使用默认配置\n', ME.message);
                 % 设置基本默认值
-                agent.learning_rate = 0.1;
-                agent.discount_factor = 0.95;
-                agent.epsilon = 0.3;
-                agent.exploration_strategy = 'epsilon-greedy';
-                agent.epsilon_min = 0.01;
-                agent.epsilon_decay = 0.995;
-                agent.temperature = 1.0;
-                agent.temperature_decay = 0.995;
-                agent.temperature_min = 0.1;
-                agent.learning_rate_min = 0.01;
-                agent.learning_rate_decay = 0.9995;
-                agent.pool_size_limit = 50;
+                ConfigManager.setAgentDefaults(agent);
             end
+        end
+        
+        function setAgentDefaults(agent)
+            % 为智能体设置默认配置值
+            agent.learning_rate = 0.1;
+            agent.discount_factor = 0.95;
+            agent.epsilon = 0.3;
+            agent.exploration_strategy = 'epsilon-greedy';
+            agent.epsilon_min = 0.01;
+            agent.epsilon_decay = 0.995;
+            agent.temperature = 1.0;
+            agent.temperature_decay = 0.995;
+            agent.temperature_min = 0.1;
+            agent.learning_rate_min = 0.01;
+            agent.learning_rate_decay = 0.9995;
+            agent.pool_size_limit = 50;
         end
     end
 end

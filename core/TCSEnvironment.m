@@ -980,8 +980,12 @@ classdef TCSEnvironment < handle
             obj.resetStrategyTracking();
             
             if obj.debug_mode
-                fprintf('[增强功能] 数据验证: %s\n', ...
-                        obj.data_validation_enabled ? '启用' : '禁用');
+                if obj.data_validation_enabled
+                    status_text = '启用';
+                else
+                    status_text = '禁用';
+                end
+                fprintf('[增强功能] 数据验证: %s\n', status_text);
             end
         end
         

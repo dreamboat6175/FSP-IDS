@@ -1,0 +1,5 @@
+[2025-07-22 16:20:02] [INFO] 日志系统初始化完成
+[2025-07-22 16:20:02] [INFO] FSP-TCS仿真系统启动
+[2025-07-22 16:20:02] [ERROR] 仿真出错: <a href="matlab: opentoline('D:\CODE\FSP-IDS\core\TCSEnvironment.m',984,53)">文件: TCSEnvironment.m 行: 984 列: 53</a>
+运算符的使用无效。
+[2025-07-22 16:20:02] [ERROR] 错误位置: D:\CODE\FSP-IDS\main_fsp.m, 行号: 66
