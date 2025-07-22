@@ -338,10 +338,11 @@ end
 
 %% 14. 简化episode运行
 function runSimplifiedEpisodes(env, agents, config)
-    for ep = 1:min(config.n_episodes_per_iter, 10)
+    config.n_steps_per_episode = config.max_episode_steps;
+    for ep = 1:config.n_episodes_per_iter
         state = env.reset();
         
-        for step = 1:min(config.n_steps_per_episode, 20)
+        for step = 1:config.n_steps_per_episode
             def_action = agents{2}.selectAction(state);
             att_action = agents{1}.selectAction(state);
             
