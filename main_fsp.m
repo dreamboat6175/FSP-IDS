@@ -6,9 +6,10 @@
 % =========================================================================
 
 % 清理工作区、命令行和关闭所有图形窗口
-clear;
+clear all;     % 清除所有变量、函数和MEX文件
 clc;
 close all;
+clear classes; % 尝试清除所有类定义，以防缓存问题
 
 %% 1. 添加路径
 % =========================================================================
@@ -30,7 +31,7 @@ try
     if ~exist(config_file, 'file')
         % 如果用户配置文件不存在，则加载默认配置文件
         config_file = fullfile('config', 'default_config.json');
-        fprintf('⚠️ 未找到用户配置文件 (%s)，将加载默认配置。\n', fullfile('config', 'simulation_config.json'));
+        fprintf('⚠️ 未找到用户配置文件 (%s)，将加载默认配置。\n', fullfile('config', 'simulation_file.json'));
     end
     
     % 调用 ConfigManager 加载并验证配置
@@ -107,20 +108,12 @@ try
     try
         % 尝试使用 AgentFactory 创建攻击者智能体
         attacker_agent = AgentFactory.createAgent(attacker_type, 'Attacker', 'attacker', config, state_space_size, action_space_size);
-        Logger.info(sprintf('攻击者智能体 "%s" 创建成功。', attacker_agent.name));
+        % AgentFactory 内部会打印成功信息或回退信息
     catch ME_Attacker
         Logger.error(sprintf('创建攻击者智能体 "%s" 失败: %s', attacker_type, ME_Attacker.message));
         fprintf('❌ 创建攻击者智能体失败: %s\n', ME_Attacker.message);
-        fprintf('⚠️  将使用备用 QLearning 智能体作为攻击者。\n');
-        % 备用方案：使用硬编码的 QLearningAgent
-        try
-            attacker_agent = QLearningAgent('Attacker_Fallback', 'attacker', config, state_space_size, action_space_size);
-            Logger.info('备用 QLearning 攻击者智能体创建成功。');
-        catch ME_FallbackAttacker
-            Logger.error(sprintf('创建备用 QLearning 攻击者智能体也失败: %s', ME_FallbackAttacker.message));
-            fprintf('❌ 创建备用攻击者智能体也失败: %s\n', ME_FallbackAttacker.message);
-            rethrow(ME_FallbackAttacker); % 如果备用智能体也无法创建，则重新抛出错误
-        end
+        % 这里不再有备用逻辑，因为 AgentFactory 内部已处理回退
+        rethrow(ME_Attacker); % 如果 AgentFactory 内部回退也失败，则重新抛出错误
     end
 
     % 创建防御者智能体
@@ -136,21 +129,12 @@ try
             defender_agents{i} = AgentFactory.createAgent(current_defender_type, ...
                                                           sprintf('Defender_%s', current_defender_type), ...
                                                           'defender', config, state_space_size, action_space_size);
-            Logger.info(sprintf('防御者智能体 "%s" 创建成功。', defender_agents{i}.name));
+            % AgentFactory 内部会打印成功信息或回退信息
         catch ME_Defender
             Logger.error(sprintf('创建防御者智能体 "%s" 失败: %s', current_defender_type, ME_Defender.message));
             fprintf('❌ 创建防御者智能体 "%s" 失败: %s\n', current_defender_type, ME_Defender.message);
-            fprintf('⚠️  将使用备用 QLearning 智能体作为防御者。\n');
-            % 备用方案：使用硬编码的 QLearningAgent
-            try
-                defender_agents{i} = QLearningAgent(sprintf('Defender_%s_Fallback', current_defender_type), ...
-                                                    'defender', config, state_space_size, action_space_size);
-                Logger.info(sprintf('备用 QLearning 防御者智能体 "%s" 创建成功。', defender_agents{i}.name));
-            catch ME_FallbackDefender
-                Logger.error(sprintf('创建备用 QLearning 防御者智能体也失败: %s', ME_FallbackDefender.message));
-                fprintf('❌ 创建备用防御者智能体也失败: %s\n', ME_FallbackDefender.message);
-                rethrow(ME_FallbackDefender); % 如果备用智能体也无法创建，则重新抛出错误
-            end
+            % 这里不再有备用逻辑，因为 AgentFactory 内部已处理回退
+            rethrow(ME_Defender); % 如果 AgentFactory 内部回退也失败，则重新抛出错误
         end
     end
     fprintf('✓ 环境和智能体创建完成。\n');
@@ -180,7 +164,7 @@ end
 % ResultsCollector 负责数据的持久化，PerformanceMonitor 负责实时性能跟踪。
 % =========================================================================
 Logger.info('初始化结果收集器和性能监控器。');
-% 修正: ResultsCollector 构造函数现在需要 agents_list 和 config
+% 修正: ResultsCollector 构造函数现在需要 all_agents 和 config
 all_agents = [{attacker_agent}, defender_agents]; % 创建所有智能体的列表
 results_collector = ResultsCollector(all_agents, config); 
 performance_monitor = PerformanceMonitor(config.simulation.n_iterations, ...

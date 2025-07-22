@@ -18,11 +18,11 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
     % 初始化累积变量，用于存储每个episode的结果
     % 这些变量将作为最终的输出
     total_attacker_rewards = zeros(1, n_episodes);
-    total_defender_rewards = zeros(n_episodes, n_defenders); % 每个episode每个防御者的奖励
+    total_defender_rewards = zeros(n_episodes, max(1, n_defenders)); % 修正: 确保至少有一列，避免n_defenders=0时维度问题
 
     total_detections = zeros(1, n_episodes);
-    total_resource_utilization = zeros(n_episodes, n_defenders);
-    total_allocation_balance = zeros(n_episodes, n_defenders);
+    total_resource_utilization = zeros(n_episodes, max(1, n_defenders)); % 修正: 确保至少有一列
+    total_allocation_balance = zeros(n_episodes, max(1, n_defenders)); % 修正: 确保至少有一列
     
     % 运行episodes
     for ep = 1:n_episodes
@@ -53,7 +53,7 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
                 % 环境交互 (这里简化为只考虑第一个防御者的部署对环境的影响)
                 % 您可能需要根据实际仿真逻辑，决定哪个防御者的部署影响环境，或者如何聚合多个防御者的部署
                 % 这里为了匹配 TCSEnvironment.step 的单一部署输入，我们假设使用第一个防御者的部署
-                if ~isempty(defender_deployment_actions)
+                if ~isempty(defender_deployment_actions) && n_defenders > 0
                     current_defender_deployment = defender_deployment_actions{1};
                 else
                     % 如果没有防御者或部署，使用默认值
@@ -98,23 +98,25 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
                 end
 
                 % 累积资源利用率和分配均衡性 (这里简化为只记录第一个防御者的)
-                if isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
-                    % 确保 resource_allocation 是行向量
-                    current_resource_allocation = reshape(info.resource_allocation, 1, []);
-                    if sum(current_resource_allocation) > 0
-                        episode_resource_utilization_sum = episode_resource_utilization_sum + sum(current_resource_allocation) / config.system.total_resources;
+                if n_defenders > 0 % 确保有防御者才尝试访问其信息
+                    if isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
+                        % 确保 resource_allocation 是行向量
+                        current_resource_allocation = reshape(info.resource_allocation, 1, []);
+                        if sum(current_resource_allocation) > 0
+                            episode_resource_utilization_sum(1) = episode_resource_utilization_sum(1) + sum(current_resource_allocation) / config.system.total_resources;
+                        end
                     end
-                end
-                if isfield(info, 'current_allocation_balance')
-                    episode_allocation_balance_sum = episode_allocation_balance_sum + info.current_allocation_balance;
-                elseif isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
-                    % 如果没有直接的 balance 字段，从 resource_allocation 计算一个简化的
-                    if std(info.resource_allocation) > 0
-                        balance_val = 1 - (std(info.resource_allocation) / mean(info.resource_allocation));
-                    else
-                        balance_val = 1.0;
+                    if isfield(info, 'current_allocation_balance')
+                        episode_allocation_balance_sum(1) = episode_allocation_balance_sum(1) + info.current_allocation_balance;
+                    elseif isfield(info, 'resource_allocation') && ~isempty(info.resource_allocation)
+                        % 如果没有直接的 balance 字段，从 resource_allocation 计算一个简化的
+                        if std(info.resource_allocation) > 0
+                            balance_val = 1 - (std(info.resource_allocation) / mean(info.resource_allocation));
+                        else
+                            balance_val = 1.0;
+                        end
+                        episode_allocation_balance_sum(1) = episode_allocation_balance_sum(1) + max(0, min(1, balance_val));
                     end
-                    episode_allocation_balance_sum = episode_allocation_balance_sum + max(0, min(1, balance_val));
                 end
 
                 state = next_state; % 更新状态
@@ -122,7 +124,7 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
 
             % 记录每个episode的总奖励和指标
             total_attacker_rewards(ep) = episode_attacker_reward_sum;
-            total_defender_rewards(ep, :) = episode_defender_rewards_sum;
+            total_defender_rewards(ep, :) = episode_defender_rewards_sum; % 修正: 赋值整个行向量
             total_detections(ep) = episode_detection_count / max_episode_steps; % 平均检测率
             total_resource_utilization(ep, :) = episode_resource_utilization_sum / max_episode_steps; % 平均资源利用率
             total_allocation_balance(ep, :) = episode_allocation_balance_sum / max_episode_steps; % 平均分配均衡性
