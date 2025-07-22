@@ -248,32 +248,50 @@ classdef QLearningAgent < RLAgent
         end
         
         function update(obj, state_vec, action, reward, next_state_vec, next_action)
-            % Q-Learning算法更新
+            % Q-Learning算法更新 - 增强调试版本
             
-            % 调试：确认进入更新方法
+            % === 调试：确认进入更新方法 ===
             fprintf('[QLearningAgent] %s: 进入更新方法 (更新次数 %d)\n', obj.name, obj.update_count);
-
+            
             % 健壮性检查
             if isempty(state_vec) || isempty(next_state_vec)
                 fprintf('[QLearningAgent] %s: 状态向量为空，跳过更新。\n', obj.name);
+                fprintf('[DEBUG] state_vec: %s, next_state_vec: %s\n', mat2str(state_vec), mat2str(next_state_vec));
                 return;
+            end
+            
+            % 验证输入参数
+            if isnan(reward) || isinf(reward)
+                fprintf('[QLearningAgent] %s: 奖励值无效 (%.3f)，设为0\n', obj.name, reward);
+                reward = 0;
             end
             
             % 获取状态索引
             state_idx = obj.encodeState(mean(state_vec));
             next_state_idx = obj.encodeState(mean(next_state_vec));
             
+            fprintf('[DEBUG] 状态编码: state_idx=%d, next_state_idx=%d\n', state_idx, next_state_idx);
+            
             % 处理动作索引（防御者和攻击者可能不同）
             if isvector(action) && length(action) > 1
                 % 防御者：资源分配向量转换为索引
                 action_idx = obj.encodeAction(action);
+                fprintf('[DEBUG] 防御者动作编码: action_vec=%s -> action_idx=%d\n', mat2str(action, 2), action_idx);
             else
                 % 攻击者：单一目标索引
                 action_idx = round(action);
+                fprintf('[DEBUG] 攻击者动作编码: action=%d -> action_idx=%d\n', action, action_idx);
             end
             
             % 边界检查
             action_idx = max(1, min(obj.action_dim, action_idx));
+            
+            % 验证Q表大小
+            if size(obj.Q_table, 1) < state_idx || size(obj.Q_table, 2) < action_idx
+                fprintf('[ERROR] Q表大小不足: Q_table大小=%s, 需要访问(%d,%d)\n', ...
+                        mat2str(size(obj.Q_table)), state_idx, action_idx);
+                return;
+            end
             
             % 获取当前Q值
             current_q = obj.Q_table(state_idx, action_idx);
@@ -291,12 +309,13 @@ classdef QLearningAgent < RLAgent
             
             % Q值更新
             td_error = reward + obj.discount_factor * max_next_q - current_q;
-            obj.Q_table(state_idx, action_idx) = current_q + adaptive_lr * td_error;
+            new_q_value = current_q + adaptive_lr * td_error;
+            obj.Q_table(state_idx, action_idx) = new_q_value;
             
             % 调试：打印TD误差和新Q值
-            fprintf('[QLearningAgent] %s (更新次数 %d): 状态=%d, 动作=%d, 奖励=%.2f, TD误差=%.4f, 新Q值=%.4f\n', ...
-                    obj.name, obj.update_count, state_idx, action_idx, reward, td_error, obj.Q_table(state_idx, action_idx));
-
+            fprintf('[QLearningAgent] %s (更新次数 %d): 状态=%d, 动作=%d, 奖励=%.2f, TD误差=%.4f, 旧Q=%.4f, 新Q=%.4f\n', ...
+                    obj.name, obj.update_count, state_idx, action_idx, reward, td_error, current_q, new_q_value);
+        
             % 更新学习率
             obj.updateLearningRate();
             
@@ -306,6 +325,8 @@ classdef QLearningAgent < RLAgent
             
             % 记录性能历史
             obj.recordPerformance(reward, td_error);
+            
+            fprintf('[QLearningAgent] %s: 更新完成，总更新次数=%d\n', obj.name, obj.update_count);
         end
         
         function state_idx = encodeState(obj, state_scalar)
