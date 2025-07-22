@@ -15,9 +15,30 @@ clear classes; % 尝试清除所有类定义，以防缓存问题
 % =========================================================================
 % 确保所有子文件夹都在MATLAB路径中，以便系统能够找到所有类和函数文件。
 % =========================================================================
-addpath(genpath(pwd));
+current_dir = pwd;
+addpath(genpath(current_dir)); % 添加当前目录及其所有子目录到路径
 rehash toolboxcache; % 刷新MATLAB的路径缓存
+
+% 显式添加 utils 目录，以防 genpath 出现问题
+utils_path = fullfile(current_dir, 'utils');
+if exist(utils_path, 'dir')
+    addpath(utils_path);
+    fprintf('✓ 已显式添加 utils 目录到路径: %s\n', utils_path);
+else
+    fprintf('⚠️ 警告: 未找到 utils 目录: %s\n', utils_path);
+end
+
 fprintf('🚀 FSP-TCS仿真系统启动\n');
+
+% 诊断：检查 MATLAB 实际加载的 runSimpleEpisodes.m 文件
+fprintf('🔍 正在检查 runSimpleEpisodes.m 的位置...\n');
+which_result = which('runSimpleEpisodes.m');
+if isempty(which_result)
+    fprintf('❌ 错误: MATLAB 无法找到 runSimpleEpisodes.m。请确保文件存在且在路径中。\n');
+else
+    fprintf('✅ MATLAB 找到 runSimpleEpisodes.m 在: %s\n', which_result);
+end
+
 
 %% 2. 加载配置
 % =========================================================================
@@ -242,9 +263,10 @@ for iter = 1:config.simulation.n_iterations
     % =====================================================================
     % 在控制台和日志中显示当前迭代的进度和关键性能指标。
     % =====================================================================
-    % 修复：移除多余的参数，假设 outputIterationResults 只需要前五个参数
-    outputIterationResults(iter, config.simulation.n_iterations, toc(iter_timer), ...
-                           current_attacker_reward, current_defender_rewards);
+    % 修复：调整 outputIterationResults 的调用参数，使其与函数定义匹配
+    % outputIterationResults(iteration, agents, episode_results)
+    % 这里需要传递 all_agents 和 iter_rewards (作为 episode_results)
+    outputIterationResults(iter, all_agents, iter_rewards);
 
     % 6.6. 检查点保存
     % =====================================================================
@@ -298,4 +320,3 @@ end
 
 Logger.info('FSP-TCS仿真系统运行结束。');
 fprintf('✅ FSP-TCS仿真系统运行结束。\n');
-

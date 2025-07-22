@@ -151,8 +151,8 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
 
             % 记录每个episode的总奖励和指标到累积变量中
             total_attacker_rewards(ep) = episode_attacker_reward_sum;
-            % 确保赋值时维度匹配：total_defender_rewards(ep, :) 是 1xN，episode_defender_rewards_sum 也是 1xN
-            total_defender_rewards(ep, :) = episode_defender_rewards_sum; 
+            % 修复：在赋值前确保 episode_defender_rewards_sum 是一个行向量且维度正确
+            total_defender_rewards(ep, :) = reshape(episode_defender_rewards_sum, 1, max(1, n_defenders)); 
             total_detections(ep) = episode_detection_count / max_episode_steps; % 平均检测率
             total_resource_utilization(ep, :) = episode_resource_utilization_sum / max_episode_steps; % 平均资源利用率
             total_allocation_balance(ep, :) = episode_allocation_balance_sum / max_episode_steps; % 平均分配均衡性
