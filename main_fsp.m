@@ -167,9 +167,10 @@ Logger.info('初始化结果收集器和性能监控器。');
 % 修正: ResultsCollector 构造函数现在需要 all_agents 和 config
 all_agents = [{attacker_agent}, defender_agents]; % 创建所有智能体的列表
 results_collector = ResultsCollector(all_agents, config); 
+% 修复：PerformanceMonitor 构造函数参数顺序和类型
 performance_monitor = PerformanceMonitor(config.simulation.n_iterations, ...
-                                         config.simulation.n_episodes_per_iter, ...
-                                         length(defender_agents)); % 传入防御者数量
+                                         length(defender_agents), ... % 传入防御者数量作为 n_agents
+                                         config); % 传入 config 结构体
 fprintf('✓ 结果收集器和性能监控器初始化完成。\n');
 
 %% 6. 运行FSP仿真主循环
@@ -215,17 +216,21 @@ for iter = 1:config.simulation.n_iterations
     % =====================================================================
     % 将当前迭代的性能数据传递给 PerformanceMonitor 进行聚合和更新。
     % =====================================================================
-    performance_monitor.update(iter, current_attacker_reward, current_defender_rewards, ...
-                               iter_detections, iter_resource_utilization, iter_allocation_balance);
+    % 修复：将 .update 方法调用改为 .updateIterationData，并传递一个结构体
+    performance_monitor.updateIterationData(iter, struct(...
+        'avg_attacker_reward', current_attacker_reward, ...
+        'avg_defender_reward', current_defender_rewards, ...
+        'avg_detection_rate', iter_detections, ...
+        'resource_utilization', iter_resource_utilization, ...
+        'allocation_balance', iter_allocation_balance));
     
     % 6.3. 记录迭代结果
     % =====================================================================
-    % 将当前迭代的详细结果保存到 ResultsCollector，以便后续分析和报告生成。
+    % 修正：ResultsCollector 没有 recordIterationResults 方法。
+    %      改为在每次迭代结束时从智能体收集数据。
     % =====================================================================
-    results_collector.recordIterationResults(iter, attacker_agent, defender_agents, ...
-                                             iter_rewards, iter_detections, iter_resource_utilization, ...
-                                             iter_allocation_balance, attacker_policy, defender_policies);
-
+    results_collector.collectFromAgents(); % 收集当前智能体状态和性能
+    
     % 6.4. 智能体参数衰减
     % =====================================================================
     % 衰减学习率和探索参数 (如 epsilon 或 temperature)，以促进智能体策略的收敛。
@@ -239,10 +244,9 @@ for iter = 1:config.simulation.n_iterations
     % =====================================================================
     % 在控制台和日志中显示当前迭代的进度和关键性能指标。
     % =====================================================================
+    % 修复：移除多余的参数，假设 outputIterationResults 只需要前五个参数
     outputIterationResults(iter, config.simulation.n_iterations, toc(iter_timer), ...
-                           current_attacker_reward, current_defender_rewards, ...
-                           performance_monitor.current_detection_rate, ...
-                           performance_monitor.current_resource_efficiency);
+                           current_attacker_reward, current_defender_rewards);
 
     % 6.6. 检查点保存
     % =====================================================================
@@ -281,7 +285,7 @@ try
     results_collector.saveAgentModels(attacker_agent, defender_agents);
 
     % 保存所有在仿真过程中收集到的结果数据
-    results_collector.saveAllResults();
+    results_collector.saveAllResults(); % 确保在生成报告前保存所有数据
 
     % 生成可视化报告，包括图表和关键指标总结
     generateVisualizationReport(performance_monitor, results_collector, config);

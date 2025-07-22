@@ -369,5 +369,46 @@ classdef ResultsCollector < handle
             obj.current_iter = iteration;
             % 这里可以添加具体的更新逻辑
         end
+
+        function saveCheckpoint(obj, iteration, attacker_agent, defender_agents)
+            % saveCheckpoint - 保存当前仿真状态作为检查点
+            % Inputs:
+            %   iteration - 当前迭代次数
+            %   attacker_agent - 攻击者智能体对象
+            %   defender_agents - 防御者智能体对象（cell 数组）
+
+            try
+                output_dir = fullfile('results'); % 检查点保存到 results 文件夹
+                if ~exist(output_dir, 'dir')
+                    mkdir(output_dir);
+                end
+
+                % 使用 datestr(now, 'yyyymmdd_HHMMSS') 生成时间戳
+                timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+                checkpoint_filename = fullfile(output_dir, sprintf('intermediate_iter_%d.mat', iteration));
+                
+                % 保存智能体模型和当前结果数据
+                % 使用 save 命令将变量保存到 .mat 文件
+                % 注意：这里直接保存对象，MATLAB会自动处理
+                
+                % 创建一个结构体来保存当前状态
+                checkpoint_data = struct();
+                checkpoint_data.iteration = iteration;
+                checkpoint_data.attacker_agent_model = attacker_agent;
+                checkpoint_data.defender_agent_models = defender_agents;
+                
+                % 也可以选择保存当前 results_data 的一个副本，如果需要从检查点恢复所有历史数据
+                % checkpoint_data.current_results_data = obj.results_data; 
+                
+                save(checkpoint_filename, '-struct', 'checkpoint_data');
+                Logger.info(sprintf('检查点已保存: %s', checkpoint_filename));
+            catch ME
+                Logger.error(sprintf('保存检查点失败: %s', ME.message));
+                fprintf('❌ 保存检查点失败: %s\n', ME.message);
+            end
+        end
     end
 end
+
+% 辅助函数可以在 classdef 文件末尾定义，但不能在 end 之后。
+% 如果需要 softmax，建议将其作为类的静态方法或放在单独的 .m 文件中。
