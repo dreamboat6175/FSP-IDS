@@ -1,7 +1,7 @@
 classdef ConfigManager < handle
     %% ConfigManager - FSP-TCS 配置管理器
     % ================================================================
-    % 版本：v2.6 - 修复 displayConfig 中对 'steps_per_episode' 的访问路径
+    % 版本：v2.7 - 移除对 'DQN' 算法的支持
     % 功能：
     % 1. 配置文件加载和保存
     % 2. 默认配置管理
@@ -239,7 +239,8 @@ classdef ConfigManager < handle
                 end
                 
                 % 验证算法列表
-                valid_algorithms = {'QLearning', 'SARSA', 'DoubleQLearning', 'DQN'};
+                % 修正：移除 'DQN'
+                valid_algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'}; 
                 
                 % 检查攻击者算法
                 attacker_alg = ConfigManager.getConfigValue(config, 'algorithms.attacker', 'QLearning');
@@ -252,8 +253,9 @@ classdef ConfigManager < handle
                             config.algorithms.attacker = 'SARSA';
                         case {'doubleqlearning', 'double_q_learning', 'double-q-learning'}
                             config.algorithms.attacker = 'DoubleQLearning';
-                        case {'dqn', 'deep_q_network'}
-                            config.algorithms.attacker = 'DQN';
+                        % 移除对 'DQN' 的处理
+                        % case {'dqn', 'deep_q_network'}
+                        %     config.algorithms.attacker = 'DQN';
                         otherwise
                             if ~ismember(attacker_alg, valid_algorithms)
                                 warning('未知的攻击者算法: %s，设置为QLearning', attacker_alg);

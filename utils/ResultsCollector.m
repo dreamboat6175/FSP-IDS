@@ -2,7 +2,7 @@
 % =========================================================================
 % 描述: 负责收集和组织FSP仿真过程中的所有数据，包括智能体性能、
 %      策略演化、资源分配等信息，为可视化和分析提供数据支持
-% 版本: v1.0
+% 版本: v1.1 - 修复n_iterations访问路径
 % =========================================================================
 
 classdef ResultsCollector < handle
@@ -41,7 +41,8 @@ classdef ResultsCollector < handle
             % 基本信息
             obj.results_data.n_agents = obj.n_agents;
             obj.results_data.n_defenders = obj.n_defenders;
-            obj.results_data.n_iterations = obj.config.n_iterations;
+            % 修复：正确访问嵌套的 n_iterations
+            obj.results_data.n_iterations = obj.config.simulation.n_iterations;
             obj.results_data.timestamp = datestr(now);
             
             % 攻击者数据

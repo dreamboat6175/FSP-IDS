@@ -46,7 +46,7 @@ classdef AgentFactory
         function agent = createAgent(algorithm, name, agent_type, config, state_dim, action_dim)
             % 创建智能体
             % 输入:
-            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning', 'DQN')
+            %   algorithm - 算法类型 ('QLearning', 'SARSA', 'DoubleQLearning')
             %   name - 智能体名称
             %   agent_type - 智能体类型 ('defender' 或 'attacker')
             %   config - 配置参数
@@ -74,21 +74,20 @@ classdef AgentFactory
                 case 'DOUBLEQLEARNING'
                     agent = DoubleQLearningAgent(name, agent_type, config, state_dim, action_dim);
                     
-                case 'DQN' % 明确处理 DQN 算法
-                    try
-                        % 尝试创建 DQNAgent。如果 DQNAgent.m 文件不存在，这将抛出错误。
-                        agent = DQNAgent(name, agent_type, config, state_dim, action_dim);
-                        fprintf('✓ 创建 %s 智能体: %s (DQN)\n', agent_type, name);
-                    catch ME
-                        % 如果 DQNAgent 类未找到或定义不正确，则回退到 QLearningAgent
-                        if strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass')
-                            warning('AgentFactory:DQNAgentNotFound', ...
-                                    'DQN 智能体类 (DQNAgent.m) 未找到或定义不正确。将使用 QLearningAgent 作为替代。');
-                            agent = QLearningAgent(name, agent_type, config, state_dim, action_dim); % 回退
-                        else
-                            rethrow(ME); % 重新抛出其他类型的错误
-                        end
-                    end
+                % 移除对 'DQN' 算法的直接处理，因为 ConfigManager 已不再将其视为有效算法
+                % case 'DQN' 
+                %     try
+                %         agent = DQNAgent(name, agent_type, config, state_dim, action_dim);
+                %         fprintf('✓ 创建 %s 智能体: %s (DQN)\n', agent_type, name);
+                %     catch ME
+                %         if strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass')
+                %             warning('AgentFactory:DQNAgentNotFound', ...
+                %                     'DQN 智能体类 (DQNAgent.m) 未找到或定义不正确。将使用 QLearningAgent 作为替代。');
+                %             agent = QLearningAgent(name, agent_type, config, state_dim, action_dim);
+                %         else
+                %             rethrow(ME);
+                %         end
+                %     end
                     
                 otherwise
                     error('AgentFactory:UnknownAlgorithm', ...
@@ -96,7 +95,8 @@ classdef AgentFactory
             end
             
             % 只有当智能体不是因错误而回退时才打印此行，或者在回退逻辑中打印
-            if ~exist('ME', 'var') || ~(strcmp(ME.identifier, 'MATLAB:UndefinedFunction') || strcmp(ME.identifier, 'MATLAB:class:UndefinedClass'))
+            % 修正：简化打印逻辑，只在成功创建时打印
+            if exist('agent', 'var') && ~isempty(agent) && ~strcmp(class(agent), 'QLearningAgent') % 避免回退时的重复打印
                 fprintf('✓ 创建 %s 智能体: %s (%s)\n', agent_type, name, algorithm);
             end
         end
@@ -274,15 +274,14 @@ classdef AgentFactory
                         agent.q1_weight = 0.5;
                         agent.q2_weight = 0.5;
                     end
-                case 'DQN' % DQN 特定配置
-                    % 可以在此处添加 DQN 特有的配置，例如网络结构、经验回放缓冲区大小等
-                    % 假设 DQNAgent 类有这些属性
-                    if isprop(agent, 'memory_size') && isfield(config, 'learning') && isfield(config.learning, 'memory_size')
-                        agent.memory_size = config.learning.memory_size;
-                    end
-                    if isprop(agent, 'batch_size') && isfield(config, 'learning') && isfield(config.learning, 'batch_size')
-                        agent.batch_size = config.learning.batch_size;
-                    end
+                % 移除对 'DQN' 特定配置的处理
+                % case 'DQN' 
+                %     if isprop(agent, 'memory_size') && isfield(config, 'learning') && isfield(config.learning, 'memory_size')
+                %         agent.memory_size = config.learning.memory_size;
+                %     end
+                %     if isprop(agent, 'batch_size') && isfield(config, 'learning') && isfield(config.learning, 'batch_size')
+                %         agent.batch_size = config.learning.batch_size;
+                %     end
             end
         end
         
