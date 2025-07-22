@@ -1,0 +1,4 @@
+[2025-07-22 12:26:50] [INFO] 日志系统初始化完成
+[2025-07-22 12:26:50] [INFO] FSP-TCS仿真开始
+[2025-07-22 12:26:50] [ERROR] 仿真出错: 需要有效的TCSEnvironment对象
+[2025-07-22 12:26:50] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\FSPSimulator.m, 行号: 134

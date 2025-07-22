@@ -128,22 +128,162 @@ classdef FSPSimulator < handle
     
     methods (Access = private)
         function validateInputs(obj, env, defender_agents, attacker_agent, config)
-            %VALIDATEINPUTS 验证输入参数
+            %VALIDATEINPUTS 验证输入参数（增强版）
             
-            if isempty(env) || ~isa(env, 'TCSEnvironment')
-                error('FSPSimulator:InvalidInput', '需要有效的TCSEnvironment对象');
+            % 1. 验证环境对象
+            if isempty(env)
+                error('FSPSimulator:InvalidInput', '环境对象不能为空');
             end
             
+            % 检查环境对象类型 - 支持多种情况
+            is_valid_env = false;
+            
+            % 情况1: 真正的TCSEnvironment对象
+            if isa(env, 'TCSEnvironment')
+                is_valid_env = true;
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 使用完整TCSEnvironment对象\n');
+                end
+            % 情况2: 模拟的TCSEnvironment结构体
+            elseif isstruct(env) && isfield(env, 'class_name') && strcmp(env.class_name, 'TCSEnvironment')
+                is_valid_env = true;
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 使用模拟TCSEnvironment对象\n');
+                end
+            % 情况3: 包含必要字段的结构体
+            elseif isstruct(env) && obj.validateEnvironmentStruct(env)
+                is_valid_env = true;
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 使用简化环境结构体\n');
+                end
+            % 情况4: 其他对象类型，检查是否有必要方法
+            elseif isobject(env) && obj.hasRequiredEnvironmentMethods(env)
+                is_valid_env = true;
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 使用兼容环境对象: %s\n', class(env));
+                end
+            end
+            
+            if ~is_valid_env
+                error('FSPSimulator:InvalidInput', ...
+                      '需要有效的TCSEnvironment对象或兼容的环境结构体。当前对象类型: %s', class(env));
+            end
+            
+            % 2. 验证防御者智能体
             if isempty(defender_agents) || ~iscell(defender_agents)
                 error('FSPSimulator:InvalidInput', '需要有效的防御者智能体数组');
             end
             
+            % 验证每个防御者智能体
+            for i = 1:length(defender_agents)
+                if isempty(defender_agents{i})
+                    error('FSPSimulator:InvalidInput', '防御者智能体 %d 不能为空', i);
+                end
+                
+                if ~obj.validateAgent(defender_agents{i}, 'defender')
+                    error('FSPSimulator:InvalidInput', '防御者智能体 %d 无效', i);
+                end
+            end
+            
+            % 3. 验证攻击者智能体
             if isempty(attacker_agent)
                 error('FSPSimulator:InvalidInput', '需要有效的攻击者智能体');
             end
             
+            if ~obj.validateAgent(attacker_agent, 'attacker')
+                error('FSPSimulator:InvalidInput', '攻击者智能体无效');
+            end
+            
+            % 4. 验证配置参数
             if ~isfield(config, 'n_episodes_per_iter') || config.n_episodes_per_iter <= 0
                 error('FSPSimulator:InvalidInput', '需要有效的n_episodes_per_iter参数');
+            end
+            
+            if obj.debug_mode
+                fprintf('[FSPSimulator] 输入验证通过\n');
+            end
+        end
+
+        function is_valid = validateEnvironmentStruct(obj, env)
+            %VALIDATEENVIRONMENTSTRUCT 验证环境结构体是否包含必要字段
+            
+            required_fields = {'n_stations', 'reset', 'step'};
+            
+            is_valid = true;
+            for i = 1:length(required_fields)
+                if ~isfield(env, required_fields{i})
+                    is_valid = false;
+                    if obj.debug_mode
+                        fprintf('[FSPSimulator] 环境缺少必要字段: %s\n', required_fields{i});
+                    end
+                    break;
+                end
+            end
+        end
+        
+        function has_methods = hasRequiredEnvironmentMethods(obj, env)
+            %HASREQUIREDENVIRONMENTMETHODS 检查环境对象是否有必要方法
+            
+            required_methods = {'reset', 'step'};
+            
+            has_methods = true;
+            for i = 1:length(required_methods)
+                if ~obj.hasMethod(env, required_methods{i})
+                    has_methods = false;
+                    if obj.debug_mode
+                        fprintf('[FSPSimulator] 环境缺少必要方法: %s\n', required_methods{i});
+                    end
+                    break;
+                end
+            end
+        end
+        
+        function is_valid = validateAgent(obj, agent, agent_type)
+            %VALIDATEAGENT 验证智能体是否有效
+            
+            is_valid = false;
+            
+            try
+                % 基本检查
+                if isempty(agent)
+                    return;
+                end
+                
+                % 检查智能体类型字段
+                if isstruct(agent) || isobject(agent)
+                    % 检查是否有必要的属性或字段
+                    if (isprop(agent, 'agent_type') || isfield(agent, 'agent_type'))
+                        stored_type = agent.agent_type;
+                        if ~strcmp(stored_type, agent_type)
+                            if obj.debug_mode
+                                fprintf('[FSPSimulator] 智能体类型不匹配: 期望%s, 实际%s\n', ...
+                                        agent_type, stored_type);
+                            end
+                            return;
+                        end
+                    end
+                    
+                    % 检查必要方法
+                    required_methods = {'getStrategy', 'selectAction'};
+                    for i = 1:length(required_methods)
+                        method_name = required_methods{i};
+                        if ~(obj.hasMethod(agent, method_name) || ...
+                             isfield(agent, method_name) || ...
+                             isprop(agent, method_name))
+                            if obj.debug_mode
+                                fprintf('[FSPSimulator] 智能体缺少方法: %s\n', method_name);
+                            end
+                            return;
+                        end
+                    end
+                    
+                    is_valid = true;
+                end
+                
+            catch ME
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 智能体验证出错: %s\n', ME.message);
+                end
             end
         end
         
