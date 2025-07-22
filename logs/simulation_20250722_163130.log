@@ -1,0 +1,4 @@
+[2025-07-22 16:31:30] [INFO] 日志系统初始化完成
+[2025-07-22 16:31:30] [INFO] FSP-TCS仿真系统启动
+[2025-07-22 16:31:30] [ERROR] 仿真出错: 未识别类 'FSPSimulator' 的方法、属性或字段 'getConfigParam'。
+[2025-07-22 16:31:30] [ERROR] 错误位置: D:\CODE\FSP-IDS\core\FSPSimulator.m, 行号: 23

@@ -211,7 +211,77 @@ classdef FSPSimulator < handle
                 % 更新失败，跳过
             end
         end
-        
+        function value = getConfigParam(obj, param_name, default_value)
+            %% 获取配置参数
+            % 输入: param_name - 参数名称
+            %       default_value - 默认值（可选）
+            
+            if nargin < 3
+                default_value = [];
+            end
+            
+            try
+                if isempty(obj.config)
+                    % 如果config为空，使用ConfigManager获取默认配置
+                    obj.config = ConfigManager.getDefaultConfig();
+                end
+                
+                % 尝试从config中获取参数
+                if isstruct(obj.config) && isfield(obj.config, param_name)
+                    value = obj.config.(param_name);
+                elseif isstruct(obj.config)
+                    % 检查嵌套结构
+                    value = obj.getNestedConfigValue(obj.config, param_name, default_value);
+                else
+                    value = default_value;
+                end
+                
+            catch ME
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] 获取参数 %s 失败: %s，使用默认值\n', ...
+                           param_name, ME.message);
+                end
+                value = default_value;
+            end
+        end
+    
+        function value = getNestedConfigValue(obj, config_struct, param_name, default_value)
+            %% 获取嵌套配置值
+            
+            value = default_value;  % 默认返回值
+            
+            % 检查常见的嵌套结构
+            nested_fields = {'system', 'simulation', 'learning', 'algorithms', 'environment'};
+            
+            for i = 1:length(nested_fields)
+                field = nested_fields{i};
+                if isfield(config_struct, field) && isfield(config_struct.(field), param_name)
+                    value = config_struct.(field).(param_name);
+                    return;
+                end
+            end
+            
+            % 检查是否直接存在该字段
+            if isfield(config_struct, param_name)
+                value = config_struct.(param_name);
+            end
+        end
+    
+        function n_steps = getStepsPerEpisode(obj, config)
+            %% 获取每个episode的步数
+            try
+                if isfield(config, 'steps_per_episode')
+                    n_steps = config.steps_per_episode;
+                elseif isfield(config, 'simulation') && isfield(config.simulation, 'steps_per_episode')
+                    n_steps = config.simulation.steps_per_episode;
+                else
+                    % 使用默认值
+                    n_steps = obj.getConfigParam('steps_per_episode', 100);
+                end
+            catch
+                n_steps = 100;  % 默认步数
+            end
+        end
         function radi = calculateRADI(obj, action, info)
             %% 计算RADI值 - 使用ConfigManager中的RADI配置
             try
@@ -245,6 +315,7 @@ classdef FSPSimulator < handle
                         radi = sum(abs(action_normalized - uniform_dist));
                     end
                 end
+                
             catch
                 % 最简化的RADI计算
                 action_normalized = action / sum(action);
