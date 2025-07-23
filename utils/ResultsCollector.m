@@ -206,7 +206,7 @@ classdef ResultsCollector < handle
         
         function results = getResults(obj)
             % 获取收集的结果数据
-            results = obj.results_data;
+            results = obj.results_data;r
         end
         
         function updateIterationData(obj, iteration, episode_results)

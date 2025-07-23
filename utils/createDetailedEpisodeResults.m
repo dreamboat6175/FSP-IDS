@@ -44,46 +44,35 @@ end
 function radi = collectRADI(agent, agent_index)
     %% 收集RADI数据的内部函数
     try
-        % 方法1：调用智能体的calculateRADI方法
+        % 统一调用calculateRADI方法
         if hasMethod(agent, 'calculateRADI')
             radi = agent.calculateRADI();
-            return;
-        end
-        
-        % 方法2：从radi_history获取
-        if hasProperty(agent, 'radi_history') && ~isempty(agent.radi_history)
-            radi = agent.radi_history(end);
-            return;
-        end
-        
-        % 方法3：从Q表计算
-        if hasProperty(agent, 'Q_table') && ~isempty(agent.Q_table)
-            q_values = agent.Q_table(:);
-            if ~isempty(q_values)
-                q_variance = var(q_values);
-                q_mean = mean(abs(q_values));
-                radi = q_variance / (1 + q_mean);
-                radi = max(0.001, min(1.0, radi));
-                return;
-            end
-        end
-        
-        % 方法4：基于智能体类型的默认值
-        class_name = lower(class(agent));
-        if contains(class_name, 'qlearning')
-            if contains(class_name, 'double')
-                radi = 0.077; % Double Q-Learning
-            else
-                radi = 0.078; % Q-Learning
-            end
-        elseif contains(class_name, 'sarsa')
-            radi = 0.088; % SARSA
         else
-            radi = 0.080; % 默认值
+            % 如果没有该方法，使用默认计算
+            if hasProperty(agent, 'Q_table') && ~isempty(agent.Q_table)
+                q_values = agent.Q_table(:);
+                q_std = std(q_values(q_values ~= 0));
+                q_mean = mean(abs(q_values(q_values ~= 0)));
+                radi = q_std / (1 + q_mean);
+                radi = max(0.01, min(1.0, radi));
+            else
+                % 基于算法类型的默认值
+                class_name = lower(class(agent));
+                if contains(class_name, 'qlearning')
+                    if contains(class_name, 'double')
+                        radi = 0.077;
+                    else
+                        radi = 0.078;
+                    end
+                elseif contains(class_name, 'sarsa')
+                    radi = 0.088;
+                else
+                    radi = 0.080;
+                end
+            end
         end
-        
-    catch
-        % 兜底默认值
+    catch ME
+        fprintf('[WARNING] RADI计算失败: %s，使用默认值\n', ME.message);
         radi = 0.080;
     end
 end

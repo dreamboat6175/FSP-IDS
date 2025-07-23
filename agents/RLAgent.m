@@ -40,6 +40,11 @@ classdef (Abstract) RLAgent < handle
         total_reward        % 总奖励
         episode_rewards     % episode奖励历史
         action_history      % 动作历史
+        rewards_history      % 奖励历史
+
+         % 新增：RADI相关属性
+        radi_history         % RADI历史记录
+        previous_radi        % 上一次的RADI值
     end
     
     methods (Abstract)
@@ -73,6 +78,13 @@ classdef (Abstract) RLAgent < handle
             obj.total_reward = 0;
             obj.episode_rewards = [];
             obj.action_history = [];
+
+            % 初始化RADI相关属性
+            obj.radi_history = [];
+            obj.previous_radi = 0.1;
+            
+            % 初始化奖励历史
+            obj.rewards_history = [];
         end
         
         function applyLegacyConfig(obj, config)
@@ -309,6 +321,74 @@ classdef (Abstract) RLAgent < handle
                 stats.action_distribution = histcounts(actions, 1:obj.action_dim+1) / length(actions);
             else
                 stats.action_distribution = [];
+            end
+        end
+        function radi = calculateRADI(obj)
+            % 统一的RADI计算方法
+            
+            % 初始化历史记录
+            if ~isfield(obj, 'radi_history') || isempty(obj.radi_history)
+                obj.radi_history = [];
+            end
+            
+            if ~isfield(obj, 'previous_radi')
+                obj.previous_radi = 0.1;
+            end
+            
+            % 基于Q表计算RADI
+            if ~isempty(obj.Q_table)
+                % 只考虑已访问的状态-动作对
+                visited_mask = obj.visit_count > 0;
+                if any(visited_mask(:))
+                    q_values = obj.Q_table(visited_mask);
+                    
+                    % 计算Q值的统计特征
+                    q_std = std(q_values);
+                    q_mean = mean(abs(q_values));
+                    
+                    % RADI = 标准差 / (1 + 平均值)
+                    current_radi = q_std / (1 + q_mean);
+                    
+                    % 使用指数移动平均平滑
+                    smoothing_factor = 0.9;
+                    radi = smoothing_factor * obj.previous_radi + (1 - smoothing_factor) * current_radi;
+                    
+                    obj.previous_radi = radi;
+                else
+                    % 未访问任何状态时的默认值
+                    radi = 0.1;
+                end
+            else
+                % Q表为空时的默认值
+                radi = 0.1;
+            end
+            
+            % 确保RADI在合理范围内
+            radi = max(0.01, min(1.0, radi));
+            
+            % 记录历史
+            obj.radi_history(end+1) = radi;
+            
+            % 保持历史记录长度
+            if length(obj.radi_history) > 1000
+                obj.radi_history = obj.radi_history(end-999:end);
+            end
+        end
+        function updateEpsilon(obj)
+            % 只在一定更新次数后才开始衰减
+            if obj.update_count > 2000
+                obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+            end
+            
+            % 防止epsilon过低
+            if obj.epsilon < obj.epsilon_min
+                obj.epsilon = obj.epsilon_min;
+            end
+            
+            % 周期性提升探索（可选）
+            if mod(obj.update_count, 5000) == 0 && obj.update_count > 0
+                obj.epsilon = min(1.0, obj.epsilon * 1.2);
+                fprintf('[INFO] %s - 周期性提升探索率至: %.3f\n', obj.name, obj.epsilon);
             end
         end
     end

@@ -19,7 +19,7 @@ classdef QLearningAgent < RLAgent
                 obj.Q_table = sparse(state_dim, action_dim);
                 obj.visit_count = sparse(state_dim, action_dim);
             else
-                obj.Q_table = zeros(state_dim, action_dim);
+                obj.Q_table = 0.1 * randn(obj.state_dim, obj.action_dim);
                 obj.visit_count = zeros(state_dim, action_dim);
             end
             
@@ -92,161 +92,104 @@ classdef QLearningAgent < RLAgent
             state_idx = obj.encodeState(state);
         end
         
-        function action = selectAction(obj, state_vec)
-            % 智能体动作选择方法（支持防御者和攻击者）
-            
-            % 健壮性检查
-            if isempty(state_vec)
-                state_vec = ones(1, obj.state_dim);
-            end
-            state_vec = reshape(state_vec, 1, []);
-            
-            % 获取状态索引
+        function action = selectAction(obj, state_vec, n_stations)
+            % 获取当前状态的Q值
             state_idx = obj.encodeState(mean(state_vec));
-            
-            % 获取Q值
             q_values = obj.Q_table(state_idx, :);
             
-            % 确保Q值有效
-            if any(isnan(q_values)) || any(isinf(q_values))
-                q_values = randn(size(q_values)) * 0.1;
+            % 添加调试输出
+            if mod(obj.update_count, 100) == 0
+                fprintf('[DEBUG] %s - Epsilon: %.3f, Update: %d\n', obj.name, obj.epsilon, obj.update_count);
             end
             
-            % 动态调整参数
-            if obj.epsilon_decay < 1
-                obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+            % 安全检查agent_type和name
+            is_attacker = false;
+            if ~isempty(obj.agent_type) && ischar(obj.agent_type)
+                is_attacker = contains(lower(obj.agent_type), 'attacker');
+            end
+            if ~is_attacker && ~isempty(obj.name) && ischar(obj.name)
+                is_attacker = contains(lower(obj.name), 'attacker');
             end
             
-            % 使用 exploration_strategy 而不是 use_softmax
-            if strcmp(obj.exploration_strategy, 'softmax') && obj.temperature_decay < 1
-                obj.temperature = max(0.1, obj.temperature * obj.temperature_decay);
-            end
-            
-            % 区分防御者和攻击者的动作生成
-            if contains(obj.agent_type, 'attacker') || contains(obj.name, 'attacker')
-                % 攻击者：返回单个站点索引
-                
-                % 确定站点数量 - 优先使用传入的config
-                if isfield(obj.config, 'n_stations')
-                    n_stations = obj.config.n_stations;
-                elseif obj.action_dim > 0
-                    n_stations = obj.action_dim;
-                else
-                    error('无法确定站点数量：config.n_stations和action_dim都不可用');
+            if is_attacker
+                % 攻击者逻辑
+                if nargin < 3 || isempty(n_stations)
+                    n_stations = obj.action_dim;  % 默认值
                 end
                 
-                % 使用 exploration_strategy 判断
                 if strcmp(obj.exploration_strategy, 'softmax')
-                    % Softmax选择
                     temperature = max(0.1, obj.temperature);
-                    q_normalized = q_values(1:min(n_stations, length(q_values))) - max(q_values(1:min(n_stations, length(q_values))));
+                    valid_q_values = q_values(1:min(n_stations, length(q_values)));
+                    q_normalized = valid_q_values - max(valid_q_values);
                     exp_values = exp(q_normalized / temperature);
                     probabilities = exp_values / sum(exp_values);
-                    
-                    % 基于概率选择动作
                     cumsum_probs = cumsum(probabilities);
                     rand_val = rand();
                     action = find(cumsum_probs >= rand_val, 1);
                     if isempty(action)
-                        action = 1; % Fallback if no action is chosen (shouldn't happen with proper probabilities)
+                        action = 1;
                     end
                 else
-                    % Epsilon-贪婪选择
                     if rand() < obj.epsilon
-                        % 探索：随机选择站点
-                        action = randi(n_stations);
+                        action = randi(min(n_stations, obj.action_dim));
                     else
-                        % 利用：选择Q值最高的站点
-                        valid_q_values = q_values(1:min(n_stations, length(q_values)));
+                        valid_q_values = q_values(1:min(n_stations, obj.action_dim));
                         [~, action] = max(valid_q_values);
                     end
                 end
-                
-                % 确保攻击者动作在有效范围内
-                action = max(1, min(n_stations, round(action)));
-                
-                % 调试信息 - 每100步或前5步打印
-                % if mod(obj.update_count, 100) == 0 || obj.update_count < 5
-                %     fprintf('[QLearningAgent] 攻击者 %s (更新次数 %d): 选择目标站点=%d, 站点数=%d\n', ...
-                %             obj.name, obj.update_count, action, n_stations);
-                % end
-                
             else
-                % 防御者：返回资源分配向量
-                
-                % 确定站点数量
-                if isprop(obj, 'config') && isfield(obj.config, 'n_stations')
-                    n_stations = obj.config.n_stations;
-                else
-                    n_stations = min(obj.action_dim, 10); % Default to 10 if not specified
-                end
-                
-                % 生成资源分配向量
-                action = zeros(1, n_stations);
-                
-                % 使用 exploration_strategy 判断
-                if strcmp(obj.exploration_strategy, 'softmax')
-                    % Softmax策略选择
-                    temperature = max(0.1, obj.temperature);
-                    q_normalized = q_values - max(q_values);
-                    exp_values = exp(q_normalized / temperature);
-                    probabilities = exp_values / sum(exp_values);
-                    
-                    % 转换为站点级资源分配
-                    for i = 1:n_stations
-                        % Distribute Q-values across the number of stations
-                        % This is a simplified approach, a more sophisticated approach
-                        % would involve discretizing the action space for resource allocation.
-                        q_start = (i-1) * obj.action_dim / n_stations + 1;
-                        q_end = i * obj.action_dim / n_stations;
-                        q_start = max(1, round(q_start));
-                        q_end = min(obj.action_dim, round(q_end));
-                        
-                        if q_start <= q_end
-                            station_probs = probabilities(q_start:q_end);
-                            action(i) = sum(station_probs);
-                        end
-                    end
-                    
-                    % 归一化
-                    action = action / max(sum(action), 1e-6); % Avoid division by zero
-                    
-                else
-                    % Epsilon-贪婪策略选择
-                    if rand() < obj.epsilon
-                        % 探索：随机分配资源
-                        action = rand(1, n_stations);
-                        action = action / sum(action);
+                % 防御者：资源分配向量
+                if nargin < 3 || isempty(n_stations)
+                    % 尝试从config获取n_stations
+                    if isfield(obj.config, 'n_stations')
+                        n_stations = obj.config.n_stations;
                     else
-                        % 利用：基于Q值分配资源
-                        % This is a heuristic to convert Q-values to resource allocation.
-                        % A more precise method would involve discretizing resource allocations
-                        % into distinct actions and learning Q-values for those.
-                        for i = 1:n_stations
-                            q_start = (i-1) * obj.action_dim / n_stations + 1;
-                            q_end = i * obj.action_dim / n_stations;
-                            q_start = max(1, round(q_start));
-                            q_end = min(obj.action_dim, round(q_end));
-                            
-                            if q_start <= q_end
-                                action(i) = mean(q_values(q_start:q_end));
-                            end
-                        end
-                        
-                        % 将Q值转换为资源分配概率
-                        action = action - min(action) + 0.1; % Shift to positive and add a small base
-                        action = action / sum(action); % Normalize to sum to 1
+                        n_stations = 10;  % 默认值
+                        fprintf('[WARNING] n_stations未指定，使用默认值: %d\n', n_stations);
                     end
                 end
                 
-                % 调试信息 - 每100步或前5步打印
-                % if mod(obj.update_count, 100) == 0 || obj.update_count < 5
-                %     fprintf('[QLearningAgent] 防御者 %s (更新次数 %d): 资源分配=%s\n', ...
-                %             obj.name, obj.update_count, mat2str(action, 3));
-                % end
+                % 强制早期探索
+                if obj.update_count < 3000
+                    % 前3000步完全随机
+                    action = rand(1, n_stations);
+                    action = action / sum(action);
+                    return;
+                end
+                
+                % 添加探索噪声到Q值
+                if rand() < obj.epsilon
+                    % 探索：添加大量噪声
+                    noise_level = 1.0;
+                    q_values_noisy = q_values + noise_level * randn(size(q_values));
+                else
+                    % 利用：添加少量噪声避免确定性
+                    noise_level = 0.1;
+                    q_values_noisy = q_values + noise_level * randn(size(q_values));
+                end
+                
+                % 使用softmax转换为概率分布
+                temperature = max(0.5, obj.temperature);
+                q_normalized = q_values_noisy - max(q_values_noisy);
+                exp_values = exp(q_normalized / temperature);
+                probabilities = exp_values / sum(exp_values);
+                
+                % 映射到资源分配
+                action = zeros(1, n_stations);
+                for i = 1:n_stations
+                    q_start = max(1, round((i-1) * length(probabilities) / n_stations + 1));
+                    q_end = min(length(probabilities), round(i * length(probabilities) / n_stations));
+                    if q_start <= q_end
+                        action(i) = sum(probabilities(q_start:q_end));
+                    end
+                end
+                
+                % 确保最小分配
+                min_allocation = 0.05;
+                action = action + min_allocation;
+                action = action / sum(action);
             end
         end
-        
         function update(obj, state_vec, action, reward, next_state_vec, next_action)
             % Q-Learning算法更新 - 增强调试版本
             
@@ -327,6 +270,8 @@ classdef QLearningAgent < RLAgent
             obj.recordPerformance(reward, td_error);
             
             % fprintf('[QLearningAgent] %s: 更新完成，总更新次数=%d\n', obj.name, obj.update_count);
+            % 在update方法的末尾添加
+            obj.updateEpsilon();
         end
         
         function state_idx = encodeState(obj, state_scalar)
