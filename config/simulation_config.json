@@ -21,7 +21,7 @@
     "action_space_size": 20
   },
   "simulation": {
-    "n_iterations": 1000,
+    "n_iterations": 100,
     "n_episodes_per_iter": 50,
     "max_episode_steps": 50,
     "pool_size_limit": 50,

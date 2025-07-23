@@ -240,10 +240,10 @@ classdef QLearningAgent < RLAgent
                 end
                 
                 % 调试信息 - 每100步或前5步打印
-                if mod(obj.update_count, 100) == 0 || obj.update_count < 5
-                    fprintf('[QLearningAgent] 防御者 %s (更新次数 %d): 资源分配=%s\n', ...
-                            obj.name, obj.update_count, mat2str(action, 3));
-                end
+                % if mod(obj.update_count, 100) == 0 || obj.update_count < 5
+                %     fprintf('[QLearningAgent] 防御者 %s (更新次数 %d): 资源分配=%s\n', ...
+                %             obj.name, obj.update_count, mat2str(action, 3));
+                % end
             end
         end
         
