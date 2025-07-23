@@ -591,14 +591,38 @@ classdef TCSEnvironment < handle
         %% ========== 核心计算方法 ==========
         
         function updateAttackerAverageStrategy(obj, attacker_target)
-            %UPDATEATTACKERAVERAGESTRATEGY 更新攻击者平均策略（FSP核心）
+            %UPDATEATTACKERAVERAGESTRATEGY 更新攻击者平均策略（增强版FSP）
             
             target_onehot = zeros(1, obj.n_stations);
             target_onehot(attacker_target) = 1;
             
-            obj.attacker_avg_strategy = (1 - obj.alpha_ewma) * obj.attacker_avg_strategy + ...
-                                       obj.alpha_ewma * target_onehot;
-        end
+            % 自适应alpha机制
+            if obj.adaptive_alpha
+                % 计算策略变化程度
+                strategy_change = sum(abs(target_onehot - obj.attacker_avg_strategy));
+                
+                % 如果变化大，提高alpha以快速适应
+                if strategy_change > 0.5
+                    current_alpha = min(obj.alpha_max, obj.alpha_ewma * 1.5);
+                else
+                    current_alpha = max(obj.alpha_min, obj.alpha_ewma * 0.95);
+                end
+            else
+                current_alpha = obj.alpha_ewma;
+            end
+            
+            % 更新平均策略
+            obj.attacker_avg_strategy = (1 - current_alpha) * obj.attacker_avg_strategy + ...
+                                       current_alpha * target_onehot;
+            
+            % 添加少量噪声防止过度确定性
+            noise = randn(1, obj.n_stations) * 0.01;
+            obj.attacker_avg_strategy = obj.attacker_avg_strategy + noise;
+            
+            % 归一化确保是有效概率分布
+            obj.attacker_avg_strategy = max(0, obj.attacker_avg_strategy);
+            obj.attacker_avg_strategy = obj.attacker_avg_strategy / sum(obj.attacker_avg_strategy);
+        end      
         
         function [attack_success, damage] = computeAttackOutcome(obj, attacker_target, defender_deployment)
             %COMPUTEATTACKOUTCOME 计算攻击结果
@@ -665,11 +689,11 @@ classdef TCSEnvironment < handle
             detection_result.is_false_positive = is_false_positive;
         end
         
-        function [reward_def, reward_att] = computeRewards(obj, attack_success, damage, attacker_target, ...
-                                                          defender_deployment, detection_result)
-            %COMPUTEREWARDS 计算奖励
+        function [reward_def, reward_att] = computeRewards(obj, attack_success, damage, ...
+    attacker_target, defender_deployment, detection_result)
+            %COMPUTEREWARDS 计算增强版奖励函数
             
-            % 攻击者奖励
+            %% 攻击者奖励（保持原有逻辑）
             if attack_success
                 reward_att = damage;
                 if detection_result.detected && ~detection_result.is_false_positive
@@ -679,58 +703,117 @@ classdef TCSEnvironment < handle
                 reward_att = -0.1;
             end
             
-            % 防御者奖励
-            reward_def = -damage;
+            %% 防御者奖励（全新设计）
             
-            if detection_result.detected && ~detection_result.is_false_positive
-                reward_def = reward_def + 0.5;
-            elseif detection_result.is_false_positive
-                reward_def = reward_def - 0.2;
+            % 1. 基础奖励（确保有正向激励）
+            base_reward = 1.0;
+            
+            % 2. 损害惩罚/奖励
+            if attack_success
+                damage_penalty = -damage * 2;  % 失败时的惩罚
+            else
+                damage_reward = 2.0;  % 成功防御的奖励
             end
             
-            % 资源效率奖励
-            if obj.total_resources > 0
-                resource_efficiency = 1 - (sum(defender_deployment) / obj.total_resources);
-                reward_def = reward_def + resource_efficiency * 0.1;
+            % 3. RADI性能奖励（核心改进）
+            % 先计算当前RADI
+            optimal_deployment = obj.computeOptimalDeployment(attacker_target);
+            current_radi = obj.calculateRADI(defender_deployment, optimal_deployment);
+            obj.radi_score = current_radi;  % 保存供其他组件使用
+            
+            % 使用指数函数将RADI转换为奖励（RADI越小奖励越高）
+            radi_reward = 2 * exp(-current_radi * 3);  % 范围约[0, 2]
+            
+            % 4. 检测奖励
+            detection_reward = 0;
+            if detection_result.detected && ~detection_result.is_false_positive
+                detection_reward = 0.5;  % 正确检测
+            elseif detection_result.is_false_positive
+                detection_reward = -0.1;  % 误报惩罚（减小）
+            end
+            
+            % 5. 资源效率奖励
+            used_resources = sum(defender_deployment);
+            if used_resources > 0 && obj.total_resources > 0
+                efficiency = 1 - abs(used_resources - obj.total_resources) / obj.total_resources;
+                efficiency_reward = efficiency * 0.3;
+            else
+                efficiency_reward = 0;
+            end
+            
+            % 6. 防御平衡奖励（避免资源过度集中）
+            if length(defender_deployment) > 1
+                deployment_std = std(defender_deployment / sum(defender_deployment));
+                balance_reward = (1 - min(deployment_std, 1)) * 0.2;
+            else
+                balance_reward = 0;
+            end
+            
+            % 综合计算（使用明确的权重）
+            wradi = 0.4;    % RADI权重
+            wdamage = 0.3;  % 损害权重
+            wdetect = 0.15; % 检测权重
+            weffic = 0.1;   % 效率权重
+            wbalance = 0.05; % 平衡权重
+            
+            if attack_success
+                reward_def = base_reward + ...
+                            wradi * radi_reward + ...
+                            wdamage * damage_penalty + ...
+                            wdetect * detection_reward + ...
+                            weffic * efficiency_reward + ...
+                            wbalance * balance_reward;
+            else
+                reward_def = base_reward + ...
+                            wradi * radi_reward + ...
+                            wdamage * damage_reward + ...
+                            wdetect * detection_reward + ...
+                            weffic * efficiency_reward + ...
+                            wbalance * balance_reward;
+            end
+            
+            % 确保奖励在合理范围内
+            reward_def = max(-2, min(5, reward_def));
+            
+            % 可选：输出调试信息
+            if obj.debug_mode
+                fprintf('[Reward] RADI: %.3f, RADI_reward: %.3f, Total: %.3f\n', ...
+                        current_radi, radi_reward, reward_def);
             end
         end
-        
-        function radi = calculateRADI(obj, defender_deployment)
-            %CALCULATERADI 计算RADI指标
+
+        function optimal = computeOptimalDeployment(obj, attacker_target)
+            %COMPUTEOPTIMALDEPLOYMENT 计算事后最优部署（知道攻击目标后的最优分配）
             
-            if sum(defender_deployment) == 0
-                radi = 1.0;
-                return;
+            optimal = zeros(1, obj.n_stations);
+            
+            % 方案1：集中防御策略（60%资源给被攻击站点）
+            main_allocation = 0.6;
+            optimal(attacker_target) = obj.total_resources * main_allocation;
+            
+            % 剩余40%资源基于站点价值和历史威胁分配
+            remaining = obj.total_resources * (1 - main_allocation);
+            other_stations = setdiff(1:obj.n_stations, attacker_target);
+            
+            if ~isempty(other_stations)
+                % 结合站点价值和威胁感知
+                values = obj.station_values(other_stations);
+                threats = obj.attacker_avg_strategy(other_stations);
+                
+                % 综合权重：70%基于价值，30%基于威胁
+                combined_weights = 0.7 * values + 0.3 * threats;
+                
+                if sum(combined_weights) > 0
+                    normalized_weights = combined_weights / sum(combined_weights);
+                    optimal(other_stations) = normalized_weights * remaining;
+                else
+                    % 均匀分配剩余资源
+                    optimal(other_stations) = remaining / length(other_stations);
+                end
             end
             
-            % 归一化部署
-            normalized_deployment = defender_deployment / sum(defender_deployment);
-            
-            % 获取最优配置
-            if isfield(obj.radi_config, 'optimal_allocation')
-                optimal_allocation = obj.radi_config.optimal_allocation;
-            else
-                optimal_allocation = ones(1, obj.n_stations) / obj.n_stations;
-            end
-            
-            % 获取权重
-            if isfield(obj.radi_config, 'weights')
-                weights = obj.radi_config.weights;
-            else
-                weights = obj.station_values / sum(obj.station_values);
-            end
-            
-            % 计算偏差
-            deviation = abs(normalized_deployment - optimal_allocation);
-            weighted_deviation = sum(weights .* deviation);
-            
-            % RADI分数（0表示完美，1表示最差）
-            radi = min(1.0, weighted_deviation);
-            
-            % 数值稳定性检查
-            if isnan(radi) || isinf(radi)
-                radi = 0.5;
-            end
+            % 确保资源总和正确
+            optimal = optimal * (obj.total_resources / sum(optimal));
         end
         
         function success_rate = computeRecentSuccessRate(obj)
@@ -773,21 +856,44 @@ classdef TCSEnvironment < handle
         end
         
         function state = generateEnvironmentState(obj)
-            %GENERATEENVIRONMENTSTATE 生成环境状态向量
+            %GENERATEENVIRONMENTSTATE 生成增强的环境状态向量
             
+            % 1. 攻击者平均策略（n维）
+            attacker_avg = obj.attacker_avg_strategy;
+            
+            % 2. 最近k次攻击历史的频率分布（n维）
+            recent_k = min(10, length(obj.attack_history));
+            recent_attack_freq = zeros(1, obj.n_stations);
+            if recent_k > 0
+                recent_attacks = obj.attack_history(end-recent_k+1:end);
+                for target = recent_attacks
+                    recent_attack_freq(target) = recent_attack_freq(target) + 1;
+                end
+                recent_attack_freq = recent_attack_freq / recent_k;
+            end
+            
+            % 3. 站点价值（n维）
+            normalized_values = obj.station_values / sum(obj.station_values);
+            
+            % 4. 最近防御部署（n维）
+            if ~isempty(obj.defense_deployment_history)
+                recent_deployment = obj.defense_deployment_history(end, :);
+                recent_deployment = recent_deployment / sum(recent_deployment);
+            else
+                recent_deployment = ones(1, obj.n_stations) / obj.n_stations;
+            end
+            
+            % 5. 性能指标（3维）
             time_norm = min(obj.time_step / 1000, 1.0);
             recent_radi = obj.computeRecentRADI();
+            recent_success_rate = obj.computeRecentSuccessRate();
             
-            state = [obj.attacker_avg_strategy, time_norm, recent_radi];
+            % 组合状态向量
+            state = [attacker_avg, recent_attack_freq, normalized_values, ...
+                     recent_deployment, time_norm, recent_radi, recent_success_rate];
             
-            % 确保状态长度正确
-            if length(state) ~= obj.state_dim
-                if length(state) < obj.state_dim
-                    state = [state, zeros(1, obj.state_dim - length(state))];
-                else
-                    state = state(1:obj.state_dim);
-                end
-            end
+            % 更新状态维度
+            obj.state_dim = length(state);
         end
         
         function updateEnhancedMetrics(obj, attack_success, damage, attacker_target, defender_deployment, detection_result)

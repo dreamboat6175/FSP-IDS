@@ -110,8 +110,7 @@ classdef (Abstract) RLAgent < handle
         end
         
         function state_idx = encodeState(obj, state_vec)
-            % 将状态向量编码为索引
-            % 简单实现：基于状态均值的分桶
+            % 改进的状态编码：保留更多信息
             
             if isempty(state_vec)
                 state_idx = 1;
@@ -121,11 +120,33 @@ classdef (Abstract) RLAgent < handle
             % 确保state_vec是向量
             state_vec = reshape(state_vec, 1, []);
             
-            % 简单的离散化方案
-            n_bins = 10;
-            state_mean = mean(state_vec);
-            state_idx = max(1, min(n_bins, ceil(state_mean * n_bins)));
-        end
+            % 提取关键特征
+            n_stations = 10; % 或从配置获取
+            
+            if length(state_vec) >= n_stations
+                % 提取攻击者策略部分
+                attacker_strategy = state_vec(1:n_stations);
+                [~, top_threat] = max(attacker_strategy);
+                
+                % 提取最近攻击频率
+                if length(state_vec) >= 2*n_stations
+                    recent_freq = state_vec(n_stations+1:2*n_stations);
+                    [~, recent_target] = max(recent_freq);
+                else
+                    recent_target = 1;
+                end
+                
+                % 创建复合索引
+                state_idx = (top_threat - 1) * n_stations + recent_target;
+            else
+                % 简单哈希
+                state_hash = sum(state_vec .* (1:length(state_vec)));
+                state_idx = mod(round(state_hash * 1000), obj.state_dim) + 1;
+            end
+            
+            % 确保索引在有效范围内
+            state_idx = max(1, min(obj.state_dim, state_idx));
+        end      
         
         function action = exploreAction(obj, greedy_action, action_space)
             % 根据探索策略选择动作
