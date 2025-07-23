@@ -862,14 +862,17 @@ classdef TCSEnvironment < handle
             attacker_avg = obj.attacker_avg_strategy;
             
             % 2. 最近k次攻击历史的频率分布（n维）
-            recent_k = min(10, length(obj.attack_history));
             recent_attack_freq = zeros(1, obj.n_stations);
-            if recent_k > 0
-                recent_attacks = obj.attack_history(end-recent_k+1:end);
-                for target = recent_attacks
-                    recent_attack_freq(target) = recent_attack_freq(target) + 1;
+            
+            % 从attack_target_history矩阵中提取攻击目标
+            if ~isempty(obj.attack_target_history)
+                recent_k = min(10, size(obj.attack_target_history, 1));
+                if recent_k > 0
+                    % attack_target_history是one-hot编码矩阵，每行只有一个1
+                    recent_attacks_matrix = obj.attack_target_history(end-recent_k+1:end, :);
+                    % 计算每个站点被攻击的频率
+                    recent_attack_freq = sum(recent_attacks_matrix, 1) / recent_k;
                 end
-                recent_attack_freq = recent_attack_freq / recent_k;
             end
             
             % 3. 站点价值（n维）
