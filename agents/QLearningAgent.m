@@ -357,17 +357,40 @@ classdef QLearningAgent < RLAgent
         end
         
         function recordPerformance(obj, reward, td_error)
-            % 记录性能数据
+            %% 记录性能数据 - 修复版
             if mod(obj.update_count, 100) == 0
-                obj.parameter_history.learning_rate(end+1) = obj.lr_scheduler.current_lr;
-                obj.parameter_history.epsilon(end+1) = obj.epsilon;
-                obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
+                % 初始化 parameter_history 字段
+                if ~isfield(obj.parameter_history, 'learning_rate')
+                    obj.parameter_history.learning_rate = [];
+                end
+                if ~isfield(obj.parameter_history, 'epsilon')
+                    obj.parameter_history.epsilon = [];
+                end
+                if ~isfield(obj.parameter_history, 'q_values')
+                    obj.parameter_history.q_values = [];
+                end
                 
-                obj.performance_history.reward_100(end+1) = obj.total_reward / max(1, obj.update_count);
-                obj.performance_history.td_error_100(end+1) = abs(td_error);
+                % 初始化 performance_history 字段
+                if ~isfield(obj.performance_history, 'reward_100')
+                    obj.performance_history.reward_100 = [];
+                end
+                if ~isfield(obj.performance_history, 'td_error_100')
+                    obj.performance_history.td_error_100 = [];
+                end
+                
+                % 安全地记录数据
+                try
+                    obj.parameter_history.learning_rate(end+1) = obj.lr_scheduler.current_lr;
+                    obj.parameter_history.epsilon(end+1) = obj.epsilon;
+                    obj.parameter_history.q_values(end+1) = mean(obj.Q_table(:));
+                    
+                    obj.performance_history.reward_100(end+1) = obj.total_reward / max(1, obj.update_count);
+                    obj.performance_history.td_error_100(end+1) = abs(td_error);
+                catch ME
+                    fprintf('[WARNING] QLearningAgent recordPerformance 出错: %s\n', ME.message);
+                end
             end
-        end
-        
+        end      
         function policy = getPolicy(obj)
             % 获取当前策略分布
             % 简化版本：返回每个动作的选择概率
