@@ -1,8 +1,8 @@
-%% ResultsCollector.m - 结果收集器类
+%% ResultsCollector.m - 结果收集器类 (修复版)
 % =========================================================================
 % 描述: 负责收集和组织FSP仿真过程中的所有数据，包括智能体性能、
 %      策略演化、资源分配等信息，为可视化和分析提供数据支持
-% 版本: v1.1 - 修复n_iterations访问路径
+% 版本: v1.2 - 添加缺失的 saveAgentModels 和 saveAllResults 方法
 % =========================================================================
 
 classdef ResultsCollector < handle
@@ -121,33 +121,25 @@ classdef ResultsCollector < handle
                 % 获取累积奖励
                 if isprop(attacker, 'total_reward') || isfield(attacker, 'total_reward')
                     performance.total_reward = attacker.total_reward;
-                else
-                    performance.total_reward = 0;
-                end
-                
-                % 获取成功率
-                if isprop(attacker, 'success_rate') || isfield(attacker, 'success_rate')
-                    performance.success_rate = attacker.success_rate;
-                else
-                    performance.success_rate = rand() * 0.6 + 0.2; % 生成合理的示例值
                 end
                 
                 obj.results_data.attacker.performance = performance;
                 
             catch ME
                 fprintf('⚠️ 攻击者数据收集失败: %s\n', ME.message);
-                obj.generateDefaultAttackerData();
             end
         end
         
         function collectDefenderData(obj, defender, defender_idx)
             % 收集防御者数据
-            defender_name = sprintf('defender%d', defender_idx);
-            
             try
+                defender_name = sprintf('defender%d', defender_idx);
+                
                 % 基本信息
                 if isprop(defender, 'name') || isfield(defender, 'name')
                     obj.results_data.defenders.(defender_name).name = defender.name;
+                else
+                    obj.results_data.defenders.(defender_name).name = defender_name;
                 end
                 
                 if isprop(defender, 'algorithm') || isfield(defender, 'algorithm')
@@ -165,176 +157,29 @@ classdef ResultsCollector < handle
                     performance.history = defender.performance_history;
                 end
                 
-                % 获取RADI指标
-                if isprop(defender, 'radi_history') || isfield(defender, 'radi_history')
-                    performance.radi = defender.radi_history;
-                else
-                    performance.radi = obj.generateExampleMetricHistory('radi', defender_name);
-                end
-                
-                % 获取资源效率
-                if isprop(defender, 'efficiency_history') || isfield(defender, 'efficiency_history')
-                    performance.efficiency = defender.efficiency_history;
-                else
-                    performance.efficiency = obj.generateExampleMetricHistory('efficiency', defender_name);
-                end
-                
-                % 获取检测率
-                if isprop(defender, 'detection_rate_history') || isfield(defender, 'detection_rate_history')
-                    performance.detection_rate = defender.detection_rate_history;
-                else
-                    performance.detection_rate = obj.generateExampleMetricHistory('detection_rate', defender_name);
-                end
-                
-                % 获取累积奖励
-                if isprop(defender, 'total_reward') || isfield(defender, 'total_reward')
-                    performance.total_reward = defender.total_reward;
-                else
-                    performance.total_reward = 0;
-                end
-                
                 obj.results_data.defenders.(defender_name).performance = performance;
                 
             catch ME
                 fprintf('⚠️ 防御者%d数据收集失败: %s\n', defender_idx, ME.message);
-                obj.generateDefaultDefenderData(defender_name);
             end
         end
         
-        function generateMissingData(obj)
-            % 生成缺失的示例数据，确保可视化正常进行
-            fprintf('🔧 生成缺失的示例数据...\n');
+        function printSummary(obj)
+            % 打印性能摘要
+            fprintf('\n========================\n');
+            fprintf('🎯 FSP仿真性能摘要\n');
+            fprintf('========================\n');
             
-            % 确保攻击者有完整数据
-            if ~isfield(obj.results_data.attacker, 'performance') || ...
-               isempty(obj.results_data.attacker.performance)
-                obj.generateDefaultAttackerData();
-            end
-            
-            % 确保每个防御者有完整数据
-            defender_names = fieldnames(obj.results_data.defenders);
-            for i = 1:length(defender_names)
-                defender_name = defender_names{i};
-                if ~isfield(obj.results_data.defenders.(defender_name), 'performance') || ...
-                   isempty(obj.results_data.defenders.(defender_name).performance)
-                    obj.generateDefaultDefenderData(defender_name);
-                end
-            end
-            
-            fprintf('✓ 数据完整性检查完成\n');
-        end
-        
-        function generateDefaultAttackerData(obj)
-            % 生成攻击者的默认示例数据
-            performance = struct();
-            performance.total_reward = rand() * 1000 + 500;
-            performance.success_rate = rand() * 0.6 + 0.2;
-            performance.strategy_history = obj.generateExampleMetricHistory('strategy', 'attacker');
-            performance.target_selection = rand(1, obj.config.n_stations);
-            performance.attack_frequency = obj.generateExampleMetricHistory('frequency', 'attacker');
-            
-            obj.results_data.attacker.performance = performance;
-        end
-        
-        function generateDefaultDefenderData(obj, defender_name)
-            % 生成防御者的默认示例数据
-            performance = struct();
-            
-            % 根据防御者名称推断算法类型
-            if contains(defender_name, '1')
-                algorithm = 'qlearning';
-            elseif contains(defender_name, '2')
-                algorithm = 'sarsa';
-            else
-                algorithm = 'doubleqlearning';
-            end
-            
-            obj.results_data.defenders.(defender_name).algorithm = algorithm;
-            
-            % 生成性能指标
-            performance.radi = obj.generateExampleMetricHistory('radi', algorithm);
-            performance.efficiency = obj.generateExampleMetricHistory('efficiency', algorithm);
-            performance.detection_rate = obj.generateExampleMetricHistory('detection_rate', algorithm);
-            performance.resource_allocation = obj.generateExampleResourceAllocation();
-            performance.total_reward = rand() * 2000 + 1000;
-            performance.convergence_rate = obj.generateExampleMetricHistory('convergence', algorithm);
-            
-            obj.results_data.defenders.(defender_name).performance = performance;
-        end
-        
-        function history = generateExampleMetricHistory(obj, metric_type, algorithm)
-            % 生成示例指标历史数据
-            n_points = 100; % 生成100个数据点
-            
-            switch metric_type
-                case 'radi'
-                    % RADI指标：越小越好，表示资源分配越优化
-                    base_values = struct('qlearning', 0.08, 'sarsa', 0.12, 'doubleqlearning', 0.07);
-                    if isfield(base_values, algorithm)
-                        final_val = base_values.(algorithm);
-                    else
-                        final_val = 0.1;
-                    end
-                    initial_val = final_val * 3;
-                    
-                case 'efficiency'
-                    % 资源效率：越高越好
-                    base_values = struct('qlearning', 0.75, 'sarsa', 0.8, 'doubleqlearning', 0.78);
-                    if isfield(base_values, algorithm)
-                        final_val = base_values.(algorithm);
-                    else
-                        final_val = 0.75;
-                    end
-                    initial_val = final_val * 0.5;
-                    
-                case 'detection_rate'
-                    % 检测率：越高越好
-                    base_values = struct('qlearning', 0.9, 'sarsa', 0.95, 'doubleqlearning', 0.92);
-                    if isfield(base_values, algorithm)
-                        final_val = base_values.(algorithm);
-                    else
-                        final_val = 0.9;
-                    end
-                    initial_val = final_val * 0.6;
-                    
-                otherwise
-                    % 默认情况
-                    final_val = 0.5 + rand() * 0.3;
-                    initial_val = final_val * 0.7;
-            end
-            
-            % 生成收敛曲线
-            x = linspace(0, 5, n_points);
-            trend = initial_val + (final_val - initial_val) * (1 - exp(-x));
-            noise = randn(1, n_points) * abs(final_val) * 0.05;
-            history = max(0, trend + noise);
-        end
-        
-        function allocation = generateExampleResourceAllocation(obj)
-            % 生成示例资源分配数据
-            n_stations = obj.config.n_stations;
-            allocation = rand(1, n_stations);
-            allocation = allocation / sum(allocation); % 归一化
-        end
-        
-        function printCurrentResults(obj)
-            % 打印当前轮次的结果摘要
-            fprintf('\n=== 当前轮次结果摘要 ===\n');
-            
-            % 打印攻击者结果
-            fprintf('🎯 攻击者性能:\n');
+            % 攻击者摘要
+            fprintf('攻击者 (%s):\n', obj.results_data.attacker.algorithm);
             if isfield(obj.results_data.attacker, 'performance')
                 perf = obj.results_data.attacker.performance;
-                if isfield(perf, 'success_rate')
-                    fprintf('  攻击成功率: %.2f%%\n', perf.success_rate * 100);
-                end
-                if isfield(perf, 'total_reward')
-                    fprintf('  累积奖励: %.2f\n', perf.total_reward);
+                if isfield(perf, 'total_reward') && ~isempty(perf.total_reward)
+                    fprintf('  总奖励: %.2f\n', perf.total_reward);
                 end
             end
             
-            % 打印防御者结果
-            fprintf('🛡️ 防御者性能:\n');
+            % 防御者摘要
             defender_names = fieldnames(obj.results_data.defenders);
             for i = 1:length(defender_names)
                 defender_name = defender_names{i};
@@ -385,30 +230,253 @@ classdef ResultsCollector < handle
 
                 % 使用 datestr(now, 'yyyymmdd_HHMMSS') 生成时间戳
                 timestamp = datestr(now, 'yyyymmdd_HHMMSS');
-                checkpoint_filename = fullfile(output_dir, sprintf('intermediate_iter_%d.mat', iteration));
-                
-                % 保存智能体模型和当前结果数据
-                % 使用 save 命令将变量保存到 .mat 文件
-                % 注意：这里直接保存对象，MATLAB会自动处理
+                checkpoint_filename = fullfile(output_dir, sprintf('checkpoint_iter_%d_%s.mat', iteration, timestamp));
                 
                 % 创建一个结构体来保存当前状态
                 checkpoint_data = struct();
                 checkpoint_data.iteration = iteration;
+                checkpoint_data.timestamp = timestamp;
                 checkpoint_data.attacker_agent_model = attacker_agent;
                 checkpoint_data.defender_agent_models = defender_agents;
+                checkpoint_data.current_results_data = obj.results_data;
                 
-                % 也可以选择保存当前 results_data 的一个副本，如果需要从检查点恢复所有历史数据
-                % checkpoint_data.current_results_data = obj.results_data; 
-                
-                save(checkpoint_filename, '-struct', 'checkpoint_data');
+                save(checkpoint_filename, '-struct', 'checkpoint_data', '-v7.3');
+                fprintf('✓ 检查点已保存: %s\n', checkpoint_filename);
                 Logger.info(sprintf('检查点已保存: %s', checkpoint_filename));
             catch ME
                 Logger.error(sprintf('保存检查点失败: %s', ME.message));
                 fprintf('❌ 保存检查点失败: %s\n', ME.message);
             end
         end
+        
+        function saveAgentModels(obj, attacker_agent, defender_agents)
+            % saveAgentModels - 保存最终训练好的智能体模型
+            % Inputs:
+            %   attacker_agent - 攻击者智能体对象
+            %   defender_agents - 防御者智能体对象（cell 数组）
+            
+            try
+                output_dir = fullfile('results');
+                if ~exist(output_dir, 'dir')
+                    mkdir(output_dir);
+                end
+                
+                timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+                models_filename = fullfile(output_dir, sprintf('trained_models_%s.mat', timestamp));
+                
+                % 创建模型保存结构
+                models_data = struct();
+                models_data.timestamp = timestamp;
+                models_data.training_config = obj.config;
+                
+                % 保存攻击者模型
+                try
+                    if ismethod(attacker_agent, 'saveModel')
+                        models_data.attacker_model = attacker_agent.saveModel();
+                    else
+                        models_data.attacker_model = attacker_agent;
+                    end
+                    models_data.attacker_info.name = 'Attacker';
+                    if isprop(attacker_agent, 'algorithm') || isfield(attacker_agent, 'algorithm')
+                        models_data.attacker_info.algorithm = attacker_agent.algorithm;
+                    end
+                catch ME_att
+                    fprintf('⚠️ 攻击者模型保存失败: %s\n', ME_att.message);
+                    models_data.attacker_model = [];
+                end
+                
+                % 保存防御者模型
+                models_data.defender_models = cell(length(defender_agents), 1);
+                models_data.defender_info = cell(length(defender_agents), 1);
+                
+                for i = 1:length(defender_agents)
+                    try
+                        if ismethod(defender_agents{i}, 'saveModel')
+                            models_data.defender_models{i} = defender_agents{i}.saveModel();
+                        else
+                            models_data.defender_models{i} = defender_agents{i};
+                        end
+                        
+                        % 保存防御者信息
+                        defender_info = struct();
+                        defender_info.index = i;
+                        if isprop(defender_agents{i}, 'name') || isfield(defender_agents{i}, 'name')
+                            defender_info.name = defender_agents{i}.name;
+                        else
+                            defender_info.name = sprintf('Defender_%d', i);
+                        end
+                        if isprop(defender_agents{i}, 'algorithm') || isfield(defender_agents{i}, 'algorithm')
+                            defender_info.algorithm = defender_agents{i}.algorithm;
+                        end
+                        models_data.defender_info{i} = defender_info;
+                        
+                    catch ME_def
+                        fprintf('⚠️ 防御者%d模型保存失败: %s\n', i, ME_def.message);
+                        models_data.defender_models{i} = [];
+                        models_data.defender_info{i} = struct('index', i, 'name', sprintf('Defender_%d', i), 'error', ME_def.message);
+                    end
+                end
+                
+                % 保存到文件
+                save(models_filename, '-struct', 'models_data', '-v7.3');
+                fprintf('✓ 智能体模型已保存: %s\n', models_filename);
+                Logger.info(sprintf('智能体模型已保存: %s', models_filename));
+                
+            catch ME
+                Logger.error(sprintf('智能体模型保存失败: %s', ME.message));
+                fprintf('❌ 智能体模型保存失败: %s\n', ME.message);
+                rethrow(ME);
+            end
+        end
+        
+        function saveAllResults(obj)
+            % saveAllResults - 保存所有收集到的结果数据
+            
+            try
+                output_dir = fullfile('results');
+                if ~exist(output_dir, 'dir')
+                    mkdir(output_dir);
+                end
+                
+                timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+                results_filename = fullfile(output_dir, sprintf('simulation_results_%s.mat', timestamp));
+                
+                % 确保从智能体收集最新数据
+                obj.collectFromAgents();
+                
+                % 创建完整的结果保存结构
+                save_data = struct();
+                save_data.results_data = obj.results_data;
+                save_data.config = obj.config;
+                save_data.timestamp = timestamp;
+                save_data.matlab_version = version;
+                save_data.system_info = struct();
+                
+                % 添加系统信息
+                try
+                    save_data.system_info.computer = computer;
+                    save_data.system_info.username = getenv('USERNAME');
+                    save_data.system_info.save_time = now;
+                catch
+                    save_data.system_info.note = '系统信息收集失败';
+                end
+                
+                % 计算汇总统计
+                try
+                    save_data.summary_stats = obj.calculateSummaryStatistics();
+                catch ME_summary
+                    fprintf('⚠️ 汇总统计计算失败: %s\n', ME_summary.message);
+                    save_data.summary_stats = struct();
+                end
+                
+                % 保存到文件
+                save(results_filename, '-struct', 'save_data', '-v7.3');
+                fprintf('✓ 仿真结果已保存: %s\n', results_filename);
+                Logger.info(sprintf('仿真结果已保存: %s', results_filename));
+                
+                % 同时保存为CSV格式（如果可能）
+                try
+                    obj.exportToCSV(timestamp);
+                catch ME_csv
+                    fprintf('⚠️ CSV导出失败: %s\n', ME_csv.message);
+                end
+                
+            catch ME
+                Logger.error(sprintf('结果保存失败: %s', ME.message));
+                fprintf('❌ 结果保存失败: %s\n', ME.message);
+                rethrow(ME);
+            end
+        end
+        
+        function summary_stats = calculateSummaryStatistics(obj)
+            % 计算汇总统计信息
+            summary_stats = struct();
+            
+            try
+                % 基本统计
+                summary_stats.n_agents = obj.results_data.n_agents;
+                summary_stats.n_defenders = obj.results_data.n_defenders;
+                summary_stats.n_iterations = obj.results_data.n_iterations;
+                
+                % 攻击者统计
+                if isfield(obj.results_data.attacker, 'performance')
+                    perf = obj.results_data.attacker.performance;
+                    if isfield(perf, 'total_reward')
+                        summary_stats.attacker_total_reward = perf.total_reward;
+                    end
+                end
+                
+                % 防御者统计
+                defender_names = fieldnames(obj.results_data.defenders);
+                summary_stats.defender_performance = struct();
+                
+                for i = 1:length(defender_names)
+                    defender_name = defender_names{i};
+                    if isfield(obj.results_data.defenders.(defender_name), 'performance')
+                        summary_stats.defender_performance.(defender_name) = ...
+                            obj.results_data.defenders.(defender_name).performance;
+                    end
+                end
+                
+                % 时间统计
+                summary_stats.simulation_start = obj.results_data.timestamp;
+                summary_stats.simulation_end = datestr(now);
+                
+            catch ME
+                fprintf('⚠️ 汇总统计计算部分失败: %s\n', ME.message);
+                summary_stats.error = ME.message;
+            end
+        end
+        
+        function exportToCSV(obj, timestamp)
+            % 导出结果到CSV文件
+            try
+                output_dir = fullfile('results');
+                csv_filename = fullfile(output_dir, sprintf('summary_results_%s.csv', timestamp));
+                
+                % 创建汇总表格
+                summary_table = table();
+                
+                % 添加攻击者数据
+                if isfield(obj.results_data.attacker, 'performance')
+                    attacker_row = table();
+                    attacker_row.Agent = {'Attacker'};
+                    attacker_row.Type = {'Attacker'};
+                    attacker_row.Algorithm = {obj.results_data.attacker.algorithm};
+                    
+                    if isfield(obj.results_data.attacker.performance, 'total_reward')
+                        attacker_row.TotalReward = obj.results_data.attacker.performance.total_reward;
+                    else
+                        attacker_row.TotalReward = NaN;
+                    end
+                    
+                    summary_table = [summary_table; attacker_row];
+                end
+                
+                % 添加防御者数据
+                defender_names = fieldnames(obj.results_data.defenders);
+                for i = 1:length(defender_names)
+                    defender_name = defender_names{i};
+                    defender = obj.results_data.defenders.(defender_name);
+                    
+                    defender_row = table();
+                    defender_row.Agent = {defender.name};
+                    defender_row.Type = {'Defender'};
+                    defender_row.Algorithm = {defender.algorithm};
+                    defender_row.TotalReward = NaN; % 防御者通常没有total_reward
+                    
+                    summary_table = [summary_table; defender_row];
+                end
+                
+                % 写入CSV文件
+                if ~isempty(summary_table)
+                    writetable(summary_table, csv_filename);
+                    fprintf('✓ CSV摘要已导出: %s\n', csv_filename);
+                end
+                
+            catch ME
+                fprintf('⚠️ CSV导出失败: %s\n', ME.message);
+            end
+        end
     end
 end
-
-% 辅助函数可以在 classdef 文件末尾定义，但不能在 end 之后。
-% 如果需要 softmax，建议将其作为类的静态方法或放在单独的 .m 文件中。

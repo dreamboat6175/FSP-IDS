@@ -79,21 +79,217 @@ end
 % =========================================================================
 % 根据配置初始化日志系统
 % =========================================================================
+fprintf('📝 初始化日志系统...\n');
+
+% 获取日志配置参数
 try
-    log_file_path = ConfigManager.getConfigValue(config, 'output.log_file', 'simulation.log');
+    log_file_path = ConfigManager.getConfigValue(config, 'output.log_file', '');
     log_level = ConfigManager.getConfigValue(config, 'debug.log_level', 'INFO');
-    
-    Logger.init(log_file_path, log_level);
-    Logger.info('日志系统初始化完成。');
-    fprintf('✓ 日志系统初始化: %s\n', log_file_path);
-catch ME
-    fprintf('❌ 日志系统初始化失败: %s\n', ME.message);
-    fprintf('✓ 将使用默认日志文件: simulation.log\n');
-    % 如果日志系统初始化失败，使用备用日志配置
-    Logger.init('simulation.log', 'INFO');
-    Logger.warning('日志系统初始化失败，已切换到备用日志配置。');
+catch ME_Config
+    fprintf('⚠️ 读取日志配置失败: %s\n', ME_Config.message);
+    log_file_path = '';
+    log_level = 'INFO';
 end
+
+% 确定最终使用的日志文件路径
+if isempty(log_file_path) || ~ischar(log_file_path)
+    log_file_path = 'simulation.log'; % 默认日志文件
+    use_backup_config = true;
+else
+    use_backup_config = false;
+end
+
+% 确保日志目录存在
+try
+    [log_dir, ~, ~] = fileparts(log_file_path);
+    if ~isempty(log_dir) && ~exist(log_dir, 'dir')
+        mkdir(log_dir);
+        fprintf('✓ 创建日志目录: %s\n', log_dir);
+    end
+catch ME_Dir
+    fprintf('⚠️ 创建日志目录失败: %s\n', ME_Dir.message);
+    log_file_path = 'simulation.log'; % 回退到根目录
+    use_backup_config = true;
+end
+
+% 执行日志系统初始化
+try
+    Logger.init(log_file_path, log_level);
+    
+    % 根据是否使用备用配置来记录不同的信息
+    if use_backup_config
+        Logger.info('日志系统已使用默认配置初始化完成。');
+        fprintf('✓ 日志系统初始化: %s (默认配置)\n', log_file_path);
+    else
+        Logger.info('日志系统按用户配置初始化完成。');
+        fprintf('✓ 日志系统初始化: %s\n', log_file_path);
+    end
+    
+catch ME_Logger
+    % 真正的初始化失败情况
+    fprintf('❌ 日志系统初始化完全失败: %s\n', ME_Logger.message);
+    fprintf('将尝试使用最基本的控制台日志...\n');
+    
+    % 最后的备用方案 - 仅控制台输出
+    try
+        Logger.init('console_only.log', 'INFO');
+        Logger.warning('日志系统部分功能受限，主要依赖控制台输出。');
+        fprintf('⚠️ 日志功能受限，请检查磁盘空间和文件权限\n');
+    catch
+        fprintf('❌ 无法初始化任何形式的日志系统\n');
+        % 这里可以选择继续运行或终止程序
+    end
+end
+
 Logger.info('FSP-TCS仿真系统启动。');
+fprintf('🚀 FSP-TCS仿真系统启动\n');
+
+%% 额外的日志系统增强 - 可选实现
+
+function enhanced_logger_init(config)
+    %% 增强版日志系统初始化函数
+    % 可以替换main_fsp.m中的日志初始化部分
+    
+    fprintf('📝 初始化增强日志系统...\n');
+    
+    % 1. 配置参数获取和验证
+    log_config = get_validated_log_config(config);
+    
+    % 2. 日志文件路径处理
+    log_file_path = setup_log_file_path(log_config);
+    
+    % 3. 执行初始化
+    success = perform_logger_initialization(log_file_path, log_config.level);
+    
+    % 4. 记录初始化结果
+    log_initialization_result(success, log_file_path, log_config);
+    
+    Logger.info('FSP-TCS仿真系统启动。');
+end
+
+function log_config = get_validated_log_config(config)
+    %% 获取并验证日志配置
+    log_config = struct();
+    
+    try
+        % 尝试获取用户配置
+        log_config.file = ConfigManager.getConfigValue(config, 'output.log_file', '');
+        log_config.level = ConfigManager.getConfigValue(config, 'debug.log_level', 'INFO');
+        log_config.auto_timestamp = ConfigManager.getConfigValue(config, 'debug.auto_timestamp', true);
+        log_config.max_file_size = ConfigManager.getConfigValue(config, 'debug.max_log_size_mb', 100);
+        
+        % 验证日志级别
+        valid_levels = {'ERROR', 'WARNING', 'INFO', 'DEBUG'};
+        if ~ismember(upper(log_config.level), valid_levels)
+            fprintf('⚠️ 无效日志级别 "%s"，使用默认级别 INFO\n', log_config.level);
+            log_config.level = 'INFO';
+        end
+        
+        log_config.is_valid = true;
+        
+    catch ME
+        fprintf('⚠️ 日志配置读取失败: %s\n', ME.message);
+        % 使用默认配置
+        log_config.file = '';
+        log_config.level = 'INFO';
+        log_config.auto_timestamp = true;
+        log_config.max_file_size = 100;
+        log_config.is_valid = false;
+    end
+end
+
+function log_file_path = setup_log_file_path(log_config)
+    %% 设置和验证日志文件路径
+    
+    if isempty(log_config.file) || ~ischar(log_config.file)
+        % 生成默认文件名
+        if log_config.auto_timestamp
+            timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+            log_file_path = sprintf('simulation_%s.log', timestamp);
+        else
+            log_file_path = 'simulation.log';
+        end
+        fprintf('使用默认日志文件: %s\n', log_file_path);
+    else
+        log_file_path = log_config.file;
+    end
+    
+    % 确保日志目录存在
+    [log_dir, ~, ~] = fileparts(log_file_path);
+    if ~isempty(log_dir)
+        try
+            if ~exist(log_dir, 'dir')
+                mkdir(log_dir);
+                fprintf('✓ 创建日志目录: %s\n', log_dir);
+            end
+        catch ME
+            fprintf('❌ 无法创建日志目录 %s: %s\n', log_dir, ME.message);
+            log_file_path = 'simulation.log'; % 回退到根目录
+        end
+    end
+    
+    % 检查文件权限
+    try
+        test_fid = fopen(log_file_path, 'a');
+        if test_fid == -1
+            error('无法写入日志文件');
+        end
+        fclose(test_fid);
+    catch ME
+        fprintf('❌ 日志文件权限检查失败: %s\n', ME.message);
+        log_file_path = sprintf('simulation_backup_%s.log', datestr(now, 'HHMMSS'));
+    end
+end
+
+function success = perform_logger_initialization(log_file_path, log_level)
+    %% 执行日志器初始化
+    success = false;
+    
+    try
+        Logger.init(log_file_path, log_level);
+        success = true;
+    catch ME
+        fprintf('❌ Logger.init 失败: %s\n', ME.message);
+        
+        % 尝试备用初始化方法
+        try
+            % 清理可能存在的问题状态
+            Logger.close();
+            pause(0.1); % 短暂等待
+            Logger.init('emergency.log', 'INFO');
+            success = true;
+            fprintf('✓ 使用紧急配置成功初始化\n');
+        catch ME2
+            fprintf('❌ 紧急初始化也失败: %s\n', ME2.message);
+        end
+    end
+end
+
+function log_initialization_result(success, log_file_path, log_config)
+    %% 记录初始化结果
+    
+    if success
+        if log_config.is_valid
+            Logger.info('日志系统按用户配置成功初始化。');
+            fprintf('✅ 日志系统初始化成功: %s (用户配置)\n', log_file_path);
+        else
+            Logger.info('日志系统使用默认配置成功初始化。');
+            fprintf('✅ 日志系统初始化成功: %s (默认配置)\n', log_file_path);
+        end
+        
+        % 记录系统信息
+        Logger.info(sprintf('日志级别: %s', log_config.level));
+        Logger.info(sprintf('MATLAB版本: %s', version));
+        Logger.info(sprintf('系统时间: %s', datestr(now)));
+        
+    else
+        fprintf('❌ 日志系统初始化失败，将使用控制台输出\n');
+        fprintf('建议检查:\n');
+        fprintf('  1. 磁盘空间是否充足\n');
+        fprintf('  2. 目录权限是否正确\n');
+        fprintf('  3. 文件是否被其他程序占用\n');
+    end
+end
 
 %% 4. 创建环境和智能体
 % =========================================================================
@@ -339,7 +535,7 @@ try
     results_collector.saveAllResults(); % 确保在生成报告前保存所有数据
 
     % 生成可视化报告，包括图表和关键指标总结
-    generateVisualizationReport(performance_monitor, results_collector, config);
+    generateVisualizationReport(all_agents, config);
     Logger.info('仿真报告生成完成。');
     fprintf('✓ 仿真报告生成完成。\n');
 

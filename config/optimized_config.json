@@ -1,0 +1,122 @@
+{
+  "metadata": {
+    "version": "1.2",
+    "description": "FSP-TCS 优化配置 - 解决策略固化问题",
+    "created": "2025-07-23",
+    "optimizations": [
+      "提高epsilon_min至0.15，防止完全停止探索",
+      "将epsilon_decay调整至0.9995，减缓收敛速度",
+      "增加temperature参数，增强Softmax探索",
+      "优化学习率衰减，保持长期学习能力"
+    ]
+  },
+  "system": {
+    "n_stations": 10,
+    "n_components_per_station": [
+      7,
+      6,
+      8,
+      5,
+      9,
+      15,
+      4,
+      6,
+      3,
+      4
+    ],
+    "total_components": 67,
+    "total_resources": 100,
+    "n_resource_types": 5,
+    "n_attack_types": 6,
+    "state_space_size": 77,
+    "action_space_size": 101
+  },
+  "simulation": {
+    "n_iterations": 1000,
+    "n_episodes_per_iter": 50,
+    "max_episode_steps": 50,
+    "pool_size_limit": 50,
+    "pool_update_interval": 10,
+    "alpha_ewma": 0.1,
+    "save_interval": 10,
+    "max_time_hours": 24
+  },
+  "learning": {
+    "learning_rate": 0.15,
+    "discount_factor": 0.95,
+    "exploration_strategy": "epsilon-greedy",
+    "epsilon": 0.5,
+    "epsilon_min": 0.15,
+    "epsilon_decay": 0.9995,
+    "temperature": 2,
+    "temperature_min": 0.5,
+    "temperature_decay": 0.9997,
+    "learning_rate_min": 0.05,
+    "learning_rate_decay": 0.9998,
+    "strategy_diversity_bonus": 0.05,
+    "exploration_bonus": 0.02,
+    "adaptive_epsilon": true,
+    "min_exploration_episodes": 200
+  },
+  "algorithms": {
+    "attacker": "QLearning",
+    "defender": [
+      "QLearning",
+      "SARSA",
+      "DoubleQLearning"
+    ]
+  },
+  "attacks": {
+    "frequency": 0.3,
+    "success_probability": 0.7,
+    "types": [
+      "DoS",
+      "malware",
+      "physical",
+      "social",
+      "insider",
+      "advanced"
+    ],
+    "severity": [
+      0.2,
+      0.4,
+      0.6,
+      0.8,
+      1
+    ],
+    "detection_difficulty": [
+      0.1,
+      0.3,
+      0.5,
+      0.7,
+      0.9
+    ]
+  },
+  "output": {
+    "save_results": true,
+    "save_plots": true,
+    "save_checkpoints": true,
+    "plot_interval": 50,
+    "verbose": true
+  },
+  "debug": {
+    "debug_mode": false,
+    "log_level": "INFO",
+    "detailed_logging": false
+  },
+  "rl_defaults": {
+    "learning_rate": 0.15,
+    "discount_factor": 0.95,
+    "exploration_strategy": "epsilon-greedy",
+    "epsilon_greedy": {
+      "epsilon": 0.5,
+      "epsilon_decay": 0.9995,
+      "epsilon_min": 0.15
+    },
+    "softmax_exploration": {
+      "temperature": 2,
+      "temperature_decay": 0.9997,
+      "temperature_min": 0.5
+    }
+  }
+}
