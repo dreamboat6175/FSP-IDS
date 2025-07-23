@@ -28,6 +28,9 @@ classdef TCSEnvironment < handle
         %% === FSP核心参数 ===
         alpha_ewma              % FSP指数加权移动平均参数
         attacker_avg_strategy   % 攻击者平均策略
+        adaptive_alpha          % 是否启用自适应alpha机制
+        alpha_max              % alpha的最大值
+        alpha_min              % alpha的最小值
         
         %% === RADI计算参数 ===
         radi_score              % 当前RADI分数
@@ -370,6 +373,86 @@ classdef TCSEnvironment < handle
                 [~, target] = max(action);
             end
         end
+        function radi = calculateRADI(obj, defender_deployment, optimal_deployment)
+            %CALCULATERADI 计算RADI指标
+            % 输入:
+            %   defender_deployment - 当前防御部署向量
+            %   optimal_deployment - 最优防御部署向量（可选）
+            % 输出:
+            %   radi - RADI指标值
+            
+            try
+                % 参数验证
+                if nargin < 2 || isempty(defender_deployment)
+                    radi = 1.0;
+                    return;
+                end
+                
+                % 如果没有提供最优部署，计算基于价值的最优部署
+                if nargin < 3 || isempty(optimal_deployment)
+                    if isfield(obj.radi_config, 'optimal_allocation') && ...
+                       length(obj.radi_config.optimal_allocation) == obj.n_stations
+                        optimal_deployment = obj.radi_config.optimal_allocation * obj.total_resources;
+                    else
+                        % 基于站点价值的加权分配
+                        if sum(obj.station_values) > 0
+                            weights = obj.station_values / sum(obj.station_values);
+                            optimal_deployment = weights * obj.total_resources;
+                        else
+                            % 均匀分配作为备选
+                            optimal_deployment = ones(1, obj.n_stations) * (obj.total_resources / obj.n_stations);
+                        end
+                    end
+                end
+                
+                % 调用外部函数计算RADI
+                if exist('calculateRADI', 'file') == 2
+                    % 使用外部utils/calculateRADI.m函数
+                    radi = calculateRADI(defender_deployment, optimal_deployment, obj.radi_config);
+                else
+                    % 备用内部计算
+                    radi = obj.calculateRADIInternal(defender_deployment, optimal_deployment);
+                end
+                
+            catch ME
+                warning('calculateRADI计算出错: %s', ME.message);
+                radi = 1.0; % 返回默认中等偏差值
+            end
+        end
+        
+        function radi = calculateRADIInternal(obj, defender_deployment, optimal_deployment)
+            %CALCULATERADIINTERNAL 内部RADI计算方法（备用）
+            
+            % 确保输入有效
+            if sum(defender_deployment) == 0
+                radi = 1.0;
+                return;
+            end
+            
+            % 归一化部署
+            normalized_deployment = defender_deployment / sum(defender_deployment);
+            normalized_optimal = optimal_deployment / sum(optimal_deployment);
+            
+            % 获取权重
+            if isfield(obj.radi_config, 'weights') && ...
+               length(obj.radi_config.weights) == obj.n_stations
+                weights = obj.radi_config.weights;
+            else
+                % 基于站点价值的权重
+                if sum(obj.station_values) > 0
+                    weights = obj.station_values / sum(obj.station_values);
+                else
+                    weights = ones(1, obj.n_stations) / obj.n_stations;
+                end
+            end
+            
+            % 计算加权偏差
+            deviation = abs(normalized_deployment - normalized_optimal);
+            radi = sum(weights .* deviation);
+            
+            % 限制在合理范围内
+            radi = max(0, min(radi, 2));
+        end
     end
     
     %% ========== 私有方法 ==========
@@ -405,6 +488,30 @@ classdef TCSEnvironment < handle
                 obj.alpha_ewma = 0.1; % 默认值
             end
             
+            if isfield(config, 'simulation') && isfield(config.simulation, 'adaptive_alpha')
+                obj.adaptive_alpha = config.simulation.adaptive_alpha;
+            elseif isfield(config, 'adaptive_alpha')
+                obj.adaptive_alpha = config.adaptive_alpha;
+            else
+                obj.adaptive_alpha = true; % 默认启用自适应alpha
+            end
+            
+            if isfield(config, 'simulation') && isfield(config.simulation, 'alpha_max')
+                obj.alpha_max = config.simulation.alpha_max;
+            elseif isfield(config, 'alpha_max')
+                obj.alpha_max = config.alpha_max;
+            else
+                obj.alpha_max = 0.3; % 默认最大值
+            end
+            
+            if isfield(config, 'simulation') && isfield(config.simulation, 'alpha_min')
+                obj.alpha_min = config.simulation.alpha_min;
+            elseif isfield(config, 'alpha_min')
+                obj.alpha_min = config.alpha_min;
+            else
+                obj.alpha_min = 0.01; % 默认最小值
+            end
+
             % RADI配置
             if isfield(config, 'radi')
                 obj.radi_config = config.radi;

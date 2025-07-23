@@ -32,31 +32,29 @@
     "action_space_size": 101
   },
   "simulation": {
-    "n_iterations": 1000,
+     "n_iterations": 1000,
     "n_episodes_per_iter": 50,
     "max_episode_steps": 50,
-    "pool_size_limit": 50,
-    "pool_update_interval": 10,
     "alpha_ewma": 0.1,
+    "adaptive_alpha": true,
+    "alpha_max": 0.3,
+    "alpha_min": 0.01,
     "save_interval": 10,
     "max_time_hours": 24
   },
   "learning": {
-    "learning_rate": 0.15,
-    "discount_factor": 0.95,
-    "exploration_strategy": "epsilon-greedy",
     "epsilon": 0.5,
     "epsilon_min": 0.15,
-    "epsilon_decay": 0.9995,
-    "temperature": 2,
-    "temperature_min": 0.5,
-    "temperature_decay": 0.9997,
+    "epsilon_decay": 0.9997,
+    "learning_rate": 0.2,
     "learning_rate_min": 0.05,
     "learning_rate_decay": 0.9998,
-    "strategy_diversity_bonus": 0.05,
-    "exploration_bonus": 0.02,
-    "adaptive_epsilon": true,
-    "min_exploration_episodes": 200
+    "temperature": 2.0,
+    "temperature_min": 0.5,
+    "temperature_decay": 0.9997,
+    "exploration_bonus": 0.1,
+    "performance_window": 50,
+    "stagnation_threshold": 0.02
   },
   "algorithms": {
     "attacker": "QLearning",

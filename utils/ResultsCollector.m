@@ -221,33 +221,100 @@ classdef ResultsCollector < handle
             %   iteration - 当前迭代次数
             %   attacker_agent - 攻击者智能体对象
             %   defender_agents - 防御者智能体对象（cell 数组）
-
+        
             try
-                output_dir = fullfile('results'); % 检查点保存到 results 文件夹
+                % 1. 确保 results 目录存在
+                output_dir = fullfile(pwd, 'results'); % 使用完整路径
                 if ~exist(output_dir, 'dir')
-                    mkdir(output_dir);
+                    [success, msg] = mkdir(output_dir);
+                    if ~success
+                        error('无法创建results目录: %s', msg);
+                    end
+                    fprintf('📁 创建目录: %s\n', output_dir);
                 end
-
-                % 使用 datestr(now, 'yyyymmdd_HHMMSS') 生成时间戳
+        
+                % 2. 生成时间戳和文件名
                 timestamp = datestr(now, 'yyyymmdd_HHMMSS');
                 checkpoint_filename = fullfile(output_dir, sprintf('checkpoint_iter_%d_%s.mat', iteration, timestamp));
                 
-                % 创建一个结构体来保存当前状态
+                % 3. 验证输入参数
+                if isempty(attacker_agent)
+                    warning('攻击者智能体为空，使用默认值');
+                    attacker_agent = struct('name', 'AttackerAgent', 'type', 'default');
+                end
+                
+                if isempty(defender_agents)
+                    warning('防御者智能体为空，使用默认值');
+                    defender_agents = {struct('name', 'DefenderAgent', 'type', 'default')};
+                end
+                
+                % 4. 确保 results_data 存在
+                if isempty(obj.results_data)
+                    obj.results_data = struct();
+                    obj.results_data.timestamp = timestamp;
+                    obj.results_data.status = 'checkpoint_created';
+                    warning('results_data 为空，已创建默认结构');
+                end
+                
+                % 5. 创建检查点数据结构
                 checkpoint_data = struct();
                 checkpoint_data.iteration = iteration;
                 checkpoint_data.timestamp = timestamp;
-                checkpoint_data.attacker_agent_model = attacker_agent;
-                checkpoint_data.defender_agent_models = defender_agents;
-                checkpoint_data.current_results_data = obj.results_data;
+                checkpoint_data.matlab_version = version;
                 
-                save(checkpoint_filename, '-struct', 'checkpoint_data', '-v7.3');
+                % 安全保存智能体数据
+                try
+                    checkpoint_data.attacker_agent_model = attacker_agent;
+                catch ME
+                    warning('攻击者智能体保存失败: %s', ME.message);
+                    checkpoint_data.attacker_agent_model = struct('error', ME.message);
+                end
+                
+                try
+                    checkpoint_data.defender_agent_models = defender_agents;
+                catch ME
+                    warning('防御者智能体保存失败: %s', ME.message);
+                    checkpoint_data.defender_agent_models = {struct('error', ME.message)};
+                end
+                
+                try
+                    checkpoint_data.current_results_data = obj.results_data;
+                catch ME
+                    warning('结果数据保存失败: %s', ME.message);
+                    checkpoint_data.current_results_data = struct('error', ME.message);
+                end
+                
+                % 6. 保存检查点文件
+                save(checkpoint_filename, 'checkpoint_data', '-v7.3');
                 fprintf('✓ 检查点已保存: %s\n', checkpoint_filename);
-                Logger.info(sprintf('检查点已保存: %s', checkpoint_filename));
+                
+                % 7. 记录到日志
+                if exist('Logger', 'class') == 8
+                    Logger.info(sprintf('检查点已保存: %s', checkpoint_filename));
+                end
+                
             catch ME
-                Logger.error(sprintf('保存检查点失败: %s', ME.message));
-                fprintf('❌ 保存检查点失败: %s\n', ME.message);
+                error_msg = sprintf('保存检查点失败: %s\n位置: %s (第%d行)', ...
+                                   ME.message, ME.stack(1).file, ME.stack(1).line);
+                
+                if exist('Logger', 'class') == 8
+                    Logger.error(error_msg);
+                end
+                
+                fprintf('❌ %s\n', error_msg);
+                
+                % 创建简化的检查点作为备用
+                try
+                    backup_filename = fullfile(pwd, sprintf('backup_checkpoint_iter_%d.mat', iteration));
+                    backup_data = struct('iteration', iteration, 'timestamp', datestr(now), 'error', ME.message);
+                    save(backup_filename, 'backup_data');
+                    fprintf('📋 备用检查点已保存: %s\n', backup_filename);
+                catch
+                    fprintf('❌ 连备用检查点也无法保存\n');
+                end
             end
-        end
+        end        
+
         
         function saveAgentModels(obj, attacker_agent, defender_agents)
             % saveAgentModels - 保存最终训练好的智能体模型
