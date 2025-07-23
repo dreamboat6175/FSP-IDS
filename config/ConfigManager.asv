@@ -1,62 +1,72 @@
 classdef ConfigManager < handle
-    %% ConfigManager.m - 统一配置管理器类 (增强版)
-    % =========================================================================
-    % 描述: 集中管理所有仿真初始化参数，提供完整的配置管理功能
-    % 版本：v3.0 - 增强版本，集中管理所有初始化参数
-    % 新增：将所有散布在主函数中的参数统一管理
-    % =========================================================================
+    %% ConfigManager - FSP-TCS 配置管理器 (优化版本)
+    % ================================================================
+    % 版本：v3.0 - 优化探索参数，解决策略固化问题
+    % 功能：
+    % 1. 配置文件加载和保存
+    % 2. 默认配置管理
+    % 3. 配置验证和合并
+    % 4. 嵌套配置访问
+    % 5. 配置显示和导出
+    % 6. 智能体配置合并方法
+    % 7. 优化的探索和学习参数
+    % ================================================================
+    
+    properties (Access = private, Constant)
+        % 默认配置文件路径
+        DEFAULT_CONFIG_FILE = 'default_config.json';
+        CONFIG_DIR = 'config';
+    end
     
     methods (Static)
-        function config = loadConfig(filename)
-            % 加载配置文件
-            % 输入: filename - 配置文件名（JSON格式）
-            % 输出: config - 完整配置结构体
+        function config = loadConfig(config_file)
+            %% 加载配置文件
+            % 输入: config_file - 配置文件路径（可选）
+            % 输出: config - 配置结构体
             
-            if nargin < 1 || isempty(filename)
-                filename = 'simulation_config.json';
+            if nargin < 1 || isempty(config_file)
+                config_file = ConfigManager.getDefaultConfigPath();
             end
             
-            config_path = fullfile('config', filename);
-            
-            % 检查配置文件是否存在
-            if exist(config_path, 'file')
-                try
-                    % 读取JSON文件
-                    config_text = fileread(config_path);
+            try
+                if exist(config_file, 'file')
+                    fprintf('📁 加载配置文件: %s\n', config_file);
+                    config_text = fileread(config_file);
                     config = jsondecode(config_text);
-                    fprintf('✓ 配置文件加载成功: %s\n', filename);
                     
-                    % 合并默认配置（确保所有字段都存在）
-                    default_config = ConfigManager.getDefaultConfig();
-                    config = ConfigManager.mergeConfigs(default_config, config);
-                    
-                catch ME
-                    warning('配置文件读取失败: %s，使用默认配置', ME.message);
+                    % 验证和补充配置
+                    config = ConfigManager.validateAndMergeConfig(config);
+                    fprintf('✓ 配置加载完成\n');
+                else
+                    fprintf('⚠️  配置文件不存在，使用默认配置: %s\n', config_file);
                     config = ConfigManager.getDefaultConfig();
                 end
-            else
-                fprintf('配置文件不存在，使用默认配置并保存\n');
+                
+            catch ME
+                fprintf('❌ 配置文件加载失败: %s\n', ME.message);
+                fprintf('💡 使用默认配置\n');
                 config = ConfigManager.getDefaultConfig();
-                % 自动保存默认配置
-                ConfigManager.saveConfig(config, filename);
             end
-            
-            % 后处理配置
-            config = ConfigManager.postProcessConfig(config);
-            
-            % 验证配置
-            ConfigManager.validateConfig(config);
-            
-            fprintf('📋 配置加载完成 - 共 %d 个主要配置组\n', ...
-                   length(fieldnames(config)));
         end
         
         function config = getDefaultConfig()
-            % 获取完整的默认配置 - 集中管理所有仿真初始化参数
+            %% 获取默认配置 - 优化版本，解决策略固化问题
+            % 输出: config - 默认配置结构体
             
             config = struct();
             
-            % =================== 1. 系统基础参数 ===================
+            % =========================
+            % 实验配置
+            % =========================
+            config.experiment = struct();
+            config.experiment.name = 'FSP-TCS-IDS';
+            config.experiment.version = '3.0';
+            config.experiment.description = 'FSP-based Train Control System with Optimized RL';
+            config.experiment.timestamp = datestr(now, 'yyyy-mm-dd_HH-MM-SS');
+            
+            % =========================
+            % 系统配置
+            % =========================
             config.system = struct();
             config.system.n_stations = 10;
             config.system.n_components_per_station = [7, 6, 8, 5, 9, 15, 4, 6, 3, 4];
@@ -65,218 +75,288 @@ classdef ConfigManager < handle
             config.system.n_resource_types = 5;
             config.system.n_attack_types = 6;
             config.system.state_space_size = 77;
-            config.system.action_space_size = 20;
+            config.system.action_space_size = 101;
             
-            % =================== 2. 仿真执行参数 ===================
+            % =========================
+            % 仿真配置
+            % =========================
             config.simulation = struct();
-            config.simulation.n_iterations = 1000;                % 主迭代次数
-            config.simulation.n_episodes_per_iter = 50;           % 每次迭代的episodes数
-            config.simulation.max_episode_steps = 50;             % 每个episode最大步数
-            config.simulation.pool_size_limit = 50;               % 策略池大小限制
-            config.simulation.pool_update_interval = 10;          % 策略池更新间隔
-            config.simulation.alpha_ewma = 0.1;                   % 指数加权移动平均参数
-            config.simulation.convergence_threshold = 0.001;      % 收敛阈值
-            config.simulation.patience = 100;                     % 早停耐心值
+            config.simulation.n_iterations = 1000;
+            config.simulation.n_episodes_per_iter = 50;
+            config.simulation.max_episode_steps = 50;
+            config.simulation.pool_size_limit = 50;
+            config.simulation.pool_update_interval = 10;
+            config.simulation.alpha_ewma = 0.1;
             
-            % =================== 3. 强化学习参数 ===================
+            % =========================
+            % 学习配置 - 重新优化的参数
+            % =========================
             config.learning = struct();
-            config.learning.learning_rate = 0.1;                  % 学习率
-            config.learning.discount_factor = 0.95;               % 折扣因子
-            config.learning.epsilon = 0.3;                        % 探索率
-            config.learning.epsilon_decay = 0.995;                % 探索率衰减
-            config.learning.epsilon_min = 0.01;                   % 最小探索率
-            config.learning.target_update_frequency = 100;        % 目标网络更新频率
-            config.learning.replay_buffer_size = 10000;           % 经验回放缓冲区大小
-            config.learning.batch_size = 32;                      % 批处理大小
-            config.learning.tau = 0.001;                          % 软更新参数
             
-            % =================== 4. 算法配置 ===================
+            % 基础学习参数
+            config.learning.learning_rate = 0.15;           % 提高初始学习率
+            config.learning.discount_factor = 0.95;
+            config.learning.exploration_strategy = 'epsilon-greedy';  % 默认策略
+            
+            % Epsilon-Greedy 参数 - 关键优化
+            config.learning.epsilon = 0.5;                  % 提高初始探索率
+            config.learning.epsilon_min = 0.15;             % 显著提高最小探索率
+            config.learning.epsilon_decay = 0.9995;         % 大幅减缓衰减速度
+            
+            % Softmax/Boltzmann 参数
+            config.learning.temperature = 2.0;              % 提高初始温度
+            config.learning.temperature_min = 0.5;          % 提高最小温度
+            config.learning.temperature_decay = 0.9997;     % 减缓温度衰减
+            
+            % 学习率调度参数 - 优化
+            config.learning.learning_rate_min = 0.05;       % 提高最小学习率
+            config.learning.learning_rate_decay = 0.9998;   % 大幅减缓学习率衰减
+            
+            % 策略多样性参数
+            config.learning.strategy_diversity_bonus = 0.05; % 策略多样性奖励
+            config.learning.exploration_bonus = 0.02;        % 探索奖励
+            config.learning.adaptive_epsilon = true;         % 自适应epsilon
+            config.learning.min_exploration_episodes = 200;  % 最小探索回合数
+            
+            % =========================
+            % 强化学习默认参数组合 - 新增结构
+            % =========================
+            config.rl_defaults = struct();
+            config.rl_defaults.learning_rate = 0.15;
+            config.rl_defaults.discount_factor = 0.95;
+            config.rl_defaults.exploration_strategy = 'epsilon-greedy';
+            
+            % Epsilon-Greedy 优化参数
+            config.rl_defaults.epsilon_greedy = struct();
+            config.rl_defaults.epsilon_greedy.epsilon = 0.5;
+            config.rl_defaults.epsilon_greedy.epsilon_decay = 0.9995;
+            config.rl_defaults.epsilon_greedy.epsilon_min = 0.15;
+            
+            % Softmax 优化参数
+            config.rl_defaults.softmax_exploration = struct();
+            config.rl_defaults.softmax_exploration.temperature = 2.0;
+            config.rl_defaults.softmax_exploration.temperature_decay = 0.9997;
+            config.rl_defaults.softmax_exploration.temperature_min = 0.5;
+            
+            % =========================
+            % 算法配置
+            % =========================
             config.algorithms = struct();
-            config.algorithms.defender = {'QLearning', 'SARSA'};     % 防御算法列表
-            config.algorithms.attacker = 'QLearning';               % 攻击算法
-            config.algorithms.available = {'QLearning', 'SARSA', 'DQN', 'PolicyGradient'};
+            config.algorithms.attacker = 'QLearning';
+            config.algorithms.defender = {'QLearning', 'SARSA', 'DoubleQLearning'};
             
-            % =================== 5. 环境参数 ===================
-            config.environment = struct();
-            config.environment.reward_scaling = 1.0;              % 奖励缩放
-            config.environment.noise_level = 0.0;                 % 噪声水平
-            config.environment.dynamic_environment = false;       % 是否动态环境
-            config.environment.failure_probability = 0.05;        % 组件失效概率
-            config.environment.repair_probability = 0.8;          % 修复概率
-            config.environment.attack_success_rate = 0.3;         % 攻击成功率
-            config.environment.defense_success_rate = 0.7;        % 防御成功率
+            % 算法特定参数
+            config.algorithms.qlearning = struct();
+            config.algorithms.qlearning.exploration_strategy = 'epsilon-greedy';
+            config.algorithms.qlearning.use_optimized_params = true;
             
-            % =================== 6. 网络拓扑参数 ===================
-            config.network = struct();
-            config.network.topology_type = 'hierarchical';        % 拓扑类型
-            config.network.connectivity_probability = 0.3;        % 连接概率
-            config.network.max_connections_per_node = 3;          % 每个节点最大连接数
-            config.network.communication_delay = 0.1;             % 通信延迟
-            config.network.packet_loss_rate = 0.01;               % 丢包率
+            config.algorithms.sarsa = struct();
+            config.algorithms.sarsa.exploration_strategy = 'epsilon-greedy';
+            config.algorithms.sarsa.use_optimized_params = true;
             
-            % =================== 7. 安全参数 ===================
-            config.security = struct();
-            config.security.attack_detection_rate = 0.8;          % 攻击检测率
-            config.security.false_positive_rate = 0.1;            % 误报率
-            config.security.encryption_enabled = true;            % 是否启用加密
-            config.security.authentication_required = true;       % 是否需要认证
-            config.security.vulnerability_scan_interval = 100;    % 漏洞扫描间隔
+            config.algorithms.doubleqlearning = struct();
+            config.algorithms.doubleqlearning.exploration_strategy = 'epsilon-greedy';
+            config.algorithms.doubleqlearning.use_optimized_params = true;
             
-            % =================== 8. 性能监控参数 ===================
-            config.monitoring = struct();
-            config.monitoring.enable_performance_tracking = true; % 性能跟踪
-            config.monitoring.metrics_collection_interval = 10;   % 指标收集间隔
-            config.monitoring.memory_usage_limit = 8192;          % 内存使用限制(MB)
-            config.monitoring.cpu_usage_threshold = 80;           % CPU使用阈值
-            config.monitoring.enable_profiling = false;           % 性能分析
+            % =========================
+            % 攻击配置
+            % =========================
+            config.attacks = struct();
+            config.attacks.frequency = 0.3;
+            config.attacks.success_probability = 0.4;
+            config.attacks.types = {'malware', 'dos', 'intrusion', 'spoofing', 'tampering', 'eavesdropping'};
+            config.attacks.severity = [0.8, 0.7, 0.6, 0.5, 0.9, 0.4];
+            config.attacks.detection_difficulty = [0.6, 0.5, 0.7, 0.8, 0.4, 0.9];
             
-            % =================== 9. 输出控制参数 ===================
+            % =========================
+            % 资源配置
+            % =========================
+            config.resources = struct();
+            config.resources.types = {'computational', 'network', 'storage', 'security', 'backup'};
+            config.resources.effectiveness = [0.7, 0.8, 0.6, 0.9, 0.5];
+            config.resources.cost = [1.0, 1.2, 0.8, 1.5, 0.6];
+            
+            % =========================
+            % 输出配置
+            % =========================
             config.output = struct();
-            config.output.enable_logging = true;                  % 启用日志
-            config.output.log_level = 'INFO';                     % 日志级别
-            config.output.log_file = '';                          % 日志文件（动态生成）
-            config.output.save_results = true;                    % 保存结果
-            config.output.results_dir = 'results';                % 结果目录
-            config.output.show_iteration_details = false;         % 显示迭代详情
-            config.output.progress_interval = 100;                % 进度显示间隔
-            config.output.generate_plots = false;                 % 生成图表
-            config.output.save_plots = true;                      % 保存图表
-            config.output.plot_format = 'png';                    % 图表格式
+            config.output.save_results = true;
+            config.output.save_figures = true;
+            config.output.log_file = 'simulation.log';
+            config.output.results_dir = 'results';
+            config.output.figures_dir = 'figures';
+            config.output.verbose = true;
             
-            % =================== 10. 可视化参数 ===================
-            config.visualization = struct();
-            config.visualization.enable = false;                  % 启用可视化
-            config.visualization.real_time = false;               % 实时可视化
-            config.visualization.update_interval = 50;            % 更新间隔
-            config.visualization.save_animation = false;          % 保存动画
-            config.visualization.figure_size = [1200, 800];       % 图形尺寸
-            config.visualization.color_scheme = 'default';        % 配色方案
-            
-            % =================== 11. 调试参数 ===================
+            % =========================
+            % 调试配置
+            % =========================
             config.debug = struct();
-            config.debug.enabled = false;                         % 调试模式
-            config.debug.verbose = false;                         % 详细输出
-            config.debug.breakpoints = {};                        % 断点位置
-            config.debug.save_intermediate_results = false;       % 保存中间结果
-            config.debug.validate_states = false;                 % 状态验证
-            config.debug.check_convergence = true;                % 检查收敛
+            config.debug.debug_mode = false;
+            config.debug.save_debug_data = false;
+            config.debug.plot_convergence = true;
+            config.debug.log_level = 'INFO';
             
-            % =================== 12. 实验参数 ===================
-            config.experiment = struct();
-            config.experiment.name = sprintf('FSP_Experiment_%s', datestr(now, 'yyyymmdd_HHMMSS'));
-            config.experiment.description = 'FSP-TCS仿真实验';
-            config.experiment.random_seed = 42;                   % 随机种子
-            config.experiment.repeat_count = 1;                   % 重复次数
-            config.experiment.parallel_execution = false;         % 并行执行
-            config.experiment.max_workers = 4;                    % 最大工作进程数
+            % =========================
+            % 向后兼容性字段
+            % =========================
+            config.n_stations = config.system.n_stations;
+            config.n_episodes_per_iter = config.simulation.n_episodes_per_iter;
+            config.state_space_size = config.system.state_space_size;
+            config.steps_per_episode = config.simulation.max_episode_steps;
+            config.debug_mode = config.debug.debug_mode;
+            config.n_components_per_station = config.system.n_components_per_station;
+            config.total_resources = config.system.total_resources;
+            config.total_components = config.system.total_components;
+            config.n_iterations = config.simulation.n_iterations;
+            config.pool_size_limit = config.simulation.pool_size_limit;
+            config.pool_update_interval = config.simulation.pool_update_interval;
+            config.alpha_ewma = config.simulation.alpha_ewma;
+            config.attack_frequency = config.attacks.frequency;
+            config.attack_success_probability = config.attacks.success_probability;
+            config.attack_types = config.attacks.types;
+            config.attack_severity = config.attacks.severity;
+            config.attack_detection_difficulty = config.attacks.detection_difficulty;
         end
         
-        function merged_config = mergeConfigs(default_config, user_config)
-            % 递归合并配置，用户配置覆盖默认配置
-            merged_config = default_config;
+        function config = validateAndMergeConfig(user_config)
+            %% 验证并合并用户配置与默认配置
+            % 输入: user_config - 用户配置
+            % 输出: config - 合并后的配置
             
-            if isstruct(user_config)
-                field_names = fieldnames(user_config);
-                for i = 1:length(field_names)
-                    field_name = field_names{i};
-                    if isfield(merged_config, field_name) && ...
-                       isstruct(merged_config.(field_name)) && ...
-                       isstruct(user_config.(field_name))
-                        % 递归合并子结构
-                        merged_config.(field_name) = ConfigManager.mergeConfigs(...
-                            merged_config.(field_name), user_config.(field_name));
-                    else
-                        % 直接覆盖
-                        merged_config.(field_name) = user_config.(field_name);
+            % 获取默认配置
+            default_config = ConfigManager.getDefaultConfig();
+            
+            % 深度合并配置
+            config = ConfigManager.deepMergeStruct(default_config, user_config);
+            
+            % 验证关键参数
+            config = ConfigManager.validateConfig(config);
+            
+            fprintf('✓ 配置验证和合并完成\n');
+        end
+        
+        function config = validateConfig(config)
+            %% 验证配置参数的有效性
+            % 输入/输出: config - 配置结构体
+            
+            try
+                % 确保基本结构存在
+                required_fields = {'system', 'simulation', 'learning', 'algorithms', 'output', 'debug'};
+                for i = 1:length(required_fields)
+                    field = required_fields{i};
+                    if ~isfield(config, field) || ~isstruct(config.(field))
+                        config.(field) = struct();
                     end
                 end
+                
+                % 验证系统参数
+                if config.system.n_stations <= 0
+                    warning('n_stations 必须大于0，重置为10');
+                    config.system.n_stations = 10;
+                end
+                
+                % 验证学习参数 - 关键验证
+                if config.learning.epsilon < 0 || config.learning.epsilon > 1
+                    warning('epsilon 必须在[0,1]范围内，重置为0.5');
+                    config.learning.epsilon = 0.5;
+                end
+                
+                if config.learning.epsilon_min < 0.05
+                    warning('epsilon_min 过小可能导致策略固化，建议至少0.05');
+                    config.learning.epsilon_min = max(0.05, config.learning.epsilon_min);
+                end
+                
+                if config.learning.epsilon_decay < 0.999
+                    warning('epsilon_decay 过小可能导致过快收敛，建议至少0.999');
+                    config.learning.epsilon_decay = max(0.999, config.learning.epsilon_decay);
+                end
+                
+                if config.learning.learning_rate_min < 0.01
+                    warning('learning_rate_min 过小可能导致学习停滞，建议至少0.01');
+                    config.learning.learning_rate_min = max(0.01, config.learning.learning_rate_min);
+                end
+                
+                % 验证算法配置
+                valid_algorithms = {'QLearning', 'SARSA', 'DoubleQLearning'};
+                if ~ismember(config.algorithms.attacker, valid_algorithms)
+                    warning('未知攻击者算法，重置为QLearning');
+                    config.algorithms.attacker = 'QLearning';
+                end
+                
+                % 确保向后兼容性
+                ConfigManager.ensureBackwardCompatibility(config);
+                
+                fprintf('✓ 配置验证完成\n');
+                
+            catch ME
+                warning('配置验证过程中出错: %s', ME.message);
             end
         end
         
-        function config = postProcessConfig(config)
-            % 配置后处理：生成动态字段、创建目录等
+        function ensureBackwardCompatibility(config)
+            %% 确保向后兼容性
+            % 将新格式的配置映射到旧格式字段
             
-            % 生成日志文件名
-            if isempty(config.output.log_file)
-                log_dir = 'logs';
-                if ~exist(log_dir, 'dir'), mkdir(log_dir); end
-                config.output.log_file = fullfile(log_dir, ...
-                    sprintf('simulation_%s.log', datestr(now, 'yyyymmdd_HHMMSS')));
-            end
+            % 系统参数
+            config.n_stations = config.system.n_stations;
+            config.total_components = config.system.total_components;
+            config.n_components_per_station = config.system.n_components_per_station;
             
-            % 确保结果目录存在
-            if config.output.save_results && ~exist(config.output.results_dir, 'dir')
-                mkdir(config.output.results_dir);
-            end
+            % 仿真参数
+            config.n_iterations = config.simulation.n_iterations;
+            config.n_episodes_per_iter = config.simulation.n_episodes_per_iter;
+            config.steps_per_episode = config.simulation.max_episode_steps;
             
-            % 设置随机种子
-            if isfield(config.experiment, 'random_seed')
-                rng(config.experiment.random_seed);
-            end
+            % 学习参数
+            config.learning_rate = config.learning.learning_rate;
+            config.discount_factor = config.learning.discount_factor;
+            config.epsilon = config.learning.epsilon;
+            config.epsilon_min = config.learning.epsilon_min;
+            config.epsilon_decay = config.learning.epsilon_decay;
+        end
+        
+        function merged = deepMergeStruct(struct1, struct2)
+            %% 深度合并两个结构体
+            % 输入: struct1 - 基础结构体（默认配置）
+            %       struct2 - 覆盖结构体（用户配置）
+            % 输出: merged - 合并后的结构体
             
-            % 计算派生参数
-            if isfield(config.system, 'n_components_per_station')
-                config.system.total_components = sum(config.system.n_components_per_station);
-            end
+            merged = struct1;
+            fields = fieldnames(struct2);
             
-            % 验证算法可用性
-            available_algorithms = config.algorithms.available;
-            if ~ismember(config.algorithms.attacker, available_algorithms)
-                warning('攻击者算法 %s 不在可用算法列表中', config.algorithms.attacker);
-            end
-            
-            for i = 1:length(config.algorithms.defender)
-                if ~ismember(config.algorithms.defender{i}, available_algorithms)
-                    warning('防御者算法 %s 不在可用算法列表中', config.algorithms.defender{i});
+            for i = 1:length(fields)
+                field = fields{i};
+                if isfield(merged, field) && isstruct(merged.(field)) && isstruct(struct2.(field))
+                    % 递归合并子结构体
+                    merged.(field) = ConfigManager.deepMergeStruct(merged.(field), struct2.(field));
+                else
+                    % 直接覆盖
+                    merged.(field) = struct2.(field);
                 end
             end
         end
         
-        function validateConfig(config)
-            % 配置有效性验证
-            
-            % 验证必要字段
-            required_fields = {'system', 'simulation', 'learning', 'algorithms'};
-            for i = 1:length(required_fields)
-                if ~isfield(config, required_fields{i})
-                    error('配置缺少必要字段: %s', required_fields{i});
-                end
-            end
-            
-            % 验证数值范围
-            if config.simulation.n_iterations <= 0
-                error('迭代次数必须大于0');
-            end
-            
-            if config.learning.learning_rate <= 0 || config.learning.learning_rate > 1
-                error('学习率必须在(0,1]范围内');
-            end
-            
-            if config.learning.discount_factor < 0 || config.learning.discount_factor > 1
-                error('折扣因子必须在[0,1]范围内');
-            end
-            
-            % 验证算法配置
-            if isempty(config.algorithms.defender)
-                error('至少需要配置一个防御算法');
-            end
-            
-            fprintf('✓ 配置验证通过\n');
+        function path = getDefaultConfigPath()
+            %% 获取默认配置文件路径
+            path = fullfile(ConfigManager.CONFIG_DIR, ConfigManager.DEFAULT_CONFIG_FILE);
         end
         
         function saveConfig(config, filename)
-            % 保存配置到JSON文件
+            %% 保存配置到文件
+            % 输入: config - 配置结构体
+            %       filename - 文件名（可选）
             
             if nargin < 2
-                filename = 'simulation_config.json';
+                filename = ConfigManager.DEFAULT_CONFIG_FILE;
             end
             
-            config_dir = 'config';
+            config_path = fullfile(ConfigManager.CONFIG_DIR, filename);
+            
+            % 确保目录存在
+            config_dir = fileparts(config_path);
             if ~exist(config_dir, 'dir')
                 mkdir(config_dir);
             end
-            
-            config_path = fullfile(config_dir, filename);
             
             try
                 config_json = jsonencode(config, 'PrettyPrint', true);
@@ -290,25 +370,37 @@ classdef ConfigManager < handle
         end
         
         function displayConfig(config)
-            % 显示配置摘要
+            %% 显示配置摘要
             
-            fprintf('\n=== FSP-TCS 仿真配置摘要 ===\n');
-            fprintf('实验名称: %s\n', config.experiment.name);
+            fprintf('\n=== FSP-TCS 仿真配置摘要 (优化版本) ===\n');
+            fprintf('实验名称: %s v%s\n', config.experiment.name, config.experiment.version);
             fprintf('系统配置: %d个主站, %d个组件\n', ...
                    config.system.n_stations, config.system.total_components);
             fprintf('仿真参数: %d次迭代, 每次%d个episodes\n', ...
                    config.simulation.n_iterations, config.simulation.n_episodes_per_iter);
-            fprintf('学习参数: 学习率=%.3f, 折扣因子=%.3f\n', ...
-                   config.learning.learning_rate, config.learning.discount_factor);
-            fprintf('算法配置: 攻击者=%s, 防御者=%s\n', ...
-                   config.algorithms.attacker, strjoin(config.algorithms.defender, ','));
-            fprintf('输出配置: 日志=%s, 结果保存=%s\n', ...
-                   config.output.log_file, mat2str(config.output.save_results));
-            fprintf('===========================\n\n');
+            
+            fprintf('\n--- 优化的学习参数 ---\n');
+            fprintf('学习率: %.3f (最小: %.3f, 衰减: %.4f)\n', ...
+                   config.learning.learning_rate, config.learning.learning_rate_min, config.learning.learning_rate_decay);
+            fprintf('探索策略: %s\n', config.learning.exploration_strategy);
+            fprintf('Epsilon: %.3f → %.3f (衰减: %.4f)\n', ...
+                   config.learning.epsilon, config.learning.epsilon_min, config.learning.epsilon_decay);
+            fprintf('温度参数: %.3f → %.3f (衰减: %.4f)\n', ...
+                   config.learning.temperature, config.learning.temperature_min, config.learning.temperature_decay);
+            
+            fprintf('\n--- 算法配置 ---\n');
+            fprintf('攻击者算法: %s\n', config.algorithms.attacker);
+            fprintf('防御者算法: %s\n', strjoin(config.algorithms.defender, ', '));
+            
+            fprintf('\n--- 输出配置 ---\n');
+            fprintf('结果保存: %s, 图形保存: %s\n', ...
+                   mat2str(config.output.save_results), mat2str(config.output.save_figures));
+            fprintf('日志文件: %s\n', config.output.log_file);
+            fprintf('==========================================\n\n');
         end
         
         function value = getConfigValue(config, field_path, default_value)
-            % 获取嵌套配置值的辅助函数
+            %% 获取嵌套配置值的辅助函数
             % 输入: config - 配置结构体
             %       field_path - 字段路径（如 'learning.learning_rate'）
             %       default_value - 默认值
@@ -334,11 +426,13 @@ classdef ConfigManager < handle
         end
         
         function mergeAgentConfig(agent, config)
-            % 合并智能体配置 - 为RLAgent基类提供的方法
+            %% 合并智能体配置 - 优化版本
             % 输入: agent - 智能体对象
             %       config - 配置结构体
             
             try
+                fprintf('🔧 正在配置智能体: %s\n', agent.name);
+                
                 % 安全的配置值获取函数
                 function value = safeGetConfigValue(conf, field, default_val)
                     if isfield(conf, field) && ~isempty(conf.(field))
@@ -348,53 +442,102 @@ classdef ConfigManager < handle
                     end
                 end
                 
-                % 基本学习参数
-                agent.learning_rate = safeGetConfigValue(config, 'learning_rate', 0.1);
-                agent.discount_factor = safeGetConfigValue(config, 'discount_factor', 0.95);
+                % 基本学习参数 - 使用优化值
+                agent.learning_rate = safeGetConfigValue(config.learning, 'learning_rate', 0.15);
+                agent.discount_factor = safeGetConfigValue(config.learning, 'discount_factor', 0.95);
                 
                 % 探索策略
-                agent.exploration_strategy = safeGetConfigValue(config, 'exploration_strategy', 'epsilon-greedy');
+                agent.exploration_strategy = safeGetConfigValue(config.learning, 'exploration_strategy', 'epsilon-greedy');
                 
-                % Epsilon-Greedy 参数
-                agent.epsilon = safeGetConfigValue(config, 'epsilon', 0.3);
-                agent.epsilon_min = safeGetConfigValue(config, 'epsilon_min', 0.01);
-                agent.epsilon_decay = safeGetConfigValue(config, 'epsilon_decay', 0.995);
+                % Epsilon-Greedy 参数 - 关键优化
+                agent.epsilon = safeGetConfigValue(config.learning, 'epsilon', 0.5);           % 提高初始探索
+                agent.epsilon_min = safeGetConfigValue(config.learning, 'epsilon_min', 0.15);  % 显著提高最小值
+                agent.epsilon_decay = safeGetConfigValue(config.learning, 'epsilon_decay', 0.9995); % 减缓衰减
                 
-                % Softmax 参数
-                agent.temperature = safeGetConfigValue(config, 'temperature', 1.0);
-                agent.temperature_decay = safeGetConfigValue(config, 'temperature_decay', 0.995);
-                agent.temperature_min = safeGetConfigValue(config, 'temperature_min', 0.1);
+                % Softmax 参数 - 优化
+                agent.temperature = safeGetConfigValue(config.learning, 'temperature', 2.0);          % 提高初始温度
+                agent.temperature_decay = safeGetConfigValue(config.learning, 'temperature_decay', 0.9997); % 减缓衰减
+                agent.temperature_min = safeGetConfigValue(config.learning, 'temperature_min', 0.5);  % 提高最小温度
                 
-                % 学习率调度
-                agent.learning_rate_min = safeGetConfigValue(config, 'learning_rate_min', 0.01);
-                agent.learning_rate_decay = safeGetConfigValue(config, 'learning_rate_decay', 0.9995);
+                % 学习率调度 - 优化
+                agent.learning_rate_min = safeGetConfigValue(config.learning, 'learning_rate_min', 0.05);    % 提高最小学习率
+                agent.learning_rate_decay = safeGetConfigValue(config.learning, 'learning_rate_decay', 0.9998); % 减缓衰减
                 
                 % 策略池参数
-                agent.pool_size_limit = safeGetConfigValue(config, 'pool_size_limit', 50);
+                agent.pool_size_limit = safeGetConfigValue(config.simulation, 'pool_size_limit', 50);
                 
-                fprintf('✓ 智能体配置合并完成: %s\n', agent.name);
+                % 新增：策略多样性参数
+                if isprop(agent, 'strategy_diversity_bonus')
+                    agent.strategy_diversity_bonus = safeGetConfigValue(config.learning, 'strategy_diversity_bonus', 0.05);
+                end
+                if isprop(agent, 'exploration_bonus')
+                    agent.exploration_bonus = safeGetConfigValue(config.learning, 'exploration_bonus', 0.02);
+                end
+                
+                fprintf('✓ 智能体配置完成: %s (ε=%.3f→%.3f, lr=%.3f→%.3f)\n', ...
+                        agent.name, agent.epsilon, agent.epsilon_min, ...
+                        agent.learning_rate, agent.learning_rate_min);
                 
             catch ME
-                fprintf('⚠️ 智能体配置合并失败: %s，使用默认配置\n', ME.message);
-                % 设置基本默认值
-                ConfigManager.setAgentDefaults(agent);
+                fprintf('⚠️ 智能体配置合并失败: %s，使用优化默认配置\n', ME.message);
+                % 设置优化的默认值
+                ConfigManager.setOptimizedAgentDefaults(agent);
             end
         end
         
-        function setAgentDefaults(agent)
-            % 为智能体设置默认配置值
-            agent.learning_rate = 0.1;
+        function setOptimizedAgentDefaults(agent)
+            %% 为智能体设置优化的默认配置值
+            
+            % 基本学习参数
+            agent.learning_rate = 0.15;        % 提高学习率
             agent.discount_factor = 0.95;
-            agent.epsilon = 0.3;
             agent.exploration_strategy = 'epsilon-greedy';
-            agent.epsilon_min = 0.01;
-            agent.epsilon_decay = 0.995;
-            agent.temperature = 1.0;
-            agent.temperature_decay = 0.995;
-            agent.temperature_min = 0.1;
-            agent.learning_rate_min = 0.01;
-            agent.learning_rate_decay = 0.9995;
+            
+            % 优化的探索参数 - 解决策略固化问题
+            agent.epsilon = 0.5;               % 提高初始探索率
+            agent.epsilon_min = 0.15;          % 显著提高最小探索率
+            agent.epsilon_decay = 0.9995;      % 大幅减缓衰减速度
+            
+            % 优化的Softmax参数
+            agent.temperature = 2.0;           % 提高初始温度
+            agent.temperature_decay = 0.9997;  % 减缓温度衰减
+            agent.temperature_min = 0.5;       % 提高最小温度
+            
+            % 优化的学习率调度
+            agent.learning_rate_min = 0.05;    % 提高最小学习率
+            agent.learning_rate_decay = 0.9998; % 大幅减缓学习率衰减
+            
             agent.pool_size_limit = 50;
+            
+            fprintf('✓ 已应用优化的默认配置到智能体: %s\n', agent.name);
+        end
+        
+        function exportOptimizedTemplate(output_path)
+            %% 导出优化的配置模板文件
+            % 输入: output_path - 输出路径（可选）
+            
+            if nargin < 1
+                output_path = 'optimized_config_template.json';
+            end
+            
+            % 获取优化的默认配置
+            template_config = ConfigManager.getDefaultConfig();
+            
+            % 添加使用说明
+            template_config.README = struct();
+            template_config.README.description = 'FSP-TCS 优化配置模板 - 解决策略固化问题';
+            template_config.README.key_optimizations = {
+                '提高epsilon初始值和最小值',
+                '大幅减缓epsilon和学习率衰减速度',
+                '提高温度参数以增强探索',
+                '增加策略多样性机制'
+            };
+            template_config.README.usage = '修改参数值后保存为您的配置文件';
+            template_config.README.load_command = 'config = ConfigManager.loadConfig(''your_config.json'')';
+            
+            % 保存模板
+            ConfigManager.saveConfig(template_config, output_path);
+            fprintf('✓ 优化配置模板已导出到: %s\n', output_path);
         end
     end
 end
