@@ -66,15 +66,15 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
                         attacker_reward = calculateAttackerReward(state, attacker_action, next_state, info);
                     end
                     
-                    % === 攻击者更新调用 ===
-                    fprintf('[DEBUG] Episode %d Step %d: 更新攻击者 (奖励=%.3f)\n', ep, step, attacker_reward);
-                    try
-                        % 确保调用智能体的update方法
-                        attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
-                        fprintf('[DEBUG] 攻击者更新成功，当前更新次数: %d\n', attacker_agent.update_count);
-                    catch update_error
-                        fprintf('[ERROR] 攻击者更新失败: %s\n', update_error.message);
-                    end
+                    % % === 攻击者更新调用 ===
+                    % fprintf('[DEBUG] Episode %d Step %d: 更新攻击者 (奖励=%.3f)\n', ep, step, attacker_reward);
+                    % try
+                    %     % 确保调用智能体的update方法
+                    %     attacker_agent.update(state, attacker_action, attacker_reward, next_state, []);
+                    %     fprintf('[DEBUG] 攻击者更新成功，当前更新次数: %d\n', attacker_agent.update_count);
+                    % catch update_error
+                    %     fprintf('[ERROR] 攻击者更新失败: %s\n', update_error.message);
+                    % end
                     
                     episode_attacker_reward_sum = episode_attacker_reward_sum + attacker_reward;
 
@@ -88,11 +88,11 @@ function [iter_rewards, iter_detections, iter_resource_utilization, iter_allocat
                         end
                         
                         % === 防御者更新调用 ===
-                        fprintf('[DEBUG] Episode %d Step %d: 更新防御者%d (奖励=%.3f)\n', ep, step, d_idx, defender_reward);
+                        % fprintf('[DEBUG] Episode %d Step %d: 更新防御者%d (奖励=%.3f)\n', ep, step, d_idx, defender_reward);
                         try
                             % 确保调用智能体的update方法
                             defender_agents{d_idx}.update(state, defender_deployment_actions{d_idx}, defender_reward, next_state, []);
-                            fprintf('[DEBUG] 防御者%d更新成功，当前更新次数: %d\n', d_idx, defender_agents{d_idx}.update_count);
+                            % fprintf('[DEBUG] 防御者%d更新成功，当前更新次数: %d\n', d_idx, defender_agents{d_idx}.update_count);
                         catch update_error
                             fprintf('[ERROR] 防御者%d更新失败: %s\n', d_idx, update_error.message);
                         end

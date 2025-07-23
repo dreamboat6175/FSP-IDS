@@ -166,10 +166,10 @@ classdef QLearningAgent < RLAgent
                 action = max(1, min(n_stations, round(action)));
                 
                 % 调试信息 - 每100步或前5步打印
-                if mod(obj.update_count, 100) == 0 || obj.update_count < 5
-                    fprintf('[QLearningAgent] 攻击者 %s (更新次数 %d): 选择目标站点=%d, 站点数=%d\n', ...
-                            obj.name, obj.update_count, action, n_stations);
-                end
+                % if mod(obj.update_count, 100) == 0 || obj.update_count < 5
+                %     fprintf('[QLearningAgent] 攻击者 %s (更新次数 %d): 选择目标站点=%d, 站点数=%d\n', ...
+                %             obj.name, obj.update_count, action, n_stations);
+                % end
                 
             else
                 % 防御者：返回资源分配向量
@@ -251,7 +251,7 @@ classdef QLearningAgent < RLAgent
             % Q-Learning算法更新 - 增强调试版本
             
             % === 调试：确认进入更新方法 ===
-            fprintf('[QLearningAgent] %s: 进入更新方法 (更新次数 %d)\n', obj.name, obj.update_count);
+            % fprintf('[QLearningAgent] %s: 进入更新方法 (更新次数 %d)\n', obj.name, obj.update_count);
             
             % 健壮性检查
             if isempty(state_vec) || isempty(next_state_vec)
@@ -270,17 +270,17 @@ classdef QLearningAgent < RLAgent
             state_idx = obj.encodeState(mean(state_vec));
             next_state_idx = obj.encodeState(mean(next_state_vec));
             
-            fprintf('[DEBUG] 状态编码: state_idx=%d, next_state_idx=%d\n', state_idx, next_state_idx);
+            % fprintf('[DEBUG] 状态编码: state_idx=%d, next_state_idx=%d\n', state_idx, next_state_idx);
             
             % 处理动作索引（防御者和攻击者可能不同）
             if isvector(action) && length(action) > 1
                 % 防御者：资源分配向量转换为索引
                 action_idx = obj.encodeAction(action);
-                fprintf('[DEBUG] 防御者动作编码: action_vec=%s -> action_idx=%d\n', mat2str(action, 2), action_idx);
+                % fprintf('[DEBUG] 防御者动作编码: action_vec=%s -> action_idx=%d\n', mat2str(action, 2), action_idx);
             else
                 % 攻击者：单一目标索引
                 action_idx = round(action);
-                fprintf('[DEBUG] 攻击者动作编码: action=%d -> action_idx=%d\n', action, action_idx);
+                % fprintf('[DEBUG] 攻击者动作编码: action=%d -> action_idx=%d\n', action, action_idx);
             end
             
             % 边界检查
@@ -313,8 +313,8 @@ classdef QLearningAgent < RLAgent
             obj.Q_table(state_idx, action_idx) = new_q_value;
             
             % 调试：打印TD误差和新Q值
-            fprintf('[QLearningAgent] %s (更新次数 %d): 状态=%d, 动作=%d, 奖励=%.2f, TD误差=%.4f, 旧Q=%.4f, 新Q=%.4f\n', ...
-                    obj.name, obj.update_count, state_idx, action_idx, reward, td_error, current_q, new_q_value);
+            % fprintf('[QLearningAgent] %s (更新次数 %d): 状态=%d, 动作=%d, 奖励=%.2f, TD误差=%.4f, 旧Q=%.4f, 新Q=%.4f\n', ...
+                    % obj.name, obj.update_count, state_idx, action_idx, reward, td_error, current_q, new_q_value);
         
             % 更新学习率
             obj.updateLearningRate();
@@ -326,7 +326,7 @@ classdef QLearningAgent < RLAgent
             % 记录性能历史
             obj.recordPerformance(reward, td_error);
             
-            fprintf('[QLearningAgent] %s: 更新完成，总更新次数=%d\n', obj.name, obj.update_count);
+            % fprintf('[QLearningAgent] %s: 更新完成，总更新次数=%d\n', obj.name, obj.update_count);
         end
         
         function state_idx = encodeState(obj, state_scalar)

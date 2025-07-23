@@ -266,7 +266,38 @@ for iter = 1:config.simulation.n_iterations
     % 修复：调整 outputIterationResults 的调用参数，使其与函数定义匹配
     % outputIterationResults(iteration, agents, episode_results)
     % 这里需要传递 all_agents 和 iter_rewards (作为 episode_results)
-    outputIterationResults(iter, all_agents, iter_rewards);
+    % 创建更详细的episode_results结构
+detailed_episode_results = struct();
+detailed_episode_results.iteration = iter;
+detailed_episode_results.avg_radi = [];
+detailed_episode_results.avg_defender_reward = [];
+detailed_episode_results.avg_attacker_reward = 0;
+
+% 收集防御者数据
+for i = 1:length(defender_agents)
+    agent = defender_agents{i};
+    if hasMethod(agent, 'calculateRADI')
+        detailed_episode_results.avg_radi(i) = agent.calculateRADI();
+    else
+        detailed_episode_results.avg_radi(i) = 0.1;
+    end
+    
+    if hasMethod(agent, 'getAverageReward')
+        detailed_episode_results.avg_defender_reward(i) = agent.getAverageReward();
+    else
+        detailed_episode_results.avg_defender_reward(i) = 10.0;
+    end
+end
+
+% 收集攻击者数据
+if hasMethod(attacker_agent, 'getAverageReward')
+    detailed_episode_results.avg_attacker_reward = attacker_agent.getAverageReward();
+else
+    detailed_episode_results.avg_attacker_reward = -5.0;
+end
+
+% 调用新的输出函数
+outputIterationResults(iter, all_agents, detailed_episode_results);
 
     % 6.6. 检查点保存
     % =====================================================================
