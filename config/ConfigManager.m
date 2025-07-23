@@ -80,7 +80,7 @@ classdef ConfigManager < handle
             % 仿真配置
             % =========================
             config.simulation = struct();
-            config.simulation.n_iterations = 2000; % 增加迭代次数以适应更长的探索
+            config.simulation.n_iterations = 200; 
             config.simulation.n_episodes_per_iter = 100;
             config.simulation.max_episode_steps = 50;
             config.simulation.pool_size_limit = 50;
@@ -98,19 +98,19 @@ classdef ConfigManager < handle
             config.learning.exploration_strategy = 'epsilon-greedy';
             
             % Epsilon-Greedy 参数 - 核心优化，避免早熟收敛
-            config.learning.epsilon = 1.0;                  % 初始完全探索，最大化发现新策略的可能性
-            config.learning.epsilon_min = 0.15;             % 保持较高的最小探索率，避免后期完全停止探索
-            config.learning.epsilon_decay = 0.9999;         % 极大地减缓衰减速度，延长探索阶段
-            
-            % Softmax/Boltzmann 参数
-            config.learning.temperature = 5.0;              % 显著提高初始温度，用于Softmax策略
-            config.learning.temperature_min = 0.5;
-            config.learning.temperature_decay = 0.9999;     % 同样减缓温度衰减
-            
-            % 学习率调度参数 - 优化
-            config.learning.learning_rate_min = 0.01;       % 保持一个较小的最小学习率
-            config.learning.learning_rate_decay = 0.9999;   % 减缓学习率衰减，使代理在后期仍能学习
+            config.learning.epsilon = 0.7;                   % 提高初始探索率
+            config.learning.epsilon_min = 0.2;               % 提高最小探索率
+            config.learning.epsilon_decay = 0.9998;          % 减缓探索衰减
 
+            % Softmax/Boltzmann 参数
+            config.learning.temperature = 3.0;               % 提高初始温度
+            config.learning.temperature_min = 1.0;           % 提高最小温度
+            config.learning.temperature_decay = 0.9999;      % 减缓温度衰减
+
+            % 学习率调度参数 - 优化
+            config.learning.learning_rate_min = 0.05;        % 提高最小学习率
+            config.learning.learning_rate_decay = 0.99995;   % 大幅减缓学习率衰减
+            
             % 策略多样性参数
             config.learning.strategy_diversity_bonus = 0.05; % 策略多样性奖励
             config.learning.exploration_bonus = 0.02;        % 探索奖励

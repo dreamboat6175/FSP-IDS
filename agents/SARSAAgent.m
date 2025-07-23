@@ -14,8 +14,8 @@ classdef SARSAAgent < RLAgent
             obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             
             % 改进的Q表初始化 - 使用乐观初始化
-            initial_value = 5.0; % 提高初始值
-            noise_level = 0.5;   % 增加噪声
+            initial_value = 1.0; % 提高初始值
+            noise_level = 0.1;   % 增加噪声
             obj.Q_table = ones(state_dim, action_dim) * initial_value + ...
                           randn(state_dim, action_dim) * noise_level;
             obj.visit_count = zeros(state_dim, action_dim);
@@ -33,10 +33,10 @@ classdef SARSAAgent < RLAgent
                 obj.lr_scheduler.initial_lr = 0.15;
                 obj.lr_scheduler.current_lr = 0.15;
             end
-            obj.lr_scheduler.min_lr = 0.001;
-            obj.lr_scheduler.decay_steps = 1000;
+            obj.lr_scheduler.min_lr = 0.05;           % 提高最小学习率
+            obj.lr_scheduler.decay_steps = 2000;      % 增加衰减间隔  
             obj.lr_scheduler.step_count = 0;
-            obj.lr_scheduler.decay_rate = 0.99;
+            obj.lr_scheduler.decay_rate = 0.995;      % 减缓衰减率
             
             % 确保基类属性有默认值
             obj.strategy_history = [];
@@ -242,7 +242,7 @@ classdef SARSAAgent < RLAgent
             
             % 动态学习率
             visit_count = obj.visit_count(state_idx, action_idx);
-            adaptive_lr = obj.lr_scheduler.current_lr / (1 + visit_count * 0.01);
+            adaptive_lr = obj.lr_scheduler.current_lr / (1 + visit_count * 0.001);
             
             % SARSA更新公式
             td_error = reward + obj.discount_factor * next_q - current_q;
@@ -277,15 +277,15 @@ classdef SARSAAgent < RLAgent
         end
         
         function updateLearningRate(obj)
-            % 更新学习率
             obj.lr_scheduler.step_count = obj.lr_scheduler.step_count + 1;
             
-            if mod(obj.lr_scheduler.step_count, obj.lr_scheduler.decay_steps) == 0
+            % 只有在更新次数较多且性能稳定时才衰减
+            if mod(obj.lr_scheduler.step_count, obj.lr_scheduler.decay_steps) == 0 && ...
+               obj.update_count > 1000
                 obj.lr_scheduler.current_lr = max(obj.lr_scheduler.min_lr, ...
                     obj.lr_scheduler.current_lr * obj.lr_scheduler.decay_rate);
             end
-        end
-        
+        end        
         function recordPerformance(obj, reward, td_error)
                     %% 记录性能数据 - 修复版
                     if mod(obj.update_count, 100) == 0
