@@ -15,7 +15,7 @@ function generateVisualizationReport(all_agents, config)
     
     try
         % 1. 数据收集阶段
-        fprintf('📋 收集智能体数据...\n');
+        fprintf(' 收集智能体数据...\n');
         collector = ResultsCollector(all_agents, config);
         collector.collectFromAgents();
         
@@ -30,18 +30,13 @@ function generateVisualizationReport(all_agents, config)
         if ismethod(collector, 'printCurrentResults')
             collector.printCurrentResults();
         else
-            fprintf('📊 智能体性能摘要:\n');
+            fprintf(' 智能体性能摘要:\n');
             fprintf('- 攻击者: 运行正常\n');
             fprintf('- 防御者: 运行正常\n');
         end
         
         % 3. 获取整理后的数据
-        if ismethod(collector, 'getResults')
-            results_data = collector.getResults();
-        else
-            fprintf('⚠️ getResults 方法不可用，生成默认数据\n');
-            results_data = generateDefaultVisualizationData(config);
-        end
+        results_data = collector.getResults();
         
         % 4. 创建保存目录
         timestamp = datestr(now, 'yyyymmdd_HHMMSS');
@@ -55,7 +50,7 @@ function generateVisualizationReport(all_agents, config)
         end
         
         % 5. 生成所有可视化图表
-        fprintf('📊 生成可视化图表...\n');
+        fprintf(' 生成可视化图表...\n');
         
         % 使用 try-catch 确保每个图表生成失败不会影响其他图表
         try
@@ -114,18 +109,18 @@ function generateVisualizationReport(all_agents, config)
         end
         
         fprintf('✅ 可视化报告生成完成！\n');
-        fprintf('📁 报告保存位置: %s\n', save_dir);
-        fprintf('🌐 查看HTML报告: %s\n', fullfile(save_dir, 'report.html'));
+        fprintf(' 报告保存位置: %s\n', save_dir);
+        fprintf(' 查看HTML报告: %s\n', fullfile(save_dir, 'report.html'));
         
         % 尝试在浏览器中打开报告
         try
             html_file = fullfile(save_dir, 'report.html');
             if exist(html_file, 'file')
                 web(html_file, '-browser');
-                fprintf('🌐 报告已在浏览器中打开\n');
+                fprintf(' 报告已在浏览器中打开\n');
             end
         catch
-            fprintf('💡 请手动打开报告: %s\n', fullfile(save_dir, 'report.html'));
+            fprintf(' 请手动打开报告: %s\n', fullfile(save_dir, 'report.html'));
         end
         
     catch ME
@@ -137,7 +132,7 @@ function generateVisualizationReport(all_agents, config)
         
         % 生成简化版报告作为后备方案
         try
-            fprintf('🔄 尝试生成简化版报告...\n');
+            fprintf(' 尝试生成简化版报告...\n');
             generateSimplifiedReport(config);
         catch ME2
             fprintf('❌ 简化版报告生成也失败: %s\n', ME2.message);
@@ -149,41 +144,10 @@ end
 
 %% ========== 辅助函数 ==========
 
-function results_data = generateDefaultVisualizationData(config)
-    % 生成默认的可视化数据
-    results_data = struct();
-    
-    % 基本信息
-    results_data.timestamp = datestr(now);
-    results_data.n_iterations = getConfigValue(config, 'simulation.n_iterations', 100);
-    
-    % 攻击者数据
-    results_data.attacker = struct();
-    results_data.attacker.name = 'Attacker';
-    results_data.attacker.algorithm = getConfigValue(config, 'algorithms.attacker', 'QLearning');
-    results_data.attacker.performance = struct();
-    results_data.attacker.performance.total_reward = rand() * 1000 + 500;
-    results_data.attacker.performance.success_rate = rand() * 0.6 + 0.2;
-    
-    % 防御者数据
-    results_data.defenders = struct();
-    defender_algorithms = getConfigValue(config, 'algorithms.defender', {'QLearning', 'SARSA', 'DoubleQLearning'});
-    
-    for i = 1:length(defender_algorithms)
-        defender_name = sprintf('defender%d', i);
-        results_data.defenders.(defender_name) = struct();
-        results_data.defenders.(defender_name).name = sprintf('Defender_%s', defender_algorithms{i});
-        results_data.defenders.(defender_name).algorithm = defender_algorithms{i};
-        results_data.defenders.(defender_name).performance = struct();
-        results_data.defenders.(defender_name).performance.total_reward = rand() * 2000 + 1000;
-        results_data.defenders.(defender_name).performance.detection_rate = rand(1, results_data.n_iterations) * 0.3 + 0.6;
-        results_data.defenders.(defender_name).performance.radi = rand(1, results_data.n_iterations) * 0.1 + 0.05;
-    end
-end
 
 function generateSimplifiedReport(config)
     % 生成简化版报告
-    fprintf('📝 生成简化版报告...\n');
+    fprintf(' 生成简化版报告...\n');
     
     simple_dir = fullfile('reports', 'simplified');
     if ~exist(simple_dir, 'dir')
@@ -227,7 +191,7 @@ function generateAttackerStrategyChart(results, save_dir, config)
         if isfield(perf, 'success_history')
             success_history = perf.success_history;
         else
-            success_history = 0.2 + 0.3 * (1 - exp(-(1:n_iter)/25)) + randn(1, n_iter) * 0.05;
+            success_history = 0.2 + 0.3 * (1 - exp(-(1:n_iter)/25)) + error('FSP-TCS错误: 缺少真实资源利用数据');
             success_history = max(0, min(1, success_history));
         end
         plot(1:length(success_history), success_history, 'Color', [0.8, 0.2, 0.2], 'LineWidth', 2);
@@ -392,7 +356,7 @@ function generateDefenderStrategiesChart(results, save_dir, config)
                isfield(defenders.(defender_name).performance, 'total_reward')
                 reward = defenders.(defender_name).performance.total_reward;
             else
-                reward = 1000 + 500 * rand();
+                reward = error('FSP-TCS错误: 缺少真实奖励数据');
             end
             bar(i, reward, 'FaceColor', colors{i});
             hold on;
@@ -409,7 +373,7 @@ function generateDefenderStrategiesChart(results, save_dir, config)
         angles = linspace(0, 2*pi, length(metrics)+1);
         
         for i = 1:min(length(defender_names), 3)
-            values = [0.7+0.2*rand(), 0.8+0.1*rand(), 0.1+0.05*rand(), 0.75+0.2*rand()];
+            values = [error('FSP-TCS错误: 缺少真实雷达图数据'), error('FSP-TCS错误: 缺少真实雷达图数据'), error('FSP-TCS错误: 缺少真实雷达图数据'), error('FSP-TCS错误: 缺少真实雷达图数据')];
             values = [values, values(1)]; % 闭合图形
             polar(angles, values, colors{i});
             hold on;
@@ -436,7 +400,7 @@ function generatePerformanceMetricsChart(results, save_dir, config)
         
         % 子图1: 系统安全性趋势
         subplot(2, 2, 1);
-        security_trend = 0.6 + 0.3 * (1 - exp(-(1:n_iter)/30)) + randn(1, n_iter) * 0.02;
+        security_trend = 0.6 + 0.3 * (1 - exp(-(1:n_iter)/30)) + error('FSP-TCS错误: 缺少真实安全趋势数据');
         security_trend = max(0.4, min(0.95, security_trend));
         plot(1:n_iter, security_trend, 'g-', 'LineWidth', 2);
         xlabel('迭代次数');
@@ -446,7 +410,7 @@ function generatePerformanceMetricsChart(results, save_dir, config)
         
         % 子图2: 资源利用率
         subplot(2, 2, 2);
-        resource_util = 0.7 + 0.1 * sin((1:n_iter) * 0.1) + randn(1, n_iter) * 0.05;
+        resource_util = 0.7 + 0.1 * sin((1:n_iter) * 0.1) + error('FSP-TCS错误: 缺少真实资源利用数据');
         resource_util = max(0.5, min(0.9, resource_util));
         plot(1:n_iter, resource_util, 'm-', 'LineWidth', 2);
         xlabel('迭代次数');
@@ -456,7 +420,7 @@ function generatePerformanceMetricsChart(results, save_dir, config)
         
         % 子图3: 攻防对抗强度
         subplot(2, 2, 3);
-        conflict_intensity = 0.5 + 0.3 * sin((1:n_iter) * 0.05) + randn(1, n_iter) * 0.08;
+        conflict_intensity = 0.5 + 0.3 * sin((1:n_iter) * 0.05) + error('FSP-TCS错误: 缺少真实冲突强度数据');
         conflict_intensity = max(0.2, min(0.8, conflict_intensity));
         plot(1:n_iter, conflict_intensity, 'r-', 'LineWidth', 2);
         xlabel('迭代次数');
@@ -684,11 +648,11 @@ function generateHTMLReportFile(results_data, save_dir, config)
         
         % 报告内容
         fprintf(fid, '<div class="container">\n');
-        fprintf(fid, '<h1>🚄 FSP-TCS 智能防御系统仿真报告</h1>\n');
+        fprintf(fid, '<h1> FSP-TCS 智能防御系统仿真报告</h1>\n');
         
         % 基本信息摘要
         fprintf(fid, '<div class="summary">\n');
-        fprintf(fid, '<h2>📋 仿真摘要</h2>\n');
+        fprintf(fid, '<h2> 仿真摘要</h2>\n');
         fprintf(fid, '<p><strong>生成时间:</strong> %s</p>\n', datestr(now));
         fprintf(fid, '<p><strong>仿真状态:</strong> 已完成</p>\n');
         
@@ -705,7 +669,7 @@ function generateHTMLReportFile(results_data, save_dir, config)
         fprintf(fid, '</div>\n');
         
         % 图表展示
-        fprintf(fid, '<h2>📊 可视化分析</h2>\n');
+        fprintf(fid, '<h2> 可视化分析</h2>\n');
         fprintf(fid, '<div class="chart-grid">\n');
         
         charts = {'attacker_strategy.png', 'defender_strategies.png', 'performance_metrics.png', ...
@@ -726,7 +690,7 @@ function generateHTMLReportFile(results_data, save_dir, config)
         fprintf(fid, '</div>\n');
         
         % 结论
-        fprintf(fid, '<h2>📈 分析结论</h2>\n');
+        fprintf(fid, '<h2> 分析结论</h2>\n');
         fprintf(fid, '<div class="summary">\n');
         fprintf(fid, '<p>✅ <strong>系统性能:</strong> FSP-TCS智能防御系统表现出色，各项指标均达到预期目标。</p>\n');
         fprintf(fid, '<p>✅ <strong>算法收敛:</strong> 所有防御算法均成功收敛，策略稳定性良好。</p>\n');
