@@ -98,9 +98,9 @@ classdef ConfigManager < handle
             config.learning.exploration_strategy = 'epsilon-greedy';
             
             % Epsilon-Greedy 参数 - 核心优化，避免早熟收敛
-            config.learning.epsilon = 0.7;                   % 提高初始探索率
+            config.learning.epsilon = 0.8;                   % 提高初始探索率
             config.learning.epsilon_min = 0.2;               % 提高最小探索率
-            config.learning.epsilon_decay = 0.9998;          % 减缓探索衰减
+            config.learning.epsilon_decay = 0.99998;          % 减缓探索衰减
 
             % Softmax/Boltzmann 参数
             config.learning.temperature = 3.0;               % 提高初始温度
@@ -108,7 +108,7 @@ classdef ConfigManager < handle
             config.learning.temperature_decay = 0.9999;      % 减缓温度衰减
 
             % 学习率调度参数 - 优化
-            config.learning.learning_rate_min = 0.05;        % 提高最小学习率
+            config.learning.learning_rate_min = 0.1;        % 提高最小学习率
             config.learning.learning_rate_decay = 0.99995;   % 大幅减缓学习率衰减
             
             % 策略多样性参数
