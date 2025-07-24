@@ -1,0 +1,5 @@
+Agent,Type,Algorithm,TotalReward
+Attacker,Attacker,adaptive,2248358.49999897
+Defender_QLearning,Defender,unknown,NaN
+Defender_SARSA,Defender,unknown,NaN
+Defender_DoubleQLearning,Defender,unknown,NaN
