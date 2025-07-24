@@ -1,10 +1,12 @@
 classdef DefenderRLAgent < RLAgent
-    % 专门为防御者设计的RL智能体
+    % 专门为防御者设计的RL智能体 - 修复版
     
     properties
         n_stations
         total_resources
-        allocation_strategy = 'proportional' % 'proportional', 'threshold', 'mixed'
+        allocation_strategy = 'progressive' % 新增：渐进式策略
+        learning_phase = 'exploration'      % 学习阶段：exploration -> exploitation
+        phase_transition_step = 100         % 阶段转换步数
     end
     
     methods
@@ -12,6 +14,11 @@ classdef DefenderRLAgent < RLAgent
             obj = obj@RLAgent(name, agent_type, config, state_dim, action_dim);
             obj.n_stations = config.system.n_stations;
             obj.total_resources = config.system.total_resources;
+            
+            % 初始化学习参数（确保初期高探索率）
+            obj.epsilon = 0.8;  % 高初始探索率
+            obj.epsilon_min = 0.1;  % 合理的最小探索率
+            obj.epsilon_decay = 0.998;  % 缓慢衰减
         end
         
         function deployment = selectAction(obj, state)
@@ -25,7 +32,7 @@ classdef DefenderRLAgent < RLAgent
         end
         
         function deployment = convertToDeployment(obj, action, state)
-            % 将离散动作转换为实际的资源部署
+            % 将离散动作转换为实际的资源部署 - 修复版
             
             % 提取状态中的威胁信息
             threat_levels = state(1:obj.n_stations); % 攻击者平均策略
@@ -34,84 +41,123 @@ classdef DefenderRLAgent < RLAgent
                 recent_attacks = state(obj.n_stations+1:2*obj.n_stations);
             end
             
-            % 组合威胁评估
-            combined_threat = 0.7 * threat_levels + 0.3 * recent_attacks;
+            % 更新学习阶段
+            if obj.update_count > obj.phase_transition_step
+                obj.learning_phase = 'exploitation';
+                obj.allocation_strategy = 'adaptive';
+            end
             
-            % 基于动作选择分配策略
-            switch obj.allocation_strategy
-                case 'proportional'
-                    % 按威胁比例分配
-                    deployment = obj.proportionalAllocation(combined_threat);
+            % 基于学习阶段选择策略
+            switch obj.learning_phase
+                case 'exploration'
+                    % 早期：均匀分配为主，逐渐引入变化
+                    deployment = obj.explorationPhaseAllocation(threat_levels, action);
                     
-                case 'threshold'
-                    % 阈值分配
-                    deployment = obj.thresholdAllocation(combined_threat, action);
-                    
-                case 'mixed'
-                    % 混合策略
-                    deployment = obj.mixedAllocation(combined_threat, action);
-                    
-                otherwise
-                    deployment = ones(1, obj.n_stations) * obj.total_resources / obj.n_stations;
+                case 'exploitation'
+                    % 后期：基于学习的自适应分配
+                    deployment = obj.exploitationPhaseAllocation(threat_levels, recent_attacks, action);
             end
             
             % 确保资源约束
             deployment = obj.enforceResourceConstraints(deployment);
         end
         
-        function deployment = proportionalAllocation(obj, threat_levels)
-            % 按威胁比例分配资源
-            if sum(threat_levels) > 0
-                deployment = threat_levels / sum(threat_levels) * obj.total_resources;
+        function deployment = explorationPhaseAllocation(obj, threat_levels, action)
+            % 探索阶段的资源分配（初期保持均匀）
+            
+            % 基础均匀分配
+            base_allocation = ones(1, obj.n_stations) * obj.total_resources / obj.n_stations;
+            
+            % 逐渐引入基于威胁的调整
+            progress = min(1.0, obj.update_count / obj.phase_transition_step);
+            
+            if progress < 0.3
+                % 前30%时间：完全均匀分配
+                deployment = base_allocation;
             else
-                deployment = ones(1, obj.n_stations) * obj.total_resources / obj.n_stations;
+                % 逐渐引入威胁响应
+                threat_response = zeros(1, obj.n_stations);
+                if sum(threat_levels) > 0
+                    threat_response = threat_levels / sum(threat_levels) * obj.total_resources;
+                end
+                
+                % 混合均匀分配和威胁响应
+                mix_factor = (progress - 0.3) / 0.7;  % 从0到1的过渡
+                deployment = (1 - mix_factor) * base_allocation + mix_factor * threat_response;
             end
         end
         
-        function deployment = thresholdAllocation(obj, threat_levels, focus_station)
-            % 阈值分配：主要资源给重点站点
-            deployment = ones(1, obj.n_stations) * 2; % 基础防御
+        function deployment = exploitationPhaseAllocation(obj, threat_levels, recent_attacks, action)
+            % 利用阶段的资源分配（基于学习）
             
-            % 60%资源给重点站点
-            main_resources = obj.total_resources * 0.6;
+            % 组合威胁评估
+            combined_threat = 0.7 * threat_levels + 0.3 * recent_attacks;
+            
+            % 基于动作选择分配策略
+            if action <= obj.n_stations
+                % 集中防御特定站点
+                deployment = obj.focusedDefense(combined_threat, action);
+            else
+                % 分布式防御
+                deployment = obj.distributedDefense(combined_threat);
+            end
+        end
+        
+        function deployment = focusedDefense(obj, threat_assessment, focus_station)
+            % 集中防御策略（但不过度集中）
+            deployment = ones(1, obj.n_stations) * obj.total_resources * 0.05; % 基础防御
+            
+            % 主要资源给重点站点（但不超过40%）
+            main_resources = obj.total_resources * 0.4;
             deployment(focus_station) = main_resources;
             
-            % 剩余资源按威胁分配
+            % 剩余资源基于威胁分配
             remaining = obj.total_resources - sum(deployment);
-            if remaining > 0 && sum(threat_levels) > 0
-                extra = threat_levels / sum(threat_levels) * remaining;
-                deployment = deployment + extra;
+            if remaining > 0 && sum(threat_assessment) > 0
+                threat_normalized = threat_assessment / sum(threat_assessment);
+                deployment = deployment + threat_normalized * remaining;
             end
         end
         
-        function deployment = mixedAllocation(obj, threat_levels, action)
-            % 混合策略：结合集中和分散
+        function deployment = distributedDefense(obj, threat_assessment)
+            % 分布式防御策略
             
-            % 解析动作：前5位表示集中防御，后5位表示分散防御
-            if action <= 5
-                % 集中防御模式
-                focus = action;
-                deployment = obj.thresholdAllocation(threat_levels, focus);
+            % 基础均匀分配（30%）
+            base_allocation = ones(1, obj.n_stations) * obj.total_resources * 0.3 / obj.n_stations;
+            
+            % 基于威胁的分配（70%）
+            threat_allocation = zeros(1, obj.n_stations);
+            if sum(threat_assessment) > 0
+                threat_normalized = threat_assessment / sum(threat_assessment);
+                threat_allocation = threat_normalized * obj.total_resources * 0.7;
             else
-                % 分散防御模式
-                deployment = obj.proportionalAllocation(threat_levels);
-                
-                % 略微加强某些站点
-                boost_station = action - 5;
-                if boost_station <= obj.n_stations
-                    deployment(boost_station) = deployment(boost_station) * 1.2;
-                end
+                threat_allocation = ones(1, obj.n_stations) * obj.total_resources * 0.7 / obj.n_stations;
             end
+            
+            deployment = base_allocation + threat_allocation;
         end
         
         function deployment = enforceResourceConstraints(obj, deployment)
             % 确保资源约束
             deployment = max(0, deployment); % 非负
             
+            % 确保每个站点至少有最小资源
+            min_per_station = obj.total_resources * 0.01;
+            deployment = max(deployment, min_per_station);
+            
             % 总量约束
             if sum(deployment) > obj.total_resources
                 deployment = deployment * (obj.total_resources / sum(deployment));
             end
         end
+        
+        function updateLearningPhase(obj)
+            % 更新学习阶段
+            if obj.update_count > obj.phase_transition_step * 2
+                obj.allocation_strategy = 'advanced';
+            elseif obj.update_count > obj.phase_transition_step
+                obj.allocation_strategy = 'adaptive';
+            end
+        end
     end
-endcomputeRewards
+end
