@@ -1,6 +1,5 @@
 classdef TCSEnvironment < handle
-    % TCSEnvironment - 增强版战术控制系统仿真环境 (v4.3修复版)
-    
+
     properties (Access = public)
         % 系统参数
         n_stations          % 站点数量
@@ -25,6 +24,12 @@ classdef TCSEnvironment < handle
         % RADI配置
         radi_config         % RADI计算配置
         radi_score          % 当前RADI分数
+        
+        % === 添加缺失的检测系统参数 ===
+        detection_enabled       % 是否启用检测系统
+        base_detection_rate     % 基础检测率
+        detection_sensitivity   % 检测敏感度
+        false_positive_rate     % 误报率
         
         % 历史记录
         attack_success_history
