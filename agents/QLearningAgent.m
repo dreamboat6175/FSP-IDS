@@ -274,23 +274,28 @@ classdef QLearningAgent < RLAgent
             obj.updateEpsilon();
         end
         
-        function state_idx = encodeState(obj, state_scalar)
-            % 状态编码方法
-            state_idx = max(1, min(obj.state_dim, round(state_scalar * obj.state_dim)));
-        end
-        
+         function state_idx = encodeState(obj, state_val)
+            % 状态编码：将连续状态值映射到离散索引
+            if isscalar(state_val)
+                % 简化编码：将状态值量化到有限区间
+                state_idx = max(1, min(obj.state_dim, round((state_val + 1) * obj.state_dim / 2)));
+            else
+                % 向量状态：使用哈希或简化映射
+                state_idx = max(1, min(obj.state_dim, mod(round(sum(state_val) * 1000), obj.state_dim) + 1));
+            end
+         end  
+
         function action_idx = encodeAction(obj, action_vec)
-            % 动作编码方法（将动作向量转换为索引）
+            % 动作编码：将资源分配向量映射到动作索引
             if length(action_vec) == 1
                 action_idx = round(action_vec);
             else
-                % 使用加权求和方式编码
-                weights = (1:length(action_vec)) / length(action_vec);
-                action_idx = round(sum(action_vec .* weights) * obj.action_dim);
+                % 使用向量的加权和作为索引
+                weights = 1:length(action_vec);
+                action_idx = round(sum(action_vec .* weights) * obj.action_dim / sum(weights));
             end
             action_idx = max(1, min(obj.action_dim, action_idx));
-        end
-        
+        end        
         function updateLearningRate(obj)
             obj.lr_scheduler.step_count = obj.lr_scheduler.step_count + 1;
             
@@ -373,5 +378,30 @@ classdef QLearningAgent < RLAgent
             obj.parameter_history.epsilon = [];
             obj.parameter_history.q_values = [];
         end
-    end
+        function stats = getStatistics(obj)
+            % 获取智能体统计信息
+            stats = struct();
+            stats.name = obj.name;
+            stats.agent_type = obj.agent_type;
+            stats.update_count = obj.update_count;
+            stats.total_reward = obj.total_reward;
+            
+            if obj.update_count > 0
+                stats.avg_reward = obj.total_reward / obj.update_count;
+            else
+                stats.avg_reward = 0;
+            end
+            
+            if ~isempty(obj.Q_table)
+                stats.q_table_mean = mean(obj.Q_table(:));
+                stats.q_table_std = std(obj.Q_table(:));
+            else
+                stats.q_table_mean = 0;
+                stats.q_table_std = 0;
+            end
+            
+            stats.current_learning_rate = obj.lr_scheduler.current_lr;
+            stats.current_epsilon = obj.epsilon;
+       end
+    end 
 end

@@ -149,102 +149,122 @@ classdef FSPSimulator < handle
         end
         
         function action = getAction(obj, agent, state)
-            %% 获取智能体动作 - 兼容多种接口，使用ConfigManager参数
+            % 获取智能体动作
             try
                 if ismethod(agent, 'selectAction')
                     action = agent.selectAction(state);
-                elseif ismethod(agent, 'getAction')
-                    action = agent.getAction(state);
-                elseif isstruct(agent) && isfield(agent, 'selectAction')
-                    action = agent.selectAction(state);
                 else
-                    % 默认动作：使用ConfigManager中的资源维度
-                    n_stations = obj.getConfigParam('n_stations', 10);
-                    action = rand(1, n_stations);
-                    action = action / sum(action); % 归一化为资源分配
+                    % 如果没有selectAction方法，返回随机动作
+                    if strcmp(agent.agent_type, 'attacker')
+                        action = randi(10); % 假设10个目标
+                    else
+                        action = rand(1, 10); % 随机资源分配
+                        action = action / sum(action);
+                    end
                 end
-            catch
-                % 备用方案：基于ConfigManager参数生成随机动作
-                n_stations = obj.getConfigParam('n_stations', 10);
-                action = rand(1, n_stations);
-                action = action / sum(action);
+            catch ME
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] getAction 出错: %s\n', ME.message);
+                end
+                % 备用方案
+                if strcmp(agent.agent_type, 'attacker')
+                    action = 1;
+                else
+                    action = ones(1, 10) / 10;
+                end
             end
-        end
-        
-        function [next_state, reward, done, info] = stepEnvironment(obj, env, def_action, att_action)
-            %% 环境步进 - 兼容多种环境接口
+        end        
+
+       function [next_state, reward, done, info] = stepEnvironment(obj, env, def_action, att_action)
+            % 环境步进
             try
                 if ismethod(env, 'step')
                     [next_state, reward, done, info] = env.step(def_action, att_action);
                 elseif isstruct(env) && isfield(env, 'step')
                     [next_state, reward, done, info] = env.step(def_action, att_action);
                 else
-                    % 使用ConfigManager中的状态和动作空间大小
+                    % 简化环境步进
                     state_size = obj.getConfigParam('state_space_size', 77);
-                    n_stations = obj.getConfigParam('n_stations', 10);
-                    
                     next_state = def_action; % 简化状态转移
                     reward = -norm(def_action - att_action); % 简化奖励
                     done = false;
                     info = struct();
                 end
-            catch
-                % 备用方案：使用ConfigManager参数
+            catch ME
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] stepEnvironment 出错: %s\n', ME.message);
+                end
+                % 备用方案
                 state_size = obj.getConfigParam('state_space_size', 77);
-                next_state = randn(1, state_size) * 0.1; % 基于配置的状态维度
-                reward = randn(); % 随机奖励
+                next_state = randn(1, state_size) * 0.1;
+                reward = randn();
                 done = false;
                 info = struct();
             end
-        end
-        
+       end
+
         function updateAgent(obj, agent, state, action, reward, next_state)
-            %% 更新智能体 - 兼容多种更新接口
+            % 更新智能体
             try
                 if ismethod(agent, 'update')
                     agent.update(state, action, reward, next_state);
                 elseif ismethod(agent, 'learn')
                     agent.learn(state, action, reward, next_state);
                 end
-                % 如果没有更新方法，跳过
-            catch
-                % 更新失败，跳过
+            catch ME
+                if obj.debug_mode
+                    fprintf('[FSPSimulator] updateAgent 出错: %s\n', ME.message);
+                end
             end
         end
+        
         function value = getConfigParam(obj, param_name, default_value)
-            %% 获取配置参数
-            % 输入: param_name - 参数名称
-            %       default_value - 默认值（可选）
-            
+            % 获取配置参数
             if nargin < 3
                 default_value = [];
             end
             
             try
                 if isempty(obj.config)
-                    % 如果config为空，使用ConfigManager获取默认配置
-                    obj.config = ConfigManager.getDefaultConfig();
+                    obj.config = struct(); % 创建空配置
                 end
                 
                 % 尝试从config中获取参数
                 if isstruct(obj.config) && isfield(obj.config, param_name)
                     value = obj.config.(param_name);
                 elseif isstruct(obj.config)
-                    % 检查嵌套结构
-                    value = obj.getNestedConfigValue(obj.config, param_name, default_value);
+                    % 尝试从嵌套字段中查找
+                    if contains(param_name, '.')
+                        fields = split(param_name, '.');
+                        current = obj.config;
+                        for i = 1:length(fields)
+                            if isfield(current, fields{i})
+                                current = current.(fields{i});
+                            else
+                                value = default_value;
+                                return;
+                            end
+                        end
+                        value = current;
+                    else
+                        value = default_value;
+                    end
                 else
+                    value = default_value;
+                end
+                
+                % 如果获取到的值为空，使用默认值
+                if isempty(value)
                     value = default_value;
                 end
                 
             catch ME
                 if obj.debug_mode
-                    fprintf('[FSPSimulator] 获取参数 %s 失败: %s，使用默认值\n', ...
-                           param_name, ME.message);
+                    fprintf('[FSPSimulator] getConfigParam 出错: %s\n', ME.message);
                 end
                 value = default_value;
             end
-        end
-    
+        end    
         function value = getNestedConfigValue(obj, config_struct, param_name, default_value)
             %% 获取嵌套配置值
             
@@ -267,22 +287,21 @@ classdef FSPSimulator < handle
             end
         end
     
-        function n_steps = getStepsPerEpisode(obj, config)
-            %% 获取每个episode的步数
+       function n_steps = getStepsPerEpisode(obj, config)
+            % 获取每个episode的步数
             try
-                if isfield(config, 'steps_per_episode')
-                    n_steps = config.steps_per_episode;
-                elseif isfield(config, 'simulation') && isfield(config.simulation, 'steps_per_episode')
-                    n_steps = config.simulation.steps_per_episode;
+                if isfield(config, 'max_episode_steps')
+                    n_steps = config.max_episode_steps;
+                elseif isfield(config, 'simulation') && isfield(config.simulation, 'max_episode_steps')
+                    n_steps = config.simulation.max_episode_steps;
                 else
-                    % 使用默认值
-                    n_steps = obj.getConfigParam('steps_per_episode', 100);
+                    n_steps = 50; % 默认值
                 end
             catch
-                n_steps = 100;  % 默认步数
+                n_steps = 50;
             end
-        end
-        function radi = calculateRADI(obj, action, info)
+       end
+       function radi = calculateRADI(obj, action, info)
             %% 计算RADI值 - 使用ConfigManager中的RADI配置
             try
                 if isstruct(info) && isfield(info, 'radi')

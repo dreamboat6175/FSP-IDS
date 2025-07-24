@@ -391,5 +391,81 @@ classdef (Abstract) RLAgent < handle
                 fprintf('[INFO] %s - 周期性提升探索率至: %.3f\n', obj.name, obj.epsilon);
             end
         end
+        function updateExplorationParams(obj)
+            % 更新探索参数（epsilon和temperature衰减）
+            
+            % 更新epsilon
+            if obj.epsilon > obj.epsilon_min
+                obj.epsilon = max(obj.epsilon_min, obj.epsilon * obj.epsilon_decay);
+            end
+            
+            % 更新temperature  
+            if obj.temperature > obj.temperature_min
+                obj.temperature = max(obj.temperature_min, obj.temperature * obj.temperature_decay);
+            end
+        end
+        
+        function initializeFSPComponents(obj)
+            % 初始化FSP双核大脑组件（仅用于防御者）
+            
+            if ~obj.is_dual_brain
+                return;
+            end
+            
+            % 分析员大脑初始化
+            obj.analyst_brain.attacker_avg_strategy = ones(1, obj.action_dim) / obj.action_dim;
+            obj.analyst_brain.alpha_ewma = 0.1; % EWMA学习率
+            obj.analyst_brain.observation_history = [];
+            obj.analyst_brain.strategy_estimates = [];
+            
+            % 战略家大脑初始化
+            obj.strategist_brain.optimal_responses = [];
+            obj.strategist_brain.response_history = [];
+            obj.strategist_brain.confidence_scores = [];
+            
+            % 自适应alpha参数
+            obj.adaptive_alpha = true;
+            obj.alpha_min = 0.05;
+            obj.alpha_max = 0.3;
+        end
+        
+        function deployment = computeOptimalDefenseDeployment(obj, attacker_strategy, state)
+            % 计算针对攻击者平均策略的最优防御部署
+            
+            % 获取站点价值
+            if isfield(obj.config, 'station_values')
+                station_values = obj.config.station_values;
+            elseif isfield(obj.config, 'system') && isfield(obj.config.system, 'station_values')
+                station_values = obj.config.system.station_values;
+            else
+                station_values = ones(1, obj.action_dim);
+            end
+            
+            % 获取总资源
+            if isfield(obj.config, 'total_resources')
+                total_resources = obj.config.total_resources;
+            elseif isfield(obj.config, 'system') && isfield(obj.config.system, 'total_resources')
+                total_resources = obj.config.system.total_resources;
+            else
+                total_resources = 100;
+            end
+            
+            % 基于攻击者策略和站点价值计算防御部署
+            risk_scores = attacker_strategy .* station_values;
+            
+            % 归一化风险分数并分配资源
+            if sum(risk_scores) > 0
+                deployment = (risk_scores / sum(risk_scores)) * total_resources;
+            else
+                deployment = ones(1, obj.action_dim) * (total_resources / obj.action_dim);
+            end
+            
+            % 确保最小分配
+            min_allocation = total_resources * 0.01; % 1%的最小分配
+            deployment = max(min_allocation, deployment);
+            
+            % 重新归一化
+            deployment = deployment * total_resources / sum(deployment);
+        end
     end
 end
