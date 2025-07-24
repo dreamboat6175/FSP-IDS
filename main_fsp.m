@@ -532,7 +532,9 @@ try
     results_collector.saveAgentModels(attacker_agent, defender_agents);
 
     % 保存所有在仿真过程中收集到的结果数据
-    results_collector.saveAllResults(); % 确保在生成报告前保存所有数据
+    timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+    results_collector.saveAllResults(timestamp);
+    % 确保在生成报告前保存所有数据
 
     % 生成可视化报告，包括图表和关键指标总结
     generateVisualizationReport(all_agents, config);
