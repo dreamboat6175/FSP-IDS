@@ -28,7 +28,11 @@
     "pool_update_interval": 10,
     "alpha_ewma": 0.1,
     "convergence_threshold": 0.001,
-    "patience": 100
+    "patience": 100,
+    "alpha_max": 0.3,
+    "alpha_min": 0.01,
+    "save_interval": 10,
+    "max_time_hours": 24
   },
   "learning": {
     "learning_rate": 0.1,
@@ -41,20 +45,19 @@
     "batch_size": 32,
     "tau": 0.001
   },
-  "algorithms": {
-    "defender": [
-      "QLearning",
-      "SARSA",
-      "DoubleQLearning"
-    ],
-    "attacker": "QLearning",
-    "available": [
-      "QLearning",
-      "SARSA",
-      "DoubleQLearning",
-      "PolicyGradient"
-    ]
-  },
+"algorithms": {
+  "defender": [
+    "QLearning",
+    "SARSA",
+    "DoubleQLearning"
+  ],
+  "available": [
+    "QLearning",
+    "SARSA",
+    "DoubleQLearning",
+    "PolicyGradient"
+  ]
+},
   "environment": {
     "reward_scaling": 1,
     "noise_level": 0,
